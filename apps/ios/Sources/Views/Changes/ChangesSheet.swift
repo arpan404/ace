@@ -180,36 +180,58 @@ struct ChangesSheet: View {
     }
 
     /// Under the title: the file count, then Review, Files (the tree) and Expand all or Collapse
-    /// all as small glass buttons (ADR 0184), so none reads as a label.
+    /// all as small glass buttons (ADR 0184), so none reads as a label. On one row while every
+    /// word fits whole; at large text the buttons go under the count, then one per line, so no
+    /// word is split.
     private func toolbarRow(_ summary: ChangesSummary) -> some View {
-        HStack(spacing: AceDesign.Space.related) {
-            Text(summary.totals.files == 1 ? "1 file" : "\(summary.totals.files.formatted()) files")
-                .aceFont(AceDesign.TextRole.meta)
-                .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
-            if let review = model.sheets.review, review.refreshing { ProgressView().controlSize(.mini) }
-            Spacer(minLength: AceDesign.Space.related)
-            if summary.scope?.workingTree != false {
-                Button("Review") { presented = .review }
-                    .accessibilityIdentifier("changes.review")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AceDesign.Space.related) {
+                fileCount(summary)
+                Spacer(minLength: AceDesign.Space.related)
+                toolbarButtons(summary)
             }
-            if summary.files.count > 1 {
-                Button("Files") { presented = .tree }
-                    .accessibilityIdentifier("changes.tree")
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                fileCount(summary)
+                HStack(spacing: AceDesign.Space.related) { toolbarButtons(summary) }
             }
-            if !summary.files.isEmpty {
-                let anyOpen = !(summary.open ?? []).isEmpty
-                Button(anyOpen ? "Collapse all" : "Expand all") {
-                    model.sheet(["kind": "changes.expand", "open": !anyOpen])
-                    UISelectionFeedbackGenerator().selectionChanged()
-                }
-                .accessibilityIdentifier("changes.expand")
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                fileCount(summary)
+                toolbarButtons(summary)
             }
         }
         .buttonStyle(.secondaryAction)
         .controlSize(.small)
         .padding(.horizontal, AceDesign.Space.margin)
         .padding(.vertical, AceDesign.Space.tight)
-        .frame(minHeight: AceDesign.Size.rowLine)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine, alignment: .leading)
+    }
+
+    private func fileCount(_ summary: ChangesSummary) -> some View {
+        HStack(spacing: AceDesign.Space.related) {
+            Text(summary.totals.files == 1 ? "1 file" : "\(summary.totals.files.formatted()) files")
+                .aceFont(AceDesign.TextRole.meta)
+                .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
+            if let review = model.sheets.review, review.refreshing { ProgressView().controlSize(.mini) }
+        }
+    }
+
+    @ViewBuilder private func toolbarButtons(_ summary: ChangesSummary) -> some View {
+        if summary.scope?.workingTree != false {
+            Button("Review") { presented = .review }
+                .accessibilityIdentifier("changes.review")
+        }
+        if summary.files.count > 1 {
+            Button("Files") { presented = .tree }
+                .accessibilityIdentifier("changes.tree")
+        }
+        if !summary.files.isEmpty {
+            let anyOpen = !(summary.open ?? []).isEmpty
+            Button(anyOpen ? "Collapse all" : "Expand all") {
+                model.sheet(["kind": "changes.expand", "open": !anyOpen])
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+            .accessibilityIdentifier("changes.expand")
+        }
     }
 
     private var loading: some View { SkeletonRows(label: "Reading changes") }
