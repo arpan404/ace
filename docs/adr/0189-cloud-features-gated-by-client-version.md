@@ -99,8 +99,31 @@ The table ships empty: no current feature needs a gate, and existing behaviour i
 ### Who sends it
 
 One helper per runtime builds the value from the app's own version, and every request to ace
-cloud or the market goes through it, never a copy per call site. The relay object can read the
-same value from the upgrade it receives with `clientOf` when a relay feature needs it.
+cloud or the market goes through it, never a copy per call site.
+
+- **TypeScript** (`@ace/client/ace-client`): `aceClientName(app, version)` builds the value, or
+  none for a version it can't read; `namedFetch` adds the header to a `fetch` used only for
+  ace cloud or the market; `namedUpgradeUrl` adds the query parameter to a browser relay
+  upgrade (`connectPortableRelay`'s `aceClient`). The Node relay dialer (`@ace/relay`'s
+  `connectHostToRelay` and `connectClientViaRelay`) sends the header on every upgrade.
+- **Daemon**: `Config.aceClient`, `daemon/<ACE_VERSION>` or `daemon/development`. Its account
+  calls, market calls, host registration on ace's relay (`/host`, `/join`, `/serve`) and
+  parcel links through ace's relay carry it. A relay the person runs themselves is never told.
+- **Desktop** (main process): `desktop/<version>` when packaged, else `desktop/development`,
+  on its account session check.
+- **Web** (also the desktop app's renderer): `web/<version>` from the build's `ACE_VERSION`
+  (`VITE_ACE_VERSION`), `web/development` under Vite's dev server, none otherwise; on account
+  calls (`accountFetch`) and on the account machine's relay route.
+- **CLI**: `cli/<version>` (as `ace --version` reads it) on the market maintainer tools' calls.
+  The CLI's other traffic goes through the daemon.
+- **Spade** (Rust): `spade/<ACE_SPADE_VERSION>` or `spade/development` on its sign-in broker
+  calls (`spade-connect`'s `CloudClient`). Spade's TypeScript side never calls the cloud.
+- **iPhone**: not yet. Its cloud requests have no single place (`AceAccountAPI`,
+  `AceAccountModel` and `RelaySocket` each build their own); it names itself once they share
+  one. Until then it is an unknown client.
+
+The relay object can read the same value from the upgrade it receives with `clientOf` when a
+relay feature needs it.
 
 ## Consequences
 
@@ -108,5 +131,8 @@ same value from the upgrade it receives with `clientOf` when a relay feature nee
   behaviour.
 - Apps released before this ADR send nothing and stay unknown clients: they get no gated
   feature, and are served as before.
+- The account API's CORS preflight must allow `ace-client` before a browser build sends it: a
+  web or desktop renderer that sends it to a cloud without this change fails the preflight.
+  The cloud deploys first, as the release already orders it.
 - The table needs housekeeping: a gate stays until the oldest supported app passes it.
 - Version numbers alone don't protect anything; the header is a hint for compatibility only.

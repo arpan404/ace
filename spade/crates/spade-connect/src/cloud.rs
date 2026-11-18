@@ -42,7 +42,13 @@ pub struct Cloud {
     /// The cloud's address ([`CLOUD_URL`] in Spade).
     pub url: String,
     pub credential: Arc<dyn AccountCredential>,
+    /// How Spade names itself to the cloud (`ace-client: spade/<version>`, ADR 0189), sent on
+    /// every request. None sends nothing: the cloud serves it as an unknown client.
+    pub ace_client: Option<String>,
 }
+
+/// The header that names the calling app and its version to ace cloud (ADR 0189).
+pub const ACE_CLIENT_HEADER: &str = "ace-client";
 
 /// Why the cloud gave no answer Spade can use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +66,7 @@ pub(crate) enum CloudError {
 pub(crate) struct CloudClient {
     url: String,
     credential: Arc<dyn AccountCredential>,
+    ace_client: Option<String>,
     http: reqwest::Client,
 }
 
@@ -73,6 +80,7 @@ impl CloudClient {
         Self {
             url: cloud.url.trim_end_matches('/').to_owned(),
             credential: cloud.credential.clone(),
+            ace_client: cloud.ace_client.clone(),
             http,
         }
     }
@@ -124,10 +132,14 @@ impl CloudClient {
                 AccountProblem::SignedOut => CloudError::SignedOut,
                 AccountProblem::Unreachable(why) => CloudError::AceAway(why),
             })?;
-        let response = self
+        let mut request = self
             .http
             .post(format!("{}/v1/oauth/{app}/{step}", self.url))
-            .bearer_auth(&grant)
+            .bearer_auth(&grant);
+        if let Some(name) = &self.ace_client {
+            request = request.header(ACE_CLIENT_HEADER, name);
+        }
+        let response = request
             .json(body)
             .send()
             .await
@@ -185,6 +197,7 @@ mod tests {
                 &Cloud {
                     url: address.into(),
                     credential: Arc::new(NeverCredential),
+                    ace_client: None,
                 },
                 Duration::from_secs(1),
             );

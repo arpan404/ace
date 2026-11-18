@@ -7,6 +7,16 @@ pub const VERSION: &str = match option_env!("ACE_SPADE_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
 };
+/// How Spade names itself to ace cloud (`ace-client`, ADR 0189): `spade/<ace's version>` when
+/// the release stamped one, else a development build. The crate's own version isn't ace's, so
+/// an unstamped build never claims it.
+pub fn ace_client() -> String {
+    match option_env!("ACE_SPADE_VERSION") {
+        Some(version) => format!("spade/{version}"),
+        None => "spade/development".to_owned(),
+    }
+}
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;

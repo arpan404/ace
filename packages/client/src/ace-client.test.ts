@@ -51,47 +51,49 @@ describe("a named fetch", () => {
   });
 });
 
-describe("a browser relay upgrade", () => {
-  /** The URL each dial opens; every socket closes at once without opening. */
-  function dialled(aceClient: ReturnType<typeof aceClientName>) {
-    const urls: string[] = [];
-    const socket = (url: string): PortableSocket => {
-      urls.push(url);
-      const closers: ((event: { code: number; reason: string }) => void)[] = [];
-      queueMicrotask(() => {
-        for (const close of closers) close({ code: 1006, reason: "" });
-      });
-      return {
-        binaryType: "arraybuffer",
-        bufferedAmount: 0,
-        protocol: "",
-        addEventListener(type: string, listener: (event: never) => void) {
-          if (type === "close") closers.push(listener);
-        },
-        send() {},
-        close() {},
-      };
-    };
-    const route = relayRoute({
-      relayUrl: "wss://relay.invalid",
-      hostId: "A".repeat(52),
-      aceClient,
-      credential: async () => ({ token: "device token" }),
-      socket,
-      schedule: (run, ms) => {
-        const timer = setTimeout(run, ms);
-        return () => clearTimeout(timer);
-      },
-    });
-    return new Promise<URL>((resolve) =>
-      route.transport().open({
-        open: () => {},
-        message: () => {},
-        close: () => resolve(new URL(urls[0] ?? "wss://none.invalid")),
-      }),
-    );
-  }
+type Listener = (event: { data: unknown; code: number; reason: string }) => void;
 
+/** The URL each dial opens; every socket closes at once without opening. */
+function dialled(aceClient: ReturnType<typeof aceClientName>) {
+  const urls: string[] = [];
+  const socket = (url: string): PortableSocket => {
+    urls.push(url);
+    const closers: Listener[] = [];
+    queueMicrotask(() => {
+      for (const close of closers) close({ data: undefined, code: 1006, reason: "" });
+    });
+    return {
+      binaryType: "arraybuffer",
+      bufferedAmount: 0,
+      protocol: "",
+      addEventListener(type: string, listener: Listener) {
+        if (type === "close") closers.push(listener);
+      },
+      send() {},
+      close() {},
+    };
+  };
+  const route = relayRoute({
+    relayUrl: "wss://relay.invalid",
+    hostId: "A".repeat(52),
+    aceClient,
+    credential: async () => ({ token: "device token" }),
+    socket,
+    schedule: (run, ms) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    },
+  });
+  return new Promise<URL>((resolve) =>
+    route.transport().open({
+      open: () => {},
+      message: () => {},
+      close: () => resolve(new URL(urls[0] ?? "wss://none.invalid")),
+    }),
+  );
+}
+
+describe("a browser relay upgrade", () => {
   it("carries the app's name on the URL, beside the relay's own parameters", async () => {
     const url = await dialled(aceClientName("web", "0.0.24-beta.1"));
     expect(url.searchParams.get("ace-client")).toBe("web/0.0.24-beta.1");
