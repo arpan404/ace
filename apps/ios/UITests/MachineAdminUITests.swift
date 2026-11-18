@@ -24,12 +24,16 @@ import XCTest
         XCTAssertTrue(app.staticTexts["pair.code"].waitForExistence(timeout: 20), "the machine made a link")
         shot("pair-device-link", app)
         app.buttons["Done"].tap()
-        let cancel = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "devices.cancel.")).firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 20), "the open link is listed")
-        XCTAssertTrue(app.staticTexts["Kitchen iPad"].exists)
+        // The link's Cancel waits in its row's ⋯ menu, as a device's Revoke does.
+        let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "devices.link.")).firstMatch
+        XCTAssertTrue(actions.waitForExistence(timeout: 20), "the open link is listed")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Kitchen iPad")).firstMatch.exists)
         shot("machine-devices-open-link", app)
+        actions.tap()
+        let cancel = app.buttons["Cancel link"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
         cancel.tap()
-        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: cancel)
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: actions)
         wait(for: [gone], timeout: 20)
     }
 

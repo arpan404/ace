@@ -85,12 +85,7 @@ struct ProviderAccountRow: View {
                     Divider()
                     Button("Remove account", systemImage: "trash", role: .destructive, action: remove)
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle").font(.title3)
-                    .foregroundStyle(AceDesign.Ink.action)
-                    .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
-                    .contentShape(Rectangle())
-            }
+            } label: { RowActionsMark() }
             .buttonStyle(.borderless)
             .accessibilityLabel("Actions for \(account.label)")
             .accessibilityIdentifier("accounts.actions.\(account.id)")

@@ -87,10 +87,7 @@ struct MachineSoftwareSection: View {
                 Text(model.connection == "ready" ? "Reading its version…" : "Its version shows when it's back online.")
                     .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             }
-            if let problem = software.problem ?? data?.problem {
-                Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
-                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("service.problem")
-            }
+            ServiceProblem(message: software.problem ?? data?.problem)
         } header: { InsetHeader("Software") }
         .insetRowBackground()
         .disabled(acting)

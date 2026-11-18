@@ -35,10 +35,7 @@ struct MachineAdmissionRow: View {
                         .foregroundStyle(AceDesign.Ink.muted)
                         .accessibilityIdentifier("machine.startup")
                 }
-                if let problem {
-                    Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                ServiceProblem(message: problem)
             }
             .smoothChange(admission)
             .smoothChange(working)
