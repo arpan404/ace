@@ -6,6 +6,7 @@ import {
   type PinnedRequest,
 } from "../machines/transport.ts";
 import type { ConnectionProfile } from "../machines/connections.ts";
+import { NoRelayRoute } from "../machines/relay-fallback.ts";
 import type { RelayLink } from "./relay-link.ts";
 import { parcelRoutes, type ParcelRoute } from "./rules.ts";
 
@@ -73,7 +74,7 @@ export class ParcelLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {
-    let last: unknown = new MachineFailure("offline", undefined, "No relay to reach it through");
+    let last: unknown = new NoRelayRoute("offline", undefined, "No relay to reach it through");
     for (const route of parcelRoutes(profile, this.deps.paths(profile))) {
       if (route.kind !== "relay") continue;
       options.signal?.throwIfAborted();

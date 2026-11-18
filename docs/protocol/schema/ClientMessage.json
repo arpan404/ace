@@ -1043,6 +1043,9 @@
       "$ref": "https://ace.local/protocol/v1/MachineRelayCall.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayCancel.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CommandsList.json"
     },
     {

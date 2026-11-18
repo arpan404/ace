@@ -13,8 +13,20 @@ export const MachineRelayCall = z.strictObject({
   type: z.literal("machine.call"),
   id: CallId,
   request: MachineCallRequest,
+  /** How long the caller waits for it: past this the machine stops it rather than run it late. */
+  timeoutMs: z.int().min(1).max(3_600_000).optional(),
 });
 export type MachineRelayCall = z.infer<typeof MachineRelayCall>;
+
+/**
+ * The caller stopped waiting (it timed out or was cancelled): the machine stops the call, as a
+ * closed request stops it on the TLS listener, or drops it if it hadn't started.
+ */
+export const MachineRelayCancel = z.strictObject({
+  type: z.literal("machine.cancel"),
+  id: CallId,
+});
+export type MachineRelayCancel = z.infer<typeof MachineRelayCancel>;
 
 /** The answer as `/v1/machine-calls` gives it: its HTTP status and JSON body. */
 export const MachineRelayAnswer = z.strictObject({

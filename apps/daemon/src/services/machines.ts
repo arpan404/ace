@@ -34,7 +34,7 @@ import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { withRelayFallback } from "../machines/relay-fallback.ts";
-import { redeemPairingThroughRelay } from "../machines/relay-pairing.ts";
+import { answersDirectly, redeemPairingThroughRelay } from "../machines/relay-pairing.ts";
 import { MachineConnections } from "../machines/connections.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
@@ -260,6 +260,7 @@ export function startMachines(context: ServiceContext): void {
     transport: withRelayFallback(
       options.machines?.transport ?? machineRequest,
       () => services.parcels?.relayCalls,
+      now,
     ),
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
@@ -298,6 +299,7 @@ export function startMachines(context: ServiceContext): void {
     redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
     // A machine reached only through a relay is linked through it (ADR 0182).
     redeemRelay: (url, name) => redeemPairingThroughRelay(url, name, hostId),
+    answersDirectly,
     hostName,
     transfers: (profile) => new TransferClient(probes, profile).probe(),
   });

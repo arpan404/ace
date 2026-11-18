@@ -139,7 +139,9 @@ export class MachineDirectory {
             providers: description.providers,
           };
           if (description.grants) summary.grants = description.grants;
-          if (description.transfers !== undefined) summary.transfers = description.transfers;
+          // Projects move only over a direct link (ADR 0101): a relay-only one takes none.
+          if (description.transfers !== undefined)
+            summary.transfers = description.transfers && profile.origin !== undefined;
           if (description.accounts) summary.accounts = description.accounts;
           this.seen.set(profile.name, summary);
           this.hosts.set(profile.name, description.hostId);

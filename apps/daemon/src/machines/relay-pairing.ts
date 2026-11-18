@@ -1,7 +1,9 @@
 import { ClientError } from "@ace/client";
 import { parsePairingLink } from "@ace/client/access";
 import { InstallId, PairResult, type DeviceCredential } from "@ace/protocol";
+import { request } from "node:https";
 import { connectClientViaRelay } from "@ace/relay";
+import { pinnedAgent } from "../client-access.ts";
 
 /**
  * Redeems another machine's relay pairing link (ADR 0070) as a device of this machine there,
@@ -47,4 +49,26 @@ export async function redeemPairingThroughRelay(
   } finally {
     channel.close();
   }
+}
+
+/**
+ * Whether the machine at `origin` answers at all under its pinned key: one request that is
+ * never a pairing, so asking redeems nothing. A redemption whose answer was lost may still have
+ * used the code there; only a machine that doesn't answer here is tried through its relay.
+ */
+export function answersDirectly(origin: string, fingerprint: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const agent = pinnedAgent(fingerprint);
+    const done = (answered: boolean) => {
+      agent.destroy();
+      resolve(answered);
+    };
+    const asked = request(new URL("/v1/status", origin), { method: "GET", agent }, (answer) => {
+      answer.resume();
+      done(true);
+    });
+    asked.setTimeout(3_000, () => asked.destroy());
+    asked.on("error", () => done(false));
+    asked.end();
+  });
 }

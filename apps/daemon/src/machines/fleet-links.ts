@@ -28,6 +28,8 @@ export interface FleetLinkDeps {
     url: string,
     name: string,
   ): Promise<DeviceCredential & { relay: { url: string; hostId: string } }>;
+  /** Whether a link's address answers at all, without redeeming anything there. */
+  answersDirectly?(origin: string, fingerprint: string): Promise<boolean>;
   /** This machine's display name, which the other machine shows for the device. */
   hostName(): Promise<string>;
   /**
@@ -137,6 +139,8 @@ export class FleetLinks {
           const alsoRelay = link.alsoRelay;
           if (!(error instanceof ClientError && error.code === "offline") || !alsoRelay)
             throw error;
+          // It answers there after all: the code may be used already, so it isn't sent twice.
+          if (await this.deps.answersDirectly?.(daemon, fingerprint)) throw error;
           credential = await throughRelay(
             pairingLinkUrl({
               relay: alsoRelay,

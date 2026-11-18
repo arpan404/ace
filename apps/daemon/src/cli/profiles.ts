@@ -75,10 +75,16 @@ export class Profiles {
     );
   }
   list(): RemoteProfile[] {
-    return this.db
-      .prepare("SELECT value FROM profiles ORDER BY name")
-      .all()
-      .map((row) => RemoteProfile.parse(JSON.parse(String(row.value))));
+    return (
+      this.db
+        .prepare("SELECT value FROM profiles ORDER BY name")
+        .all()
+        // A row this build can't read (another build wrote it) is skipped, not fatal for the rest.
+        .flatMap((row) => {
+          const profile = RemoteProfile.safeParse(JSON.parse(String(row.value)));
+          return profile.success ? [profile.data] : [];
+        })
+    );
   }
   selected(): string | null {
     const row = this.db.prepare("SELECT name FROM selection WHERE id=1").get();

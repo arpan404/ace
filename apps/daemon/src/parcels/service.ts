@@ -94,8 +94,16 @@ export function startParcels(context: ServiceContext): void {
     deviceGrant: async (deviceId, url, signal) =>
       services.relayDeviceGrant?.(deviceId, url, signal).catch(() => undefined),
     schedule,
+    // The same pairing still saved: its device and token there.
+    current: (target) =>
+      profiles().some(
+        (profile) => profile.deviceId === target.deviceId && profile.token === target.token,
+      ),
   });
   resources.own(() => relay.close());
+  // Linking again or unlinking ends the relay streams of the old pairings before it reports done.
+  const unfollowLinks = services.fleet?.onChange(() => void relay.close());
+  if (unfollowLinks) resources.own(unfollowLinks);
   const link = new ParcelLink({
     pinned: options.parcels?.pinned ?? pinnedRequest,
     relay,

@@ -5,7 +5,7 @@ import {
   type MachineRelayAnswer,
 } from "@ace/protocol";
 import type { ClientChannel } from "@ace/relay";
-import { MachineFailure, MachineTimeout } from "../machines/transport.ts";
+import { MachineFailure, MachineTimeout, MachineUnpaired } from "../machines/transport.ts";
 
 /** What opening a relay stream to a machine needs; `connect` is `connectClientViaRelay`. */
 export interface RelayLinkDeps {
@@ -23,6 +23,11 @@ export interface RelayLinkDeps {
   deviceGrant(deviceId: string, url: string, signal: AbortSignal): Promise<string | undefined>;
   /** Time for idle closes. */
   schedule(ms: number, run: () => void): () => void;
+  /**
+   * Whether the pairing this stream speaks for is still saved, asked right before each call:
+   * an unlinked or re-paired machine gets nothing more through the relay, as on its address.
+   */
+  current(target: RelayTarget): boolean;
 }
 
 /** One relay stream to one machine, as this machine's paired device there. */
@@ -158,6 +163,8 @@ export class RelayLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {
+    if (!this.deps.current(target))
+      throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
     let stream: Stream;
     try {
       stream = await this.stream(target);
@@ -174,14 +181,18 @@ export class RelayLink {
         stopTimer();
         options.signal?.removeEventListener("abort", abort);
       };
+      // The caller stops waiting: the machine is told to stop it too.
+      const giveUp = () => void stream.channel.send({ type: "machine.cancel", id }).catch(() => {});
       const stopTimer = this.deps.schedule(options.timeoutMs, () => {
         stream.pending.delete(id);
         done();
+        giveUp();
         reject(new MachineTimeout("disconnected", undefined, "Machine answer timed out"));
       });
       const abort = () => {
         stream.pending.delete(id);
         done();
+        giveUp();
         reject(new MachineFailure("disconnected"));
       };
       options.signal?.addEventListener("abort", abort, { once: true });
@@ -195,7 +206,9 @@ export class RelayLink {
           reject(error);
         },
       });
-      stream.channel.send({ type: "machine.call", id, request: body }).catch(() => {
+      // Past this the machine stops it rather than run it after the caller gave up.
+      const timeoutMs = Math.min(3_600_000, Math.max(1, Math.ceil(options.timeoutMs)));
+      stream.channel.send({ type: "machine.call", id, request: body, timeoutMs }).catch(() => {
         stream.pending.delete(id);
         done();
         reject(new MachineFailure("offline"));
@@ -210,6 +223,7 @@ export class RelayLink {
       "refused",
       refusal.success ? refusal.data.error : status === 401 ? "unauthorized" : "unavailable",
       refusal.success ? refusal.data.message : undefined,
+      refusal.success && refusal.data.final === true,
     );
   }
   /** Closes every stream, e.g. at shutdown or when links change. */

@@ -6,7 +6,7 @@ import {
 } from "@ace/protocol";
 import { directOf, type RemoteProfile } from "../cli/profiles.ts";
 import {
-  MachineNotSent,
+  MachineFailure,
   pinnedRequest,
   type MachineTransportOptions,
   type PinnedRequest,
@@ -23,7 +23,12 @@ export type TransferTransport = (
 export const transferTransport: TransferTransport = async (profile, route, options) => {
   const direct = directOf(profile);
   if (!direct)
-    throw new MachineNotSent("offline", undefined, "Machine linked through a relay only");
+    throw new MachineFailure(
+      "refused",
+      "not_supported",
+      "That machine is linked through a relay only, and projects and threads move only over a direct link (LAN or Tailscale). Link it again where its address answers.",
+      true,
+    );
   return pinnedRequest(direct, route, options);
 };
 

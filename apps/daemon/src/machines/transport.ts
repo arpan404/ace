@@ -41,6 +41,12 @@ export class MachineTimeout extends MachineFailure {}
  */
 export class MachineNotSent extends MachineFailure {}
 
+/**
+ * Nothing was sent because the pairing it was for is gone (unlinked, re-paired, shut down): no
+ * other path may send it either.
+ */
+export class MachineUnpaired extends MachineNotSent {}
+
 /** True when `error`, or what it wraps, is the machine saying it has no such record. */
 export function refusedNotFound(error: unknown): boolean {
   for (let at: unknown = error, depth = 0; at instanceof Error && depth < 4; depth++) {
@@ -252,7 +258,7 @@ function pinnedOnce(
     const ended = () => {
       request.destroy();
       finish(
-        assigned ? lost() : new MachineNotSent("offline", undefined, "Machine call never sent"),
+        assigned ? lost() : new MachineUnpaired("offline", undefined, "Machine call never sent"),
       );
     };
     lease.ended?.addEventListener("abort", ended, { once: true });
@@ -266,7 +272,7 @@ function pinnedOnce(
       // waited (unlinked, re-paired, `ace remote remove`) gets nothing sent.
       if (!stillCurrent(lease)) {
         request.destroy();
-        finish(new MachineNotSent("offline", undefined, "Machine call never sent: unpaired"));
+        finish(new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired"));
         return;
       }
       assigned = true;

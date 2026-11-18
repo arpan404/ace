@@ -11,6 +11,11 @@
     "request": {
       "$ref": "https://ace.local/protocol/v1/MachineCallRequest.json"
     },
+    "timeoutMs": {
+      "maximum": 3600000,
+      "minimum": 1,
+      "type": "integer"
+    },
     "type": {
       "const": "machine.call",
       "type": "string"

@@ -20336,6 +20336,7 @@ Example:
 | type | yes | `"machine.call"` |  |
 | id | yes | integer | {"minimum":1,"maximum":9007199254740991} |
 | request | yes | [MachineCallRequest.json](schema/MachineCallRequest.json) |  |
+| timeoutMs | no | integer | {"minimum":1,"maximum":3600000} |
 
 Example:
 
@@ -20357,7 +20358,26 @@ Example:
       "threadTitle": "example"
     }
   },
+  "timeoutMs": 1,
   "type": "machine.call"
+}
+```
+
+## MachineRelayCancel
+
+[JSON Schema](schema/MachineRelayCancel.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.cancel"` |  |
+| id | yes | integer | {"minimum":1,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "id": 3,
+  "type": "machine.cancel"
 }
 ```
 

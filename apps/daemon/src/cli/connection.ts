@@ -88,6 +88,13 @@ export function connectChat(home: string, args: Args) {
 }
 async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
   const profile = selectedProfile(home, option(args, "remote"));
+  // The CLI reaches another machine only at its pinned TLS address.
+  const direct = profile ? directOf(profile) : undefined;
+  if (profile && !direct)
+    throw new CliFailure(
+      "refused",
+      `${profile.name} is linked through a relay only; the CLI reaches only machines it can address directly.`,
+    );
   const connection = profile ? undefined : await reachLocalDaemon(home);
   // On a remote the paired device's id is the only one its ticket admits.
   const local = localDevice(agentShell(process.env));
@@ -111,13 +118,6 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
           () => lifetime.abort(new CliFailure("timeout", "Observation timed out")),
           duration,
         );
-  // The CLI reaches another machine only at its pinned TLS address.
-  const direct = profile ? directOf(profile) : undefined;
-  if (profile && !direct)
-    throw new CliFailure(
-      "refused",
-      `${profile.name} is linked through a relay only; the CLI reaches only machines it can address directly.`,
-    );
   const client = cliClient({
     deviceId: profile?.deviceId ?? DeviceId.parse(local.id),
     transport: () =>

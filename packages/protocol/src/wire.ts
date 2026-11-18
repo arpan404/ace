@@ -118,7 +118,7 @@ import {
 } from "./permission-client.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
-import { MachineRelayAnswer, MachineRelayCall } from "./machine-relay.ts";
+import { MachineRelayAnswer, MachineRelayCall, MachineRelayCancel } from "./machine-relay.ts";
 import {
   CommandsList,
   CommandsResolve,
@@ -303,6 +303,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   UsageSessionTotals,
   ...FilesClientMessage.options,
   MachineRelayCall,
+  MachineRelayCancel,
   CommandsList,
   CommandsResolve,
   PromptFilesRequest,
