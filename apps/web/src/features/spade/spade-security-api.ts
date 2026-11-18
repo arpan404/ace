@@ -4,6 +4,7 @@ import {
   parseSpadeEgress,
   parseSpadeGrantAnswer,
   parseSpadeSecurityMachine,
+  type SpadeAutonomy,
   type SpadeCommandsMode,
   type SpadeNetworkPolicy,
 } from "@ace/ui-core/spade-chat";
@@ -79,6 +80,24 @@ export async function setBotCommands(
 /** The machine's commands setting, which every bot inherits unless it sets its own. */
 export async function setMachineCommands(target: SpadeTarget, commands: SpadeCommandsMode) {
   const body = await spadeHttp(target, "PUT", "/v1/security/commands", { body: { commands } });
+  return sure(parseSpadeSecurityMachine(body), "security settings");
+}
+
+/** How a bot decides (ADR 0163, amendment 2); null follows its parent's or the machine's. */
+export async function setBotAutonomy(
+  target: SpadeTarget,
+  agent: string,
+  autonomy: SpadeAutonomy | null,
+) {
+  const body = await spadeHttp(target, "PUT", agentPath(agent, "security/autonomy"), {
+    body: { autonomy },
+  });
+  return sure(parseSpadeBotSecurity(body), "security settings");
+}
+
+/** How bots without their own setting decide. */
+export async function setMachineAutonomy(target: SpadeTarget, autonomy: SpadeAutonomy) {
+  const body = await spadeHttp(target, "PUT", "/v1/security/autonomy", { body: { autonomy } });
   return sure(parseSpadeSecurityMachine(body), "security settings");
 }
 

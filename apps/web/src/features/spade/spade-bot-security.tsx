@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNativePicker } from "@/lib/native-picker.ts";
+import { AutonomyChoice } from "./spade-autonomy-choice.tsx";
 import { ProfileCheckpoints, ProfileEgress } from "./spade-bot-checkpoints.tsx";
 import { CommandsChoice } from "./spade-commands-choice.tsx";
 import { ProfileNetworkRows } from "./spade-bot-network.tsx";
@@ -22,12 +23,13 @@ import {
   addGrant,
   botSecurityKey,
   removeGrant,
+  setBotAutonomy,
   setBotCommands,
   useBotSecurity,
   useSecurityMachine,
 } from "./spade-security-api.ts";
 import { Refusal } from "./spade-settings-rows.tsx";
-import type { RosterBot } from "./use-spade-roster.ts";
+import { agentsKey, type RosterBot } from "./use-spade-roster.ts";
 
 /**
  * The bot's boundaries (ADR 0167), sections of Details: its folders, its grants, where its
@@ -50,7 +52,8 @@ export function ProfileSecurity(props: { bot: RosterBot }) {
 }
 
 /**
- * Where the bot's commands run and what it may reach (ADR 0171). A bot on the machine's settings
+ * How the bot decides (ADR 0163, amendment 2), then where its commands run and what it may reach
+ * (ADR 0171). A bot on the machine's settings
  * says so in one line, with the way to them and Set its own; one with its own, or once the
  * person sets its own, shows each choice with the way back to the machine's.
  */
@@ -70,9 +73,26 @@ function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }
       Security settings
     </Link>
   );
+  const decides = (
+    <AutonomyChoice
+      title="How it decides"
+      value={security.autonomy}
+      who={props.bot.name}
+      confirmed={security.fullAccessConfirmed}
+      save={async (choice) => {
+        cache.setQueryData(
+          botSecurityKey(machine, props.bot.id, "bot"),
+          await setBotAutonomy(client, props.bot.id, choice),
+        );
+        // The bot's conversation says when it is in Full access: read the bots again.
+        await cache.invalidateQueries({ queryKey: agentsKey });
+      }}
+    />
+  );
   if (!own && !setting)
     return (
       <ProfileSection label="Security" actions={settings}>
+        {decides}
         <SettingRow title={`Same as ${place}`} density="compact" inline>
           <Button size="sm" variant="ghost" onClick={() => setSetting(true)}>
             Set its own
@@ -82,6 +102,7 @@ function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }
     );
   return (
     <ProfileSection label="Security" actions={settings}>
+      {decides}
       <CommandsChoice
         title="Commands run"
         value={security.own.commands ? security.commands : "inherit"}

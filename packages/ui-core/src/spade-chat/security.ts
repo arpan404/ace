@@ -22,9 +22,23 @@ export interface SpadeNetworkPolicy {
 /** Whether a bot's commands run in the sandbox or outside it, each one reviewed (ADR 0171). */
 export type SpadeCommandsMode = "sandboxed" | "outside";
 
+/**
+ * How a bot decides (ADR 0163, amendment 2): the auto-review (every bot's default) or Full access,
+ * where nothing goes to the reviewer and only the hard stops ask.
+ */
+export type SpadeAutonomy = "auto_review" | "full_access";
+
+/**
+ * What Full access means, in one sentence: what runs, and what still asks the person (the same
+ * list Spade's gate keeps, `spade_core::effect::full_access`).
+ */
+export const spadeFullAccessSentence =
+  "It works without the reviewer and without asking you, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, or acts on a device or in mail, chat, banking, password, sign-in, settings or social apps and sites, and it never reads your secrets.";
+
 /** What every bot inherits unless it sets its own. */
 export interface SpadeBotDefaults {
   commands: SpadeCommandsMode;
+  autonomy: SpadeAutonomy;
   network: SpadeNetworkPolicy;
   pluginNetwork: SpadeNetworkPolicy;
 }
@@ -68,8 +82,12 @@ export interface SpadeBotSecurity {
   contained: boolean;
   /** Effective: the bot's own, else the machine's. */
   commands: SpadeCommandsMode;
-  /** Which of the three the bot sets itself; false inherits the machine's. */
-  own: { commands: boolean; network: boolean; pluginNetwork: boolean };
+  /** Effective: the bot's own, else its parent's or the machine's; never freer than a parent. */
+  autonomy: SpadeAutonomy;
+  /** The person turned Full access on for it before: its confirmation was given once. */
+  fullAccessConfirmed: boolean;
+  /** Which the bot sets itself; false inherits the machine's. */
+  own: { commands: boolean; autonomy: boolean; network: boolean; pluginNetwork: boolean };
   network: SpadeNetworkPolicy;
   pluginNetwork: SpadeNetworkPolicy;
   toolchains: string[];
@@ -115,6 +133,8 @@ function policy(raw: unknown, mode: SpadeNetworkMode): SpadeNetworkPolicy {
 }
 
 const commandsShape = z.enum(["sandboxed", "outside"]).catch("sandboxed");
+/** Anything but a plain `full_access`, a Spade before Full access included, is the auto-review. */
+const autonomyShape = z.enum(["auto_review", "full_access"]).catch("auto_review");
 
 const machineShape = z.object({
   bots: z.unknown().optional(),
@@ -137,6 +157,7 @@ export function parseSpadeSecurityMachine(body: string): SpadeSecurityMachine | 
   return {
     bots: {
       commands: commandsShape.parse(bots?.commands),
+      autonomy: autonomyShape.parse(bots?.autonomy),
       network: policy(bots?.network, "allow_list"),
       pluginNetwork: policy(bots?.plugin_network, "open"),
     },
@@ -208,8 +229,12 @@ export function parseSpadeBotSecurity(body: string): SpadeBotSecurity | undefine
   return {
     contained: raw.contained === true,
     commands: commandsShape.parse(raw.commands),
+    autonomy: autonomyShape.parse(raw.autonomy),
+    fullAccessConfirmed: raw.full_access_confirmed === true,
     own: {
       commands: owns("commands"),
+      // Only a Spade with Full access says; before it, no bot set one.
+      autonomy: own?.autonomy === true,
       network: owns("network"),
       pluginNetwork: owns("plugin_network"),
     },
