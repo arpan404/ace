@@ -35,6 +35,9 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
     let answers: [String?]?
     /// Settled without answers: how it ended.
     let line: String?
+    /// Settled only because its reply finished unanswered, not by its own answer or dismissal:
+    /// it may yet turn out to be for later, so its draft and lock are kept (`SpadeCards`).
+    let closed: Bool
 
     /// What one question's inputs hold, sent as the bridge's `SpadeDraftWire`.
     enum Draft: Equatable, Sendable {

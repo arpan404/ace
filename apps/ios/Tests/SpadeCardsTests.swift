@@ -4,8 +4,9 @@ import Testing
 
 /// A card sent from the phone stays locked wherever it is drawn until Spade's update settles it.
 @Suite @MainActor struct SpadeCardsTests {
-    static func card(_ standing: SpadeQuestionCard.Standing) -> SpadeQuestionCard {
-        SpadeQuestionCard(callId: "q1", label: "Planner asks: Go?", standing: standing, questions: [], answers: nil, line: nil)
+    static func card(_ standing: SpadeQuestionCard.Standing, closed: Bool = false) -> SpadeQuestionCard {
+        SpadeQuestionCard(callId: "q1", label: "Planner asks: Go?", standing: standing, questions: [], answers: nil, line: nil,
+                          closed: closed)
     }
     static let read: () async -> SpadeOutcome = { SpadeOutcome(ok: true) }
     private func card(_ standing: SpadeQuestionCard.Standing) -> SpadeModel.Bubble {
@@ -70,6 +71,26 @@ import Testing
 
         cards.saw(SpadeCardsTests.card(.settled), in: "c1")
         #expect(cards.drafts("c1", callId: "q1") == nil)
+    }
+
+    @Test func aCardClosedOnlyBecauseItsReplyFinishedKeepsItsDraftAndLock() async {
+        let clock = ManualClock()
+        let cards = SpadeCards(wait: { await clock.sleep($0) })
+        cards.saw(SpadeCardsTests.card(.open), in: "c1")
+        let filled: [SpadeQuestionCard.Draft] = [.text("Faro")]
+        cards.keep(filled, conversation: "c1", callId: "q1")
+        _ = await cards.send("c1", callId: "q1", readBack: SpadeCardsTests.read) { SpadeOutcome(ok: true) }
+
+        // The reply ended with the card unanswered: it may have been left for later meanwhile.
+        cards.saw(SpadeCardsTests.card(.settled, closed: true), in: "c1")
+        #expect(cards.drafts("c1", callId: "q1") == filled)
+        #expect(cards.isSending("c1", callId: "q1"))
+
+        // Its own status settles it.
+        cards.saw(SpadeCardsTests.card(.settled), in: "c1")
+        #expect(cards.drafts("c1", callId: "q1") == nil)
+        #expect(!cards.isSending("c1", callId: "q1"))
+        clock.advance()
     }
 
     @Test func anAcceptedCardWhoseUpdateNeverComesIsReadBackAndUnlocked() async {
@@ -160,3 +181,4 @@ import Testing
         waiting = []
     }
 }
+

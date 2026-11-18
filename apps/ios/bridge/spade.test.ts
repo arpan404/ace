@@ -331,7 +331,7 @@ test("a card of questions waits with each question's inputs, and its answers set
   expect(sent).toEqual({ ok: true });
   expect(posted()).toEqual([{ answers: ["Porto", 3] }]);
   await until(() => card()?.standing === "settled");
-  expect(card()).toMatchObject({ answers: ["Porto", "3 nights"], line: null });
+  expect(card()).toMatchObject({ answers: ["Porto", "3 nights"], line: null, closed: false });
 });
 
 test("a card whose settling update was missed settles once the phone reads it back", async () => {
@@ -357,6 +357,34 @@ test("a card whose settling update was missed settles once the phone reads it ba
   });
   await until(() => card()?.standing === "settled");
   expect(card()).toMatchObject({ answers: ["Porto", "3 nights"] });
+});
+
+test("a card whose reply finished unanswered is closed, not settled by its own word", async () => {
+  let conversation = "";
+  const set = await setUp((fake) => {
+    const bot = fake.addAgent({ name: "Planner" });
+    conversation = bot.conversation;
+    fake.store(conversation, { type: "reply_started", reply: "r-q" });
+    fake.store(conversation, {
+      type: "question_asked",
+      reply: "r-q",
+      call_id: "q1",
+      question: "Which colour?",
+      questions: [{ prompt: "Which colour?" }],
+    });
+  });
+  set.spade.handle({ type: "spade.open", conversationId: conversation });
+  const card = () =>
+    set.patches.bubbles.find(
+      (row): row is Extract<SpadeBubbleRow, { kind: "question" }> => row.kind === "question",
+    );
+  await until(() => card()?.standing === "open");
+  expect(card()?.closed).toBe(false);
+
+  // Spade may have left it for later in an update the phone missed: the phone keeps its draft.
+  set.api.store(conversation, { type: "reply_finished", reply: "r-q", text: "" });
+  await until(() => card()?.standing === "settled");
+  expect(card()).toMatchObject({ closed: true, line: "Not answered" });
 });
 
 test("a card missing an answer never reaches Spade and names the question that needs it", async () => {

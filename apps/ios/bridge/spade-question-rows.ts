@@ -50,6 +50,11 @@ export interface SpadeQuestionCardRow {
   answers: (string | null)[] | null;
   /** Settled without answers: how it ended ("Dismissed"). */
   line: string | null;
+  /**
+   * Settled only because its reply finished unanswered, not by its own answer or dismissal: an
+   * update leaving it for later may have been missed, so the phone keeps its draft and lock.
+   */
+  closed: boolean;
 }
 
 /**
@@ -93,6 +98,7 @@ export function spadeQuestionCardRow(card: Card, who: string): SpadeQuestionCard
         )
       : null,
     line: settled && !answers ? spadeCardSettledWords(card) : null,
+    closed: card.standing === "closed",
   };
 }
 

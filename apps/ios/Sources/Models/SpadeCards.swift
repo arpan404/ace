@@ -88,6 +88,8 @@ import Observation
     func saw(_ card: SpadeQuestionCard, in conversation: String) {
         let key = Key(conversation: conversation, callId: card.callId)
         // A settled card is done: only open and later ones are kept.
+        // Closed only because its reply finished, it may yet be for later: nothing is dropped.
+        guard !card.closed else { return }
         if card.standing == .settled {
             shown[key] = nil
             drafted[key] = nil
