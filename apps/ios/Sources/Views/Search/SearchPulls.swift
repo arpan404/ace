@@ -5,14 +5,16 @@ import SwiftUI
 struct FoundPull: Identifiable, Equatable {
     let route: ForgeRoute
     let row: ForgePullRow
+    /// The machine's connection it was read on (`ClientModel.readyCount`).
+    let connection: Int
     var id: String { row.key }
 }
 
 /// Pull requests matching a query in the project Pull requests opens on (the one chosen there
 /// last, else the machine's first), read from the machine's forge search. The last answer stays
 /// until the next one arrives; a newer query cancels the older read. A read that fails says so
-/// above the rows it last found, and can be asked again. A machine that goes away takes its rows
-/// with it.
+/// above the rows it last found, and can be asked again. Rows belong to the connection they were
+/// read on: once their machine drops, they never show again, even after it reconnects.
 @MainActor @Observable final class SearchPulls {
     /// One machine's pull requests matching a query: the project it searched and the rows, or
     /// nil when it has no project to search. The app reads the machine's forge (`forge`).
@@ -28,11 +30,11 @@ struct FoundPull: Identifiable, Equatable {
 
     init(read: @escaping Read = SearchPulls.forge) { self.read = read }
 
-    /// The rows to draw: only those of a machine that is still ready, so a row never opens on a
-    /// machine that has gone, even before the search runs again.
+    /// The rows to draw: only those read on their machine's current, ready connection. A row
+    /// never opens on a machine that has gone, nor shows again after it reconnects, whether or
+    /// not a search has run since.
     func visible(_ inbox: MachineInbox) -> [FoundPull] {
-        let ready = Self.ready(inbox)
-        return found.filter { ready.contains($0.route.machineId) }
+        found.filter { Self.current($0, inbox) }
     }
 
     func run(_ inbox: MachineInbox, query: String) async {
@@ -40,15 +42,16 @@ struct FoundPull: Identifiable, Equatable {
         let current = generation
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         asked = text
-        // A machine that went away takes its rows with it, whatever the next read does.
-        let ready = Self.ready(inbox)
-        found = found.filter { ready.contains($0.route.machineId) }
+        // Rows from a machine that went away, or from before it reconnected, go before anything
+        // is asked, whatever the next read does.
+        found = found.filter { Self.current($0, inbox) }
         // Nothing to ask, or no machine to ask it.
-        guard text.count >= 2, !ready.isEmpty else { found = []; problem = nil; return }
+        guard text.count >= 2, inbox.sessions.contains(where: { $0.client.connection == "ready" }) else { found = []; problem = nil; return }
         // Typing settles before the machine is asked.
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled, current == generation,
               let session = inbox.sessions.first(where: { $0.client.connection == "ready" }) else { return }
+        let connection = session.client.readyCount
         do {
             guard let answer = try await read(session.client, text) else {
                 // No project to search: not a failure, just nothing to offer.
@@ -60,7 +63,7 @@ struct FoundPull: Identifiable, Equatable {
             found = answer.rows.prefix(Self.shown).map { row in
                 FoundPull(route: ForgeRoute(kind: .pull, machineId: session.hostId, project: answer.project, number: row.number,
                                             repository: row.repository),
-                          row: row)
+                          row: row, connection: connection)
             }
             problem = nil
         } catch {
@@ -79,8 +82,9 @@ struct FoundPull: Identifiable, Equatable {
         await run(inbox, query: asked)
     }
 
-    private static func ready(_ inbox: MachineInbox) -> Set<String> {
-        Set(inbox.sessions.filter { $0.client.connection == "ready" }.map(\.hostId))
+    private static func current(_ found: FoundPull, _ inbox: MachineInbox) -> Bool {
+        guard let client = inbox.client(found.route.machineId) else { return false }
+        return client.connection == "ready" && client.readyCount == found.connection
     }
 
     /// The machine's forge search, in the project Pull requests opens on (the one chosen there

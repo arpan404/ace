@@ -60,7 +60,12 @@ import QuartzCore
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
-    var connection = "connecting"
+    var connection = "connecting" {
+        didSet { if connection == "ready", oldValue != "ready" { readyCount &+= 1 } }
+    }
+    /// How many times the connection has become ready. What was read on an earlier connection
+    /// (a reconnect may follow a restart or another route) is out of date on this one.
+    private(set) var readyCount = 0
     /// Each change of the runtime's connection state, after it applies; the machine list uses
     /// it to move a machine between its routes (`MachineRoutePlan`).
     @ObservationIgnored var onConnection: ((String) -> Void)?

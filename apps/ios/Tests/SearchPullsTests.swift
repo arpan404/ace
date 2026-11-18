@@ -7,20 +7,51 @@ import Testing
 @MainActor @Suite struct SearchPullsTests {
     @Test func aDisconnectedMachinesPullsGoWhenTheNextMachinesReadTimesOut() async throws {
         let (inbox, desk, _) = try twoReadyMachines()
-        let pulls = SearchPulls { client, _ in
+        var pulls: SearchPulls?
+        var keptDuringRead: [String]?
+        pulls = SearchPulls { client, _ in
             if client === desk { return (project: "ace", rows: [try row(212, "Bump Codex app-server")]) }
+            // Laptop's read is still out: desk's rows must already be gone.
+            keptDuringRead = pulls?.found.map(\.route.machineId)
+            throw ServiceFailure(message: "Timed out", transport: true)
+        }
+        let search = try #require(pulls)
+        await search.run(inbox, query: "codex")
+        #expect(search.visible(inbox).map(\.route.machineId) == ["desk"])
+
+        desk.connection = "reconnecting"
+        // Before the search runs again, the rows of a machine that's gone already don't show.
+        #expect(search.visible(inbox).isEmpty)
+        await search.run(inbox, query: "codex")
+        #expect(keptDuringRead == [])
+        #expect(search.found.isEmpty)
+        #expect(search.visible(inbox).isEmpty)
+        // The ready machine's read failed: that is still worth Try again.
+        #expect(search.problem != nil)
+    }
+
+    /// Rows read before a machine dropped belong to that connection. Back on a new one, they
+    /// stay gone with no search having run meanwhile (the list was on Messages), and a read
+    /// that then times out leaves Try again alone, not the old rows beside it.
+    @Test func aMachinesPullsFromBeforeItReconnectedDontComeBack() async throws {
+        let (inbox, desk, laptop) = try twoReadyMachines()
+        laptop.connection = "reconnecting"
+        var reads = 0
+        let pulls = SearchPulls { _, _ in
+            reads += 1
+            if reads == 1 { return (project: "ace", rows: [try row(212, "Bump Codex app-server")]) }
             throw ServiceFailure(message: "Timed out", transport: true)
         }
         await pulls.run(inbox, query: "codex")
         #expect(pulls.visible(inbox).map(\.route.machineId) == ["desk"])
 
         desk.connection = "reconnecting"
-        // Before the search runs again, the rows of a machine that's gone already don't show.
+        desk.connection = "ready"
         #expect(pulls.visible(inbox).isEmpty)
         await pulls.run(inbox, query: "codex")
+        #expect(reads == 2)
         #expect(pulls.found.isEmpty)
         #expect(pulls.visible(inbox).isEmpty)
-        // The ready machine's read failed: that is still worth Try again.
         #expect(pulls.problem != nil)
     }
 
