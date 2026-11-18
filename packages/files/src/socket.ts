@@ -179,7 +179,8 @@ export function attachFilesChannel(
     if (
       message.type === "files.abort" ||
       message.type === "files.pull" ||
-      message.type === "files.chunk"
+      message.type === "files.chunk" ||
+      message.type === "files.watch"
     )
       throw new FileError("INVALID_MESSAGE", "Chunk requests require thread scope");
     const operation = message.operation;
