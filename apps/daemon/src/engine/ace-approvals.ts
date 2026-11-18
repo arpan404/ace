@@ -51,6 +51,19 @@ export function aceCaller(
   return callers.size === 1 ? [...callers][0] : undefined;
 }
 
+/** Whether agent `agentId` is `ancestorId` or one of its descendants in the thread's tree. */
+export function withinAgent(state: ThreadState, agentId: string, ancestorId: string): boolean {
+  const seen = new Set<string>();
+  let current: string | null | undefined = agentId;
+  while (current && !seen.has(current)) {
+    if (current === ancestorId) return true;
+    seen.add(current);
+    const key: string | undefined = state.indexes.agentKeysById[current];
+    current = key === undefined ? undefined : state.agents[key]?.agent.parentId;
+  }
+  return false;
+}
+
 /** Only daemon catalog entries with validated arguments earn ace action metadata. */
 export function attributeAceAction(
   state: ThreadState,

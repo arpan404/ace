@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { apply, createThreadState, type Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
 import type { ThreadId } from "@ace/protocol";
-import { aceCaller } from "./ace-approvals.ts";
+import { aceCaller, withinAgent } from "./ace-approvals.ts";
 
 /** A thread whose agents have made these calls, folded through the core as the engine does. */
 function thread(...made: Fact[]) {
@@ -81,4 +81,17 @@ test("a child on another machine asking about the same tab id is never taken for
     helpCall("worker", "call-2", "tab-1"),
   );
   expect(aceCaller(both, "browser_request_help", forTab("tab-1"))).toBe("worker");
+});
+
+test("an agent's turn reaches only its own requests and its descendants', never a sibling's", () => {
+  const state = thread(
+    facts.subagent("claude", "helper", "Helper", "worker", { parent: "worker" }),
+    facts.subagent("claude", "other", "Other", "root"),
+  );
+  const id = (key: string) => state.agents[key]?.agent.id ?? "";
+  expect(withinAgent(state, id("worker"), id("worker"))).toBe(true);
+  expect(withinAgent(state, id("helper"), id("worker"))).toBe(true);
+  expect(withinAgent(state, id("helper"), id("root"))).toBe(true);
+  expect(withinAgent(state, id("other"), id("worker"))).toBe(false);
+  expect(withinAgent(state, id("root"), id("worker"))).toBe(false);
 });
