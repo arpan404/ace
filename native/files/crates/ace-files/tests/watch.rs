@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{Client, await_created, checkout, watch, write_file};
+use common::{Client, await_reported, checkout, watch, write_file};
 
 #[test]
 fn reports_a_created_file_to_the_watch() {
@@ -15,7 +15,7 @@ fn reports_a_created_file_to_the_watch() {
     let subscription = watch(&mut client, root);
 
     write_file(checkout.path(), "created.txt", "hello\n");
-    await_created(&mut client, subscription, "created.txt");
+    await_reported(&mut client, checkout.path(), subscription, "created.txt");
 }
 
 #[test]
@@ -27,6 +27,6 @@ fn every_watch_on_a_root_reports_the_same_batch() {
     let second = watch(&mut client, root);
 
     write_file(checkout.path(), "created.txt", "hello\n");
-    await_created(&mut client, first, "created.txt");
-    await_created(&mut client, second, "created.txt");
+    await_reported(&mut client, checkout.path(), first, "created.txt");
+    await_reported(&mut client, checkout.path(), second, "created.txt");
 }

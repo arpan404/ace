@@ -24,7 +24,10 @@ pub const TIMEOUT: Duration = Duration::from_secs(20);
 pub struct Client {
     child: Child,
     stdin: Option<ChildStdin>,
+    /// Frames the binary holds back, waiting to be read.
     frames: Receiver<Frame>,
+    /// A reader the test can stop, to make the binary's stdout queue fill.
+    paused: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pending: VecDeque<Message>,
     bodies: VecDeque<(u64, Vec<u8>)>,
     stderr: Option<Receiver<String>>,
@@ -86,11 +89,16 @@ impl Client {
             lines
         });
         let (sender, frames) = mpsc::channel();
+        let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reader_paused = std::sync::Arc::clone(&paused);
         std::thread::spawn(move || {
             let mut stdout = stdout;
             let mut decoder = Decoder::new();
             let mut chunk = [0u8; 64 * 1024];
             loop {
+                while reader_paused.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
                 match stdout.read(&mut chunk) {
                     Ok(0) | Err(_) => return,
                     Ok(read) => {
@@ -114,6 +122,7 @@ impl Client {
             child,
             stdin: Some(stdin),
             frames,
+            paused,
             pending: VecDeque::new(),
             bodies: VecDeque::new(),
             stderr,
@@ -126,6 +135,18 @@ impl Client {
         let mut client = Client::start();
         client.hello();
         client
+    }
+
+    /// Stop reading the binary's stdout, so a daemon that is slow to read is what the binary sees.
+    pub fn pause(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Read stdout again.
+    pub fn resume(&self) {
+        self.paused
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Send `hello` and check the answer.
@@ -294,6 +315,34 @@ impl Client {
         }) {
             Message::Event { payload, .. } => payload,
             other => panic!("expected an event for {subscription}, got {other:?}"),
+        }
+    }
+
+    /// The next event of one subscription, if one arrives within `window`.
+    pub fn try_event(&mut self, subscription: u64, window: Duration) -> Option<EventPayload> {
+        if let Some(position) = self.pending.iter().position(|message| {
+            matches!(message, Message::Event { subscription: got, .. } if *got == subscription)
+        }) && let Some(Message::Event { payload, .. }) = self.pending.remove(position)
+        {
+            return Some(payload);
+        }
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            match self.frames.recv_timeout(remaining) {
+                Err(_) => return None,
+                Ok(Frame::Body { id, bytes }) => self.bodies.push_back((id, bytes)),
+                Ok(Frame::Message(message)) => match message {
+                    Message::Event {
+                        subscription: got,
+                        payload,
+                    } if got == subscription => return Some(payload),
+                    other => self.pending.push_back(other),
+                },
+            }
         }
     }
 
@@ -476,26 +525,34 @@ pub fn watch(client: &mut Client, root: u64) -> u64 {
     }
 }
 
-/// Wait until a watch reports `path` as created.
-pub fn await_created(client: &mut Client, subscription: u64, path: &str) {
+/// Wait until a watch reports `path` at all.
+///
+/// The kind is files-watch's business (its own tests pin create, modify and delete); this checks
+/// the wiring, so any live change for the path counts. A change made in the first moments after a
+/// watch starts can fall before the operating system's stream is live, so a window with no batch
+/// rewrites the file and a stream that started late still reports the second write.
+pub fn await_reported(client: &mut Client, base: &Path, subscription: u64, path: &str) {
     let deadline = Instant::now() + WATCH_DEADLINE;
+    let mut seen = Vec::new();
     loop {
         assert!(
             Instant::now() < deadline,
-            "no change batch named {path} within {WATCH_DEADLINE:?}"
+            "no change batch named {path} within {WATCH_DEADLINE:?}; saw {seen:?}"
         );
-        match client.event(subscription) {
-            EventPayload::Changes { changes } => {
+        match client.try_event(subscription, Duration::from_millis(500)) {
+            Some(EventPayload::Changes { changes }) => {
                 if changes
                     .iter()
-                    .any(|change| change.path == path && change.kind == ChangeKind::Created)
+                    .any(|change| change.path == path && change.kind != ChangeKind::Deleted)
                 {
                     return;
                 }
+                seen.push(changes);
             }
             // A degraded watcher (the polling fallback) still reports batches; keep waiting.
-            EventPayload::Warning { .. } | EventPayload::Rescan { .. } => {}
-            other => panic!("unexpected watch event {other:?}"),
+            Some(EventPayload::Warning { .. } | EventPayload::Rescan { .. }) => {}
+            Some(other) => panic!("unexpected watch event {other:?}"),
+            None => write_file(base, path, "created\n"),
         }
     }
 }

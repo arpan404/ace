@@ -20,24 +20,27 @@ use crate::subscriptions::Kind;
 ///
 /// The query is checked before the daemon is told a subscription exists, because a request is
 /// answered exactly once: from then on a failure is a `searchFailed` event on the subscription.
-pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: SearchQuery) {
+pub async fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: SearchQuery) {
     let entry = match shared.roots.get(root) {
         Ok(entry) => entry,
-        Err(error) => return shared.respond(id, Err(error)),
+        Err(error) => return shared.respond(id, Err(error)).await,
     };
     let query = convert::search_query(query);
     if let Err(error) = validate(&query) {
-        return shared.respond(id, Err(error));
+        return shared.respond(id, Err(error)).await;
     }
     let subscription =
         match entry.subscribe(&shared.subscriptions, Kind::Search, Some(cancel.flag())) {
             Ok(subscription) => subscription,
-            Err(error) => return shared.respond(id, Err(error)),
+            Err(error) => return shared.respond(id, Err(error)).await,
         };
-    shared.out.send(Message::Response {
-        id,
-        result: Reply::Subscription { subscription },
-    });
+    shared
+        .out
+        .send(Message::Response {
+            id,
+            result: Reply::Subscription { subscription },
+        })
+        .await;
     let job = shared.clone();
     tokio::spawn(async move {
         let running = {
@@ -48,7 +51,8 @@ pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: SearchQ
         };
         // A worker that panicked is a failure like any other: the subscription hears about it
         // instead of waiting for a summary that will never come.
-        job.finish_search(id, subscription, joined(running.await));
+        job.finish_search(id, subscription, joined(running.await))
+            .await;
     });
 }
 
@@ -95,7 +99,7 @@ fn run(
         if stopped.load(Ordering::Relaxed) {
             return false;
         }
-        out.send(Message::Event {
+        out.send_blocking(Message::Event {
             subscription,
             payload: EventPayload::Matches {
                 file: convert::file_matches(file),

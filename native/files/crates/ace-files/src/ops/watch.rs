@@ -5,6 +5,10 @@
 //! One watcher per root serves every subscription. Each batch first makes the cached folder
 //! listings stale and folds the changes into the quick-open index, then reaches every subscriber
 //! as an `event`, so a client that just asked for a folder sees what the batch changed.
+//!
+//! This module's sink runs on the watcher's own thread, never on a runtime worker: it writes
+//! through [`Out::send_blocking`], so a daemon that stops reading slows the watcher instead of
+//! growing a queue.
 
 use std::sync::Arc;
 
@@ -22,28 +26,25 @@ use crate::subscriptions::{Kind, Subscriptions};
 
 /// Start a watch: bring the root's watcher up, then hand out the subscription that receives its
 /// batches.
-pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64) {
+pub async fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64) {
     let entry = match shared.roots.get(root) {
         Ok(entry) => entry,
-        Err(error) => return shared.respond(id, Err(error)),
+        Err(error) => return shared.respond(id, Err(error)).await,
     };
-    let job = shared.clone();
-    tokio::spawn(async move {
-        let starting = {
-            let entry = Arc::clone(&entry);
-            let subscriptions = Arc::clone(&job.subscriptions);
-            let out = job.out.clone();
-            tokio::task::spawn_blocking(move || entry.ensure_watcher(&subscriptions, &out))
-        };
-        let result = match joined(starting.await) {
-            Ok(()) if cancel.cancelled() => Err(Error::Aborted),
-            Ok(()) => entry
-                .subscribe(&job.subscriptions, Kind::Watch, None)
-                .map(|subscription| Reply::Subscription { subscription }),
-            Err(error) => Err(error),
-        };
-        job.respond(id, result);
-    });
+    let starting = {
+        let entry = Arc::clone(&entry);
+        let subscriptions = Arc::clone(&shared.subscriptions);
+        let out = shared.out.clone();
+        tokio::task::spawn_blocking(move || entry.ensure_watcher(&subscriptions, &out))
+    };
+    let result = match joined(starting.await) {
+        Ok(()) if cancel.cancelled() => Err(Error::Aborted),
+        Ok(()) => entry
+            .subscribe(&shared.subscriptions, Kind::Watch, None)
+            .map(|subscription| Reply::Subscription { subscription }),
+        Err(error) => Err(error),
+    };
+    shared.respond(id, result).await;
 }
 
 /// Apply one batch, then forward it to every watch subscription on the root.
@@ -79,7 +80,7 @@ pub fn deliver(
     match subscriptions.watches(entry.id()) {
         Ok(watches) => {
             for subscription in watches {
-                out.send(Message::Event {
+                out.send_blocking(Message::Event {
                     subscription,
                     payload: payload.clone(),
                 });

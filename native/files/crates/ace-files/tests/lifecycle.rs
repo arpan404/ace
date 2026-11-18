@@ -7,7 +7,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{Client, await_created, checkout, watch, write_file};
+use common::{Client, await_reported, checkout, watch, write_file};
 use files_wire::{Op, Reply};
 
 #[test]
@@ -20,7 +20,7 @@ fn closing_a_root_stops_its_watcher_and_releases_the_root() {
 
     // The watcher is running and reports this checkout before the close.
     write_file(checkout.path(), "before.txt", "hello\n");
-    await_created(&mut client, subscription, "before.txt");
+    await_reported(&mut client, checkout.path(), subscription, "before.txt");
 
     let closed = client.request(Op::CloseRoot { root });
     assert_eq!(client.reply(closed), Reply::Done);

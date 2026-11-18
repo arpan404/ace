@@ -53,11 +53,13 @@ impl Shared {
     }
 
     /// Answer one request with a response or an error, never both.
-    pub fn respond(&self, id: u64, result: Result<Reply, Error>) {
+    pub async fn respond(&self, id: u64, result: Result<Reply, Error>) {
         self.requests.finish(id);
         match result {
-            Ok(reply) => self.out.send(Message::Response { id, result: reply }),
-            Err(error) => self.out.error(id, error.failure()),
+            Ok(reply) => {
+                self.out.send(Message::Response { id, result: reply }).await;
+            }
+            Err(error) => self.out.error(id, error.failure()).await,
         }
     }
 
@@ -65,7 +67,7 @@ impl Shared {
     /// stopped early, since the daemon should know the request never finished. The request itself
     /// was answered when its subscription was handed out, so neither outcome is a second reply: a
     /// search that ran to the end after its subscription was closed reports nowhere.
-    pub fn finish_search(&self, id: u64, subscription: u64, outcome: Result<Summary, Error>) {
+    pub async fn finish_search(&self, id: u64, subscription: u64, outcome: Result<Summary, Error>) {
         let open = matches!(self.subscriptions.remove(subscription), Ok(Some(_)));
         self.requests.finish(id);
         if !open {
@@ -80,10 +82,12 @@ impl Shared {
                 message: error.to_string(),
             },
         };
-        self.out.send(Message::Event {
-            subscription,
-            payload,
-        });
+        self.out
+            .send(Message::Event {
+                subscription,
+                payload,
+            })
+            .await;
     }
 }
 
@@ -99,7 +103,7 @@ pub async fn run(version: &'static str) {
         match item {
             Input::Eof => std::process::exit(0),
             Input::Failed { id, code, message } => match id {
-                Some(id) => shared.out.error(id, Failure::new(code, message)),
+                Some(id) => shared.out.error(id, Failure::new(code, message)).await,
                 None => eprintln!("ace-files: {message}"),
             },
             Input::Frame(Frame::Body { id, bytes }) => {
@@ -110,7 +114,7 @@ pub async fn run(version: &'static str) {
                 }
             }
             Input::Frame(Frame::Message(message)) => {
-                handle(&shared, &mut greeted, version, message);
+                handle(&shared, &mut greeted, version, message).await;
             }
         }
     }
@@ -118,23 +122,29 @@ pub async fn run(version: &'static str) {
 }
 
 /// Act on one incoming message.
-fn handle(shared: &Shared, greeted: &mut bool, version: &'static str, message: Message) {
+async fn handle(shared: &Shared, greeted: &mut bool, version: &'static str, message: Message) {
     match message {
         Message::Hello { .. } => {
             *greeted = true;
-            shared.out.send(Message::Hello {
-                protocol: PROTOCOL,
-                version: Some(version.to_owned()),
-            });
+            shared
+                .out
+                .send(Message::Hello {
+                    protocol: PROTOCOL,
+                    version: Some(version.to_owned()),
+                })
+                .await;
         }
         Message::Request { id, op } => {
             if *greeted {
-                start(shared, id, op);
+                start(shared, id, op).await;
             } else {
-                shared.out.error(
-                    id,
-                    Failure::new("UNSUPPORTED", "say hello before asking for anything"),
-                );
+                shared
+                    .out
+                    .error(
+                        id,
+                        Failure::new("UNSUPPORTED", "say hello before asking for anything"),
+                    )
+                    .await;
             }
         }
         Message::Cancel { id } => shared.requests.cancel(id),
@@ -146,7 +156,7 @@ fn handle(shared: &Shared, greeted: &mut bool, version: &'static str, message: M
 
 /// Hand one request to the task that will answer it. Every request gets its cancel flag before
 /// the op starts, so a `cancel` that arrives first is already set when the work looks.
-fn start(shared: &Shared, id: u64, op: Op) {
+async fn start(shared: &Shared, id: u64, op: Op) {
     let cancel = shared.requests.begin(id);
     match op {
         Op::OpenRoot { path } => open_root(shared, id, cancel, path),
@@ -193,8 +203,8 @@ fn start(shared: &Shared, id: u64, op: Op) {
                 expected: None,
             },
         ),
-        Op::Watch { root } => ops::watch::start(shared, id, cancel, root),
-        Op::Search { root, query } => ops::search::start(shared, id, cancel, root, query),
+        Op::Watch { root } => ops::watch::start(shared, id, cancel, root).await,
+        Op::Search { root, query } => ops::search::start(shared, id, cancel, root, query).await,
         Op::Unwatch { subscription } => unwatch(shared, id, subscription),
         op => perform(shared, id, cancel, op),
     }
@@ -215,7 +225,7 @@ fn perform(shared: &Shared, id: u64, cancel: Cancel, op: Op) {
             }
             ops::perform(&inner, op)
         });
-        job.respond(id, joined(work.await));
+        job.respond(id, joined(work.await)).await;
     });
 }
 
@@ -229,16 +239,16 @@ fn open_root(shared: &Shared, id: u64, cancel: Cancel, path: String) {
         match joined(opened) {
             Ok(entry) if cancel.cancelled() => {
                 let _ = job.roots.take(entry.id());
-                job.respond(id, Err(Error::Aborted));
+                job.respond(id, Err(Error::Aborted)).await;
             }
             Ok(entry) => {
-                job.respond(id, Ok(Reply::Root { root: entry.id() }));
+                job.respond(id, Ok(Reply::Root { root: entry.id() })).await;
                 // The index and the watcher both keep the root live: quick open stays right while
                 // files change, and listings are invalidated whether or not a client is watching.
                 start_watching(&entry, &job);
                 entry.start_index();
             }
-            Err(error) => job.respond(id, Err(error)),
+            Err(error) => job.respond(id, Err(error)).await,
         }
     });
 }
@@ -287,7 +297,7 @@ fn close_root(shared: &Shared, id: u64, root: u64) {
             Ok(None) => Ok(Reply::Done),
             Err(error) => Err(error),
         };
-        job.respond(id, result);
+        job.respond(id, result).await;
     });
 }
 
@@ -296,7 +306,7 @@ fn unwatch(shared: &Shared, id: u64, subscription: u64) {
     let job = shared.clone();
     tokio::spawn(async move {
         let result = job.subscriptions.remove(subscription).map(|_| Reply::Done);
-        job.respond(id, result);
+        job.respond(id, result).await;
     });
 }
 
@@ -309,13 +319,15 @@ fn start_read(shared: &Shared, id: u64, cancel: Cancel, op: ReadOp) {
         match joined(work.await) {
             Ok((meta, bytes)) => {
                 job.requests.finish(id);
-                job.out.send(Message::Response {
-                    id,
-                    result: Reply::Read(meta),
-                });
-                job.out.send_body(id, bytes);
+                job.out
+                    .send(Message::Response {
+                        id,
+                        result: Reply::Read(meta),
+                    })
+                    .await;
+                job.out.send_body(id, bytes).await;
             }
-            Err(error) => job.respond(id, Err(error)),
+            Err(error) => job.respond(id, Err(error)).await,
         }
     });
 }
@@ -333,13 +345,14 @@ fn start_write(shared: &Shared, id: u64, cancel: Cancel, op: WriteOp) {
                 Err(_) => {
                     job.respond(id, Err(Error::InvalidArgument(
                         "the body frame of this request was lost".to_owned(),
-                    )));
+                    )))
+                    .await;
                     return;
                 }
             },
             () = cancel.wait() => {
                 let _ = job.bodies.forget(id);
-                job.respond(id, Err(Error::Aborted));
+                job.respond(id, Err(Error::Aborted)).await;
                 return;
             }
             () = tokio::time::sleep(BODY_TIMEOUT) => {
@@ -347,17 +360,18 @@ fn start_write(shared: &Shared, id: u64, cancel: Cancel, op: WriteOp) {
                 job.respond(id, Err(Error::InvalidArgument(format!(
                     "no body frame arrived within {} seconds",
                     BODY_TIMEOUT.as_secs()
-                ))));
+                ))))
+                .await;
                 return;
             }
         };
         if cancel.cancelled() {
-            job.respond(id, Err(Error::Aborted));
+            job.respond(id, Err(Error::Aborted)).await;
             return;
         }
         let inner = job.clone();
         let work = tokio::task::spawn_blocking(move || ops::read_write::write(&inner, &op, &bytes));
-        job.respond(id, joined(work.await));
+        job.respond(id, joined(work.await)).await;
     });
 }
 

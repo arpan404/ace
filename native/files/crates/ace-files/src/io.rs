@@ -11,12 +11,16 @@ use std::collections::VecDeque;
 use std::io::{ErrorKind, Read as _};
 
 use files_wire::{Decoder, EventPayload, Frame, Message, encode, encode_body};
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
 use crate::error::Failure;
 
 /// Bytes read from stdin in one call.
 const READ_CHUNK: usize = 64 * 1024;
+/// Frames the writer may hold before the producers wait for it. A daemon that stops reading slows
+/// the work that produces frames instead of letting a queue grow without bound; 256 frames is a
+/// short burst, not a backlog.
+const QUEUE_ITEMS: usize = 256;
 
 /// What the reader hands the dispatcher.
 pub enum Input {
@@ -107,17 +111,22 @@ enum Item {
     /// The bytes of a `read`, tagged with the response's id.
     Body { id: u64, bytes: Vec<u8> },
 }
+
 /// The handle every task writes through. Frames reach stdout in the order they were sent, which is
 /// what makes a `read` response and its body arrive in order.
+///
+/// The queue is bounded, so a daemon that stops reading slows the work that produces frames
+/// instead of letting the process grow: async tasks wait in [`Out::send`], and the sinks that run
+/// on their own threads (the watcher's and a search's) block in [`Out::send_blocking`].
 #[derive(Clone)]
 pub struct Out {
-    sender: UnboundedSender<Item>,
+    sender: Sender<Item>,
 }
 
 impl Out {
     /// Start the writer thread.
     pub fn start() -> Out {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(QUEUE_ITEMS);
         let spawned = std::thread::Builder::new()
             .name("ace-files-stdout".to_owned())
             .spawn(move || write_stdout(receiver));
@@ -128,23 +137,27 @@ impl Out {
         Out { sender }
     }
 
-    /// Queue one message.
-    pub fn send(&self, message: Message) {
-        if self.sender.send(Item::Message(message)).is_err() {
+    /// Queue one message, waiting for room on a slow writer. Async tasks use this.
+    pub async fn send(&self, message: Message) {
+        self.queue(Item::Message(message)).await;
+    }
+
+    /// Queue one message from a thread that is not a task: the watcher's worker and a search's
+    /// walkers block here when the daemon is not reading.
+    pub fn send_blocking(&self, message: Message) {
+        if self.sender.blocking_send(Item::Message(message)).is_err() {
             eprintln!("ace-files: the writer stopped");
         }
     }
 
     /// Queue the body of a `read` response.
-    pub fn send_body(&self, id: u64, bytes: Vec<u8>) {
-        if self.sender.send(Item::Body { id, bytes }).is_err() {
-            eprintln!("ace-files: the writer stopped");
-        }
+    pub async fn send_body(&self, id: u64, bytes: Vec<u8>) {
+        self.queue(Item::Body { id, bytes }).await;
     }
 
     /// Log a failed request and answer it. Every error takes exactly this path, so the log carries
-    /// one line per error and stdout carries nothing but frames.
-    pub fn error(&self, id: u64, failure: Failure) {
+    /// one line per failure worth a line and stdout carries nothing but frames.
+    pub async fn error(&self, id: u64, failure: Failure) {
         eprintln!(
             "ace-files: request {id} failed: {}: {}",
             failure.code, failure.message
@@ -154,12 +167,19 @@ impl Out {
             code: failure.code.to_owned(),
             message: failure.message,
             current: failure.current,
-        });
+        })
+        .await;
+    }
+
+    async fn queue(&self, item: Item) {
+        if self.sender.send(item).await.is_err() {
+            eprintln!("ace-files: the writer stopped");
+        }
     }
 }
 
 /// Write frames until the dispatcher drops its handle.
-fn write_stdout(mut items: UnboundedReceiver<Item>) {
+fn write_stdout(mut items: Receiver<Item>) {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
     // Events split to fit a frame go here and are written before anything newer, so a batch keeps
@@ -301,9 +321,82 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
     use files_wire::{
-        Change, ChangeKind, Entry, FileMatches, Kind, LineMatch, Page, Reply, Summary,
+        Change, ChangeKind, Entry, FileMatches, Kind, LineMatch, PROTOCOL, Page, Reply, Summary,
     };
+
+    /// An `Out` whose writer nobody drains, standing in for a daemon that stopped reading.
+    fn stalled_out() -> (Out, Receiver<Item>) {
+        let (sender, items) = mpsc::channel(QUEUE_ITEMS);
+        (Out { sender }, items)
+    }
+
+    fn hello() -> Message {
+        Message::Hello {
+            protocol: PROTOCOL,
+            version: None,
+        }
+    }
+
+    #[test]
+    fn a_paused_reader_holds_a_blocking_producer_at_the_queue_bound() {
+        let (out, mut items) = stalled_out();
+        for _ in 0..QUEUE_ITEMS {
+            out.sender
+                .try_send(Item::Message(hello()))
+                .expect("the queue starts empty");
+        }
+        let finished = Arc::new(AtomicBool::new(false));
+        let producer = {
+            let out = out.clone();
+            let finished = Arc::clone(&finished);
+            std::thread::spawn(move || {
+                out.send_blocking(hello());
+                finished.store(true, Ordering::SeqCst);
+            })
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            !finished.load(Ordering::SeqCst),
+            "a watcher or search sink waits for a reader instead of queueing without bound"
+        );
+
+        assert!(
+            items.blocking_recv().is_some(),
+            "the reader takes one frame"
+        );
+        producer
+            .join()
+            .expect("the producer finishes once there is room");
+        assert!(finished.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn a_paused_reader_holds_an_async_sender_at_the_queue_bound() {
+        let (out, mut items) = stalled_out();
+        for _ in 0..QUEUE_ITEMS {
+            out.sender
+                .try_send(Item::Message(hello()))
+                .expect("the queue starts empty");
+        }
+        let send = out.send(hello());
+        tokio::pin!(send);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut send)
+                .await
+                .is_err(),
+            "a task waits for room instead of queueing without bound"
+        );
+
+        items.recv().await.expect("the reader takes one frame");
+        tokio::time::timeout(Duration::from_secs(5), send)
+            .await
+            .expect("the send finishes once there is room");
+    }
 
     /// Every message the writer produced, in order.
     fn written_messages(bytes: &[u8]) -> Vec<Message> {
