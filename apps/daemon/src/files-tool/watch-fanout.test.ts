@@ -108,6 +108,39 @@ it("replaces a client's folder set instead of adding to it", () => {
   expect(sent.map((entry) => entry.update.folders)).toEqual([["docs"]]);
 });
 
+it("keeps a pending change the new folder set still watches", () => {
+  const { clock, sent, watch } = fanout();
+  watch.watch("phone", main, "/w", ["A"]);
+  watch.batch("/w", changes("A/file.ts"));
+  clock.advance(40);
+  watch.watch("phone", main, "/w", ["A", "B"]);
+  clock.advance(60);
+  expect(sent).toEqual([
+    { client: "phone", update: { threadId: main, folders: ["A"], rescan: false } },
+  ]);
+});
+
+it("keeps a pending rescan when the folder set is replaced", () => {
+  const { clock, sent, watch } = fanout();
+  watch.watch("phone", main, "/w", ["A"]);
+  watch.batch("/w", rescan);
+  clock.advance(40);
+  watch.watch("phone", main, "/w", ["A", "B"]);
+  clock.advance(60);
+  expect(sent).toEqual([
+    { client: "phone", update: { threadId: main, folders: ["A", "B"], rescan: true } },
+  ]);
+});
+
+it("drops a pending change when the thread moves to another checkout", () => {
+  const { clock, sent, watch } = fanout();
+  watch.watch("phone", main, "/one", ["A"]);
+  watch.batch("/one", changes("A/file.ts"));
+  watch.watch("phone", main, "/two", ["A"]);
+  clock.advance(1_000);
+  expect(sent).toEqual([]);
+});
+
 it("an empty folder set stops watching", () => {
   const { clock, sent, watch } = fanout();
   watch.watch("phone", main, "/w", ["src"]);

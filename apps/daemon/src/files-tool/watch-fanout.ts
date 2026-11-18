@@ -113,13 +113,24 @@ export class WatchFanout {
     }
     const existing = threads.get(threadId);
     if (existing) {
-      existing.watch.cancel?.();
-      existing.watch.cancel = undefined;
-      // The client is re-listing anyway; what was pending for the old set is moot.
-      existing.watch.pending.clear();
-      existing.watch.rescan = false;
-      existing.watch.folders = set;
-      if (existing.root !== root) {
+      if (existing.root === root) {
+        // The client is re-listing its new set, but changes already pending for folders it still
+        // watches are real news it has not heard yet: keep them, and keep the flush that carries
+        // them. Only what the new set no longer watches is dropped.
+        for (const folder of existing.watch.pending) {
+          if (!set.has(folder)) existing.watch.pending.delete(folder);
+        }
+        existing.watch.folders = set;
+        if (existing.watch.rescan || existing.watch.pending.size) {
+          this.#schedule(clientId, threadId, existing.watch);
+        }
+      } else {
+        // Another checkout: what was pending for the old tree says nothing about the new one.
+        existing.watch.cancel?.();
+        existing.watch.cancel = undefined;
+        existing.watch.pending.clear();
+        existing.watch.rescan = false;
+        existing.watch.folders = set;
         this.#unindex(existing.root, clientId, threadId);
         existing.root = root;
         existing.watch.root = root;
