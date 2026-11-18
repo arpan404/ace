@@ -67,6 +67,8 @@ export class FilesProcess {
   #restartTimer: (() => void) | undefined;
   #disposed = false;
   #stdin: StdinQueue | undefined;
+  /** One log line per process for a stale binary, however many ops it refuses. */
+  #outdatedLogged = false;
 
   constructor(options: FilesProcessOptions) {
     this.#host = options.host;
@@ -277,7 +279,13 @@ export class FilesProcess {
         this.#requests.acceptResponse(message.id, message.result);
         return;
       case "error":
-        this.#requests.acceptError(message.id, message.code, message.message, message.current);
+        this.#requests.acceptError(
+          message.id,
+          message.code,
+          message.message,
+          message.current,
+          message.code === "UNSUPPORTED" ? (op) => this.#unknownOp(op) : undefined,
+        );
         return;
       case "event":
         this.#operations.dispatch(message.subscription, message.payload, (text, fields) =>
@@ -358,6 +366,16 @@ export class FilesProcess {
     } catch {
       // Already gone; the exit promise settles the run.
     }
+  }
+
+  /** The sentence a refused op carries; the first one also says so in the log. */
+  #unknownOp(op: string): string {
+    const explanation = `ace-files at ${this.#binary} doesn't know op ${op}; it is older than this daemon`;
+    if (!this.#outdatedLogged) {
+      this.#outdatedLogged = true;
+      this.#log?.("warn", explanation);
+    }
+    return explanation;
   }
 
   #write(bytes: Uint8Array): void {

@@ -83,6 +83,7 @@ export function useSuggestions(
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
     enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
+    refetchInterval: (query) => (query.state.data?.ready === false ? 300 : false),
   });
   const known =
     catalog && catalog.reference === reference && !catalog.failed ? catalog.entries : undefined;
@@ -91,10 +92,11 @@ export function useSuggestions(
   if (!scoped || !ready) return { state: "loading", kind, query };
   let items: Suggestion[];
   if (kind === "mention") {
+    const building = mentions.data?.ready === false;
     items = mentionSuggestions({
       query,
       recent: query ? [] : recent(),
-      paths: mentions.data ?? [],
+      paths: building ? [] : (mentions.data?.paths ?? []),
       tabs,
       threads,
       threadId: thread.id,
@@ -102,7 +104,7 @@ export function useSuggestions(
     }).map((item) =>
       Object.assign(item, { kind, insert: item.path ? `@${item.path}` : `@${item.label}` }),
     );
-    if (!items.length && mentions.isPending) return { state: "loading", kind, query };
+    if (!items.length && (mentions.isPending || building)) return { state: "loading", kind, query };
     if (!items.length && mentions.isError)
       return { state: "failed", kind, query, retry: () => void mentions.refetch() };
   } else {

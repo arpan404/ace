@@ -98,13 +98,15 @@ export type FakeFilesBehaviour =
   | "search-hang"
   | "search-fails"
   | "search-hold"
-  | "hold-requests";
+  | "hold-requests"
+  | "unsupported";
 
 export type FakeFilesOptions = {
   /** Extra environment, usually paths inside the harness's folder. */
   env?: (dir: string) => Record<string, string>;
   timeoutMs?: number;
   stdinQueueLimit?: number;
+  log?: (level: "debug" | "info" | "warn" | "error", message: string) => void;
 };
 
 export type FakeFilesHarness = {
@@ -139,7 +141,7 @@ export function fakeFilesHarness(
     binary: "/fake/ace-files",
     host,
     clock,
-    log: () => {},
+    log: options.log ?? (() => {}),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     ...(options.stdinQueueLimit === undefined ? {} : { stdinQueueLimit: options.stdinQueueLimit }),
   });

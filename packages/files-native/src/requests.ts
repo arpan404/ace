@@ -15,6 +15,8 @@ type Pending = {
   reply: Reply | undefined;
   /** A body that arrived before the response naming it. */
   body: Uint8Array | undefined;
+  /** The op this request sent, so an error can say which one the binary did not know. */
+  op: Op["op"];
 };
 
 /**
@@ -89,6 +91,7 @@ export class PendingRequests {
         onReply: options.onReply,
         reply: undefined,
         body: undefined,
+        op: op.op,
       });
       for (const frame of frames) this.#write(frame);
     });
@@ -119,9 +122,26 @@ export class PendingRequests {
     this.#finish(id, { result: { reply: pending.reply, body: bytes } });
   }
 
-  /** An `error` message, which fails its request and keeps the stream alive. */
-  acceptError(id: number, code: string, message: string, current?: string): void {
-    this.#finish(id, { error: new FilesRequestError(code, message, current) });
+  /**
+   * An `error` message, which fails its request and keeps the stream alive. `explain`, when the
+   * process supplies one, annotates the message with the op it was for.
+   */
+  acceptError(
+    id: number,
+    code: string,
+    message: string,
+    current?: string,
+    explain?: (op: Op["op"]) => string | undefined,
+  ): void {
+    const pending = this.#pending.get(id);
+    const detail = pending === undefined ? undefined : explain?.(pending.op);
+    this.#finish(id, {
+      error: new FilesRequestError(
+        code,
+        detail === undefined ? message : `${message}: ${detail}`,
+        current,
+      ),
+    });
   }
 
   /** Fail everything in flight, for a process that exited or a supervisor shutting down. */

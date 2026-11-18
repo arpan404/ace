@@ -4,11 +4,11 @@ import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { contextScope } from "./context-scope.ts";
-import { quickOpenResult } from "../files-tool/quick-open.ts";
+import { aceFilesIo } from "../files-tool/io.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { ContextService, summarizeThreadReference } from "@ace/context";
-import { ThreadId, WorkspaceId, type ServerMessage } from "@ace/protocol";
+import { ContextError, ContextService, summarizeThreadReference } from "@ace/context";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
@@ -83,6 +83,32 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       const binding = store.executionWorkspace(threadId);
       return binding.ready ? realpath(binding.path) : undefined;
     },
+    complete: async (root, query, limit) => {
+      const native = services.filesNative;
+      if (!native)
+        throw new ContextError(
+          "unsupported",
+          "Quick open needs ace-files, which this machine does not have yet",
+        );
+      try {
+        return await native.tool.quickOpen(root, query, limit);
+      } catch (error) {
+        const code = error instanceof Error && "code" in error ? String(error.code) : "";
+        throw new ContextError(
+          code === "FILES_RESTARTING" || code === "BUSY" ? "busy" : "unsupported",
+          describeFailure(error),
+        );
+      }
+    },
+    listFolder: (root, folder) => {
+      const native = services.filesNative;
+      if (!native)
+        throw new ContextError(
+          "unsupported",
+          "Folder mentions need ace-files, which this machine does not have yet",
+        );
+      return contextFiles(native.tool, root, folder);
+    },
   });
   resources.own(() => context.close());
   services.context = context;
@@ -135,28 +161,29 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
 }
 
-import type { SocketContext, SocketMessage, SocketService } from "./socket.ts";
+import type { FilesTool } from "../files-tool/tool.ts";
+import type { WorkspaceFileEntry } from "@ace/context";
+import type { SocketContext, SocketService } from "./socket.ts";
+
+/** A folder mention's files: ace-files' paged listing, with ignored entries left out. */
+async function* contextFiles(
+  tool: FilesTool,
+  root: string,
+  folder: string,
+): AsyncGenerator<WorkspaceFileEntry> {
+  for await (const entry of aceFilesIo(tool).walk(root, folder))
+    if (entry.type === "file" && !entry.ignored) yield { path: entry.path, size: entry.size };
+}
+
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createContextSession(context: SocketContext): SocketService {
   const { options, authorize, canReadThread, send, tasks, connected } = context;
   // At most eight bounded protocol requests wait on this socket. Chunk bodies are <=64 KiB.
   let pending = 0;
   let tail = Promise.resolve();
-  /**
-   * Quick open from ace-files' index once it can answer, keeping the reply's shape. Undefined
-   * means the daemon's existing path index answers instead, so results never disappear.
-   */
-  const nativeQuickOpen = async (
-    message: Extract<SocketMessage, { type: "context.request" }>,
-  ): Promise<Extract<ServerMessage, { type: "context.result" }> | undefined> => {
-    const operation = message.operation;
-    if (operation.op !== "mention.complete") return undefined;
-    return quickOpenResult(options.store, options.filesNative?.tool, {
-      requestId: message.requestId,
-      threadId: operation.threadId,
-      query: operation.query,
-      limit: operation.limit,
-    });
-  };
   return {
     async handle(message, device) {
       switch (message.type) {
@@ -206,12 +233,6 @@ export function createContextSession(context: SocketContext): SocketService {
               // grant: nothing starts for a request that may no longer have its answer.
               if (!allowed()) {
                 refuse();
-                return;
-              }
-              const quick = await nativeQuickOpen(message);
-              if (quick) {
-                if (allowed()) send(quick);
-                else refuse();
                 return;
               }
               send(

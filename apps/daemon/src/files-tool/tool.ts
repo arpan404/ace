@@ -300,21 +300,23 @@ export class FilesTool {
   }
 
   /**
-   * Quick-open paths from the checkout's index. Undefined while the index is still building or
-   * ace-files cannot answer, which leaves the caller its existing answer instead of no answer.
+   * Quick-open paths from the checkout's index. `ready: false` means the index is still building
+   * and the client keeps its loading state; there is no TypeScript index to fall back to.
    */
-  async quickOpen(path: string, query: string, limit: number): Promise<string[] | undefined> {
-    try {
-      const client = await this.client();
-      const capped = Math.min(Math.max(1, Math.trunc(limit)), maxIndexQueryLimit);
-      const answer = await this.#rootBook().use(path, (root) =>
-        client.indexQuery(root, query, capped),
-      );
-      return answer.ready ? answer.hits.map((hit) => hit.path) : undefined;
-    } catch (error) {
-      this.#log("debug", "Quick open fell back to the TypeScript index", { error: String(error) });
-      return undefined;
-    }
+  async quickOpen(
+    path: string,
+    query: string,
+    limit: number,
+  ): Promise<{ paths: string[]; ready: boolean }> {
+    const client = await this.client();
+    const capped = Math.min(Math.max(1, Math.trunc(limit)), maxIndexQueryLimit);
+    const answer = await this.#rootBook().use(path, (root) =>
+      client.indexQuery(root, query, capped),
+    );
+    return {
+      paths: answer.ready ? answer.hits.map((hit) => hit.path) : [],
+      ready: answer.ready,
+    };
   }
 
   /**

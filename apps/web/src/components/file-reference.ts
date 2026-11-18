@@ -19,7 +19,7 @@ import {
 
 /*
  * A file an answer mentions (`loader.ts`, `src/app/x.tsx:42`), linked once the thread's checkout
- * confirms it. Resolution asks the daemon's path index once per path per thread, and only for
+ * confirms it. Resolution asks ace-files' path index once per path per thread, and only for
  * settled text. A unique match opens in the side panel's Files view at its line; several matches
  * open the Files tree filtered to the name. An absolute or home path (`~/Downloads/a.pdf`) the
  * checkout doesn't hold (outside the project, or ignored inside it) opens beside the thread as a file the answer names, which

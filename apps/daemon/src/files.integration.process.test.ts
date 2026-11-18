@@ -12,7 +12,6 @@ import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { AgentId, DeviceId, ClientMessage, ServerMessage, FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame } from "@ace/files";
-import { workspaceRuntime } from "@ace/workspace";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { startDaemon, createDevThread, stubHandler, type DaemonOptions } from "./index.ts";
 import { startServer } from "./server.ts";

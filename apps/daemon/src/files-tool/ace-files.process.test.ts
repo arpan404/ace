@@ -100,19 +100,18 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
 
   it("quick open finds a file created after the root opened", async () => {
     await tool.listFolder(checkout, "");
-    await until(async () => (await tool.quickOpen(checkout, "main", 20)) !== undefined);
+    await until(async () => (await tool.quickOpen(checkout, "main", 20)).ready);
     await writeFile(join(checkout, "src", "after-start.ts"), "export const later = 1;\n");
-    await until(
-      async () =>
-        (await tool.quickOpen(checkout, "afterstart", 20))?.includes("src/after-start.ts") === true,
+    await until(async () =>
+      (await tool.quickOpen(checkout, "afterstart", 20)).paths.includes("src/after-start.ts"),
     );
-    expect(await tool.quickOpen(checkout, "README", 20)).toContain("README.md");
+    expect((await tool.quickOpen(checkout, "README", 20)).paths).toContain("README.md");
   });
 
   it("answers the quick-open shapes the panel sends", async () => {
     await tool.listFolder(checkout, "");
-    // The Rust index ranks like VS Code's quick open, so the order may differ from the
-    // TypeScript index; the paths a person expects are the behaviour this guards.
+    // The Rust index ranks like VS Code's quick open; the paths a person expects are the
+    // behaviour this guards.
     const expected: [string, string][] = [
       ["main", "src/main.ts"],
       ["gude", "docs/guide.md"],
@@ -121,8 +120,8 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
     for (const [query, path] of expected) {
       const end = Date.now() + 15_000;
       for (;;) {
-        const paths = await tool.quickOpen(checkout, query, 20);
-        if (paths?.includes(path)) break;
+        const answer = await tool.quickOpen(checkout, query, 20);
+        if (answer.paths.includes(path)) break;
         if (Date.now() > end)
           throw new Error(`quick open missed ${path} for ${JSON.stringify(query)}`);
         await new Promise((resolve) => setTimeout(resolve, 50));

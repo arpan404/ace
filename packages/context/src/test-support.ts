@@ -1,11 +1,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { mkdtemp, realpath, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, mkdir, writeFile, readdir, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { ThreadId, type ContextResult } from "@ace/protocol";
-import { GitWorkspace, UploadStore, type UploadLimits, type UploadOptions } from "./index.ts";
+import {
+  GitWorkspace,
+  UploadStore,
+  type WorkspaceFileEntry,
+  type UploadLimits,
+  type UploadOptions,
+} from "./index.ts";
 
 export const run = promisify(execFile);
 export const thread = ThreadId.parse("thread");
@@ -17,10 +23,24 @@ export const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
   "base64",
 );
+/** A plain recursive listing for tests that are not about ace-files' ignore rules. */
+export async function* testListing(root: string, folder = ""): AsyncIterable<WorkspaceFileEntry> {
+  const pending = [folder];
+  while (pending.length) {
+    const dir = pending.shift();
+    if (dir === undefined) return;
+    for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+      if (entry.name === ".git") continue;
+      const path = dir ? `${dir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile()) yield { path, size: (await lstat(join(root, path))).size };
+    }
+  }
+}
 export async function repository() {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-context-")));
   await run("git", ["init", "--quiet", root]);
-  const workspace = new GitWorkspace(root);
+  const workspace = new GitWorkspace(root, {}, { list: (folder) => testListing(root, folder) });
   return {
     root,
     workspace,

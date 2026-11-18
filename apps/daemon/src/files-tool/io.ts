@@ -60,6 +60,32 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
         throw refused(error);
       }
     },
+    /** The legacy `list` reply: ace-files' pages, composed breadth-first, ignored left out. */
+    async paths(root, dir, limit, options = {}) {
+      const paths: string[] = [];
+      const pending: string[] = [dir];
+      while (pending.length) {
+        const folder = pending.shift();
+        if (folder === undefined) break;
+        let cursor: string | undefined;
+        do {
+          const page = await tool.listFolder(root, folder, {
+            limit: filesListDefaults.limit,
+            ...(cursor === undefined ? {} : { cursor }),
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+          });
+          for (const entry of page.entries) {
+            if (entry.ignored || reserved(entry.path)) continue;
+            if (entry.kind !== "file" && entry.kind !== "directory") continue;
+            if (paths.length >= limit) return { paths, truncated: true };
+            paths.push(entry.kind === "directory" ? `${entry.path}/` : entry.path);
+            if (entry.kind === "directory") pending.push(entry.path);
+          }
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor);
+      }
+      return { paths, truncated: false };
+    },
     async read(root, path, range, options = {}) {
       refuse(path);
       try {
