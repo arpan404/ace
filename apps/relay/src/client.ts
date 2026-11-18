@@ -18,6 +18,8 @@ export async function connectClientViaRelay(options: {
   grant?: string;
   /** `media`: a stream the daemon hands to ace-media; its hello names `channel: "media"`. */
   purpose?: RelayPurpose;
+  /** This app's `ace-client` name (ADR 0189), sent on the upgrade. */
+  aceClient?: string;
 }): Promise<ClientChannel> {
   if (HostId.parse(options.hostId) !== HostId.parse(options.pinnedFingerprint))
     throw new Error("Host id must match pinned fingerprint");
@@ -31,6 +33,7 @@ export async function connectClientViaRelay(options: {
     clock,
     10000,
     options.grant ? [GRANT_SUBPROTOCOL_PREFIX + options.grant] : [],
+    options.aceClient,
   );
   const cancel = clock.schedule(10000, () => socket.terminate());
   try {

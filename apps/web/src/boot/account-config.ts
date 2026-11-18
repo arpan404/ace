@@ -1,3 +1,5 @@
+import { aceClientName, namedQueryFetch } from "@ace/client/ace-client";
+import type { AceClient } from "@ace/protocol/ace-client";
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import {
   ACE_APP_SIGN_IN_RETURN,
@@ -7,6 +9,7 @@ import {
   AceAccountGrant,
   HostedAddress,
 } from "@ace/protocol/ace-account";
+import { authorizeDaemonUrl } from "./daemon-network.ts";
 
 /*
  * Where this build finds ace's account backend and hosted relay (docs/relay/accounts.md). The
@@ -22,6 +25,27 @@ import {
 export function accountOrigin(env: ImportMetaEnv = import.meta.env): string | undefined {
   if (env.VITE_ACE_ACCOUNT_URL !== undefined) return env.VITE_ACE_ACCOUNT_URL || undefined;
   return env.PROD ? ACE_HOSTED_ACCOUNT_ORIGIN : undefined;
+}
+
+/**
+ * How this web app names itself to ace cloud (`ace-client`, ADR 0189): the version the build
+ * stamped, or a development build under Vite's dev server. A build without either sends none.
+ */
+export function webClient(env: ImportMetaEnv = import.meta.env): AceClient | undefined {
+  return aceClientName("web", env.VITE_ACE_VERSION || undefined);
+}
+
+/**
+ * `fetch` for ace's account backend at `origin`: admitted by the desktop app first, and naming
+ * this app on every request in the `ace-client` query parameter, never a header, so a cloud
+ * whose CORS preflight doesn't allow that header still answers (ADR 0189).
+ */
+export function accountFetch(origin: string, env: ImportMetaEnv = import.meta.env): typeof fetch {
+  const named = namedQueryFetch(fetch, webClient(env));
+  return async (input, init) => {
+    await authorizeDaemonUrl(`${origin}/`);
+    return named(input, init);
+  };
 }
 
 /** ace's hosted relay as a WebSocket address, or undefined without an account backend. */
