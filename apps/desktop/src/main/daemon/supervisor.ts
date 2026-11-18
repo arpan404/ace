@@ -257,8 +257,9 @@ export class DaemonSupervisor {
       if (this.stale(generation)) return;
       if (!owned) return this.adopt(existing, generation);
       const adopted = this.track(owned.process);
-      // Its record names it already: the next launch adopts it as this one did.
-      if (!owned.replace) this.recorded = adopted;
+      // Its record names it already, with the version that started it: a quit leaves it for the
+      // next launch, which adopts it, or replaces it again if this launch did not get to.
+      this.recorded = adopted;
       if (!owned.replace) {
         this.ports.log("info", "Adopted the daemon an earlier launch left running", {
           pid: owned.process.pid,

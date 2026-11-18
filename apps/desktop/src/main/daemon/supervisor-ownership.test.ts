@@ -155,6 +155,25 @@ describe("the daemon outlives the app that started it (ADR 0186)", () => {
     expect(c.children).toHaveLength(2);
   });
 
+  it("quitting while an old daemon drains leaves it on file as the old version, so the next launch replaces it", async () => {
+    const c = computer();
+    const first = c.launch("1.0.0");
+    await c.startWithOwnDaemon(first);
+    await first.release();
+    c.state.blockers = 1;
+
+    const second = c.launch("1.1.0");
+    const starting = second.start();
+    await c.advance(2_000);
+    const quitting = second.release();
+    // The drain notices at its next poll that the app is quitting.
+    await c.advance(1_000);
+    await Promise.all([quitting, starting]);
+    expect(c.children[0]?.alive).toBe(true);
+    expect(c.children).toHaveLength(1);
+    expect(c.home.record).toMatchObject({ version: "1.0.0", pid: 100 });
+  });
+
   it("a CLI daemon is never adopted as app-owned, even with an old record of the app's on file", async () => {
     const c = computer();
     const first = c.launch("1.0.0");
