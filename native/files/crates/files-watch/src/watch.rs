@@ -238,10 +238,8 @@ impl Worker {
             if self.stop.load(Ordering::Acquire) {
                 break;
             }
-            if self.overflow.swap(false, Ordering::AcqRel)
-                && let Some(batch) = coalescer.overflow(None, Instant::now())
-            {
-                self.deliver(batch);
+            if self.overflow.swap(false, Ordering::AcqRel) {
+                coalescer.overflow(None, Instant::now());
             }
             let received = match coalescer.wait(Instant::now()) {
                 Some(remaining) => self.commands.recv_timeout(remaining),
@@ -259,19 +257,12 @@ impl Worker {
                         translate::translate(event, &self.root, &self.excluder, &look)
                     };
                     if let Some(dir) = translation.rescan {
-                        if let Some(batch) = coalescer.overflow(dir, now) {
-                            self.deliver(batch);
-                        }
+                        coalescer.overflow(dir, now);
                         continue;
                     }
-                    let batch = self.adopt_folders(&mut translation.notices, now, &mut coalescer);
+                    self.adopt_folders(&mut translation.notices, now, &mut coalescer);
                     for notice in translation.notices {
-                        if let Some(rescan) = coalescer.push(notice, now) {
-                            self.deliver(rescan);
-                        }
-                    }
-                    if let Some(batch) = batch {
-                        self.deliver(batch);
+                        coalescer.push(notice, now);
                     }
                 }
                 Ok(Command::Event(Err(error))) => {
@@ -294,25 +285,23 @@ impl Worker {
         notices: &mut Vec<Notice>,
         now: Instant,
         coalescer: &mut Coalescer,
-    ) -> Option<Batch> {
+    ) {
         if let Err(error) = self.backend.adopt(&self.root, &self.excluder, notices) {
             self.switch_to_polling(&error);
-            return None;
+            return;
         }
         let folders: std::collections::BTreeSet<String> = notices
             .iter()
             .filter(|notice| notice.change.kind == ChangeKind::Created && notice.change.directory)
             .map(|notice| notice.change.path.clone())
             .collect();
-        let mut batch = None;
         for folder in folders {
             match adopt::list(&self.root, &self.excluder, &folder, self.options.max_batch) {
                 Adopted::Files(files) => notices.extend(files),
-                Adopted::TooMany => batch = coalescer.overflow(Some(folder), now).or(batch),
+                Adopted::TooMany => coalescer.overflow(Some(folder), now),
                 Adopted::Unreadable => {}
             }
         }
-        batch
     }
 
     /// The kernel's watch budget ran out: carry on with the poller rather than lose the tree.

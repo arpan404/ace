@@ -4,8 +4,10 @@
 //!
 //! A window stays open while events keep arriving and closes `debounce` after the last of
 //! them, or `max_wait` after the first, so a continuous stream of changes still reaches the
-//! caller. More changes than `max_batch`, or an overflow from the backend, closes the window
-//! with a single rescan of the narrowest folder that holds them.
+//! caller. More changes than `max_batch`, or an overflow from the backend, turns the window
+//! into one rescan of the narrowest folder that holds them; it is sent when the burst goes
+//! quiet, so the walk it starts sees the finished tree. A change that arrives after that is
+//! reported in the next window, and a fresh over-limit burst is a fresh rescan.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -20,11 +22,13 @@ pub(crate) struct Coalescer {
     max_wait: Duration,
     max_batch: usize,
     paths: BTreeMap<String, Observed>,
-    /// Set once the window is too big or the backend lost events: one rescan closes it.
-    rescan: Option<Option<String>>,
-    /// Folders named by overflow events, and whether one arrived without a folder.
-    overflow: Vec<String>,
-    overflow_unknown: bool,
+    /// Set once the window is over its limit or the backend lost events: the window closes with
+    /// one rescan of the narrowest folder holding everything it heard, held as segments so a
+    /// later change can widen it; empty means the root.
+    ///
+    /// The rescan waits for the burst to go quiet. A walk started while files are still landing
+    /// would miss the rest, and the changes arriving meanwhile are covered by the same rescan.
+    scope: Option<Vec<String>>,
     first: Option<Instant>,
     last: Option<Instant>,
     /// Whether anything arrived since the last settle, which is how a rescan tells a new
@@ -39,9 +43,7 @@ impl Coalescer {
             max_wait,
             max_batch,
             paths: BTreeMap::new(),
-            rescan: None,
-            overflow: Vec::new(),
-            overflow_unknown: false,
+            scope: None,
             first: None,
             last: None,
             activity: false,
@@ -54,19 +56,18 @@ impl Coalescer {
         self.activity = true;
     }
 
-    /// Adds one event. Returns the rescan that closes the window when it has grown too big.
-    pub(crate) fn push(&mut self, notice: Notice, now: Instant) -> Option<Batch> {
+    /// Adds one event. A window over its limit, or one already rescanning, settles into the
+    /// rescan instead of carrying the change.
+    pub(crate) fn push(&mut self, notice: Notice, now: Instant) {
         self.record(now);
         let Notice {
             change,
             rename,
             present,
         } = notice;
-        // Everything inside a folder already being rescanned is covered by that rescan.
-        if let Some(dir) = &self.rescan
-            && (dir.is_none() || under(&change.path, dir.as_deref().unwrap_or("")))
-        {
-            return None;
+        if self.scope.is_some() {
+            self.widen(&change);
+            return;
         }
         let path = change.path;
         let holds_a_change = self.holds_a_change(&path);
@@ -83,13 +84,9 @@ impl Coalescer {
             }
             folder = parent(folder);
         }
-        if self.rescan.is_none() && self.paths.len() > self.max_batch {
-            let dir = self.narrowest();
-            self.rescan = Some(dir.clone());
-            self.paths.clear();
-            return Some(Batch::Rescan { dir });
+        if self.paths.len() > self.max_batch {
+            self.begin_from_paths();
         }
-        None
     }
 
     /// Whether the window already holds news about something inside `folder`.
@@ -103,21 +100,46 @@ impl Coalescer {
 
     /// The backend lost events. `dir` is the folder it named, if it named one.
     ///
-    /// The window is not closed here, because the events the backend still delivers are what
-    /// makes the rescan's folder narrow.
-    pub(crate) fn overflow(&mut self, dir: Option<String>, now: Instant) -> Option<Batch> {
+    /// Nothing is sent yet: the changes still arriving are what make the rescan's folder narrow,
+    /// and a walk started now would miss them.
+    pub(crate) fn overflow(&mut self, dir: Option<String>, now: Instant) {
         self.record(now);
-        match dir {
-            Some(dir) => self.overflow.push(dir),
-            None => self.overflow_unknown = true,
+        let mut scope = match dir.as_deref() {
+            Some(folder) => segments(folder),
+            // Events lost with no folder named are only covered by a walk of the root.
+            None => Vec::new(),
+        };
+        for (path, observed) in &self.paths {
+            narrow(&mut scope, observed.scope(path));
         }
-        if self.rescan.is_some() {
-            return None;
+        if let Some(current) = &self.scope {
+            scope = intersect(&scope, current);
         }
-        let dir = self.narrowest();
-        self.rescan = Some(dir.clone());
         self.paths.clear();
-        Some(Batch::Rescan { dir })
+        self.scope = Some(scope);
+    }
+
+    /// The window holds more paths than a batch may carry: it closes with a rescan of the
+    /// deepest folder that holds them all.
+    fn begin_from_paths(&mut self) {
+        let mut scope: Option<Vec<String>> = None;
+        for (path, observed) in &self.paths {
+            let folder = observed.scope(path);
+            match &mut scope {
+                Some(scope) => narrow(scope, folder),
+                None => scope = Some(segments(folder)),
+            }
+        }
+        let scope = scope.unwrap_or_default();
+        self.paths.clear();
+        self.scope = Some(scope);
+    }
+
+    /// A change arrived while the window is rescanning: the rescan now has to cover it too.
+    fn widen(&mut self, change: &Change) {
+        if let Some(scope) = &mut self.scope {
+            narrow(scope, folder_of(change));
+        }
     }
 
     /// How long to wait for the next event, or `None` when the window is empty.
@@ -139,43 +161,30 @@ impl Coalescer {
         now: Instant,
         look: &dyn Fn(&str) -> Presence,
     ) -> Option<Batch> {
-        let rescanning = self.rescan.clone();
         let activity = std::mem::take(&mut self.activity);
-        let overflowed = self.overflow_unknown;
-        let overflowed_folders = std::mem::take(&mut self.overflow);
-        let mut paths = std::mem::take(&mut self.paths);
-        self.first = None;
-        self.last = None;
-        if rescanning.is_some() {
-            if !activity {
-                // The burst is over; the rescan was already sent when it started, and
-                // whatever was kept from outside it reports now.
-                self.rescan = None;
-            } else {
-                // Keep waiting: everything inside the rescanned folder is covered by the
-                // rescan already sent, and anything outside it waits for the next window.
-                if let Some(Some(dir)) = &rescanning {
-                    paths.retain(|path, _| !under(path, dir));
-                } else {
-                    paths.clear();
-                }
-                self.paths = paths;
+        if let Some(scope) = self.scope.clone() {
+            self.first = None;
+            self.last = None;
+            if activity {
+                // Still landing. Wait for quiet, or the walk would read a folder that is not
+                // finished and the changes after it would be lost.
                 self.first = Some(now);
                 self.last = Some(now);
                 return None;
             }
+            self.scope = None;
+            return Some(Batch::Rescan {
+                dir: (!scope.is_empty()).then(|| scope.join("/")),
+            });
         }
-        let _ = (overflowed, overflowed_folders);
+        let paths = std::mem::take(&mut self.paths);
+        self.first = None;
+        self.last = None;
         let mut changes = Vec::with_capacity(paths.len());
         for (path, observed) in &paths {
             if let Some(change) = observed.resolve(path, look) {
                 changes.push(change);
             }
-        }
-        if changes.len() > self.max_batch {
-            return Some(Batch::Rescan {
-                dir: narrowest(changes.iter().map(scope)),
-            });
         }
         if changes.is_empty() {
             None
@@ -183,20 +192,10 @@ impl Coalescer {
             Some(Batch::Changes(changes))
         }
     }
-
-    fn narrowest(&self) -> Option<String> {
-        narrowest(
-            self.overflow.iter().map(String::as_str).chain(
-                self.paths
-                    .iter()
-                    .map(|(path, observed)| observed.scope(path)),
-            ),
-        )
-    }
 }
 
 /// The folder a change needs listed again.
-fn scope(change: &Change) -> &str {
+fn folder_of(change: &Change) -> &str {
     if change.directory && change.kind != crate::batch::ChangeKind::Deleted {
         &change.path
     } else {
@@ -204,31 +203,37 @@ fn scope(change: &Change) -> &str {
     }
 }
 
-fn under(path: &str, folder: &str) -> bool {
-    path.len() > folder.len() && path.starts_with(folder) && path.as_bytes()[folder.len()] == b'/'
+/// The segments of a folder, empty for the root.
+fn segments(folder: &str) -> Vec<String> {
+    if folder.is_empty() {
+        Vec::new()
+    } else {
+        folder.split('/').map(str::to_owned).collect()
+    }
 }
 
-/// The deepest folder holding every path, or `None` for the root.
-fn narrowest<'a>(folders: impl Iterator<Item = &'a str>) -> Option<String> {
-    let mut common: Option<Vec<&str>> = None;
-    for folder in folders {
-        let segments: Vec<&str> = if folder.is_empty() {
-            Vec::new()
-        } else {
-            folder.split('/').collect()
-        };
-        common = Some(match common {
-            None => segments,
-            Some(current) => current
-                .into_iter()
-                .zip(segments)
-                .take_while(|(left, right)| left == right)
-                .map(|(segment, _)| segment)
-                .collect(),
-        });
+/// Narrows `scope` to the deepest folder holding it and `folder` as well.
+fn narrow(scope: &mut Vec<String>, folder: &str) {
+    if scope.is_empty() {
+        // The root already holds everything.
+        return;
     }
-    let segments = common?;
-    (!segments.is_empty()).then(|| segments.join("/"))
+    if folder.is_empty() {
+        scope.clear();
+        return;
+    }
+    let common = scope
+        .iter()
+        .zip(folder.split('/'))
+        .take_while(|(held, part)| held.as_str() == *part)
+        .count();
+    scope.truncate(common);
+}
+
+/// The deepest folder holding both scopes; empty when either is the root.
+fn intersect(left: &[String], right: &[String]) -> Vec<String> {
+    let common = left.iter().zip(right).take_while(|(a, b)| a == b).count();
+    left[..common].to_vec()
 }
 
 #[cfg(test)]
@@ -322,32 +327,26 @@ mod tests {
     }
 
     #[test]
-    fn a_burst_over_max_batch_is_one_rescan_and_stays_one() {
+    fn a_burst_over_max_batch_rescans_when_it_goes_quiet() {
         let mut coalescer = coalescer(2);
         let start = Instant::now();
-        let mut rescans = None;
         for index in 0..100 {
             let now = start + Duration::from_millis(index);
-            rescans = coalescer
-                .push(
-                    notice(&format!("burst/file{index}"), ChangeKind::Created),
-                    now,
-                )
-                .or(rescans);
+            coalescer.push(
+                notice(&format!("burst/file{index}"), ChangeKind::Created),
+                now,
+            );
         }
         assert_eq!(
-            rescans,
-            Some(Batch::Rescan {
-                dir: Some("burst".to_owned())
-            })
+            coalescer.settle(start + Duration::from_millis(200), &exists),
+            None,
+            "the burst is still going in the watcher's queue"
         );
         assert_eq!(
             coalescer.settle(start + Duration::from_secs(2), &exists),
-            None
-        );
-        assert_eq!(
-            coalescer.settle(start + Duration::from_secs(3), &exists),
-            None
+            Some(Batch::Rescan {
+                dir: Some("burst".to_owned())
+            })
         );
         assert_eq!(
             coalescer.settle(start + Duration::from_secs(3), &exists),
@@ -357,21 +356,48 @@ mod tests {
     }
 
     #[test]
-    fn changes_outside_a_rescanned_folder_survive_it() {
+    fn a_change_after_the_rescan_starts_a_new_window() {
         let mut coalescer = coalescer(1);
         let start = Instant::now();
         coalescer.push(notice("burst/a", ChangeKind::Created), start);
+        coalescer.push(notice("burst/b", ChangeKind::Created), start);
+        assert_eq!(coalescer.settle(start, &exists), None);
         assert_eq!(
-            coalescer.push(notice("burst/b", ChangeKind::Created), start),
+            coalescer.settle(start + Duration::from_secs(1), &exists),
             Some(Batch::Rescan {
                 dir: Some("burst".to_owned())
             })
         );
-        coalescer.push(notice("other/c", ChangeKind::Modified), start);
-        assert_eq!(coalescer.settle(start, &exists), None);
-        let changes = changes_of(coalescer.settle(start + Duration::from_secs(1), &exists));
+        let later = start + Duration::from_secs(2);
+        coalescer.push(notice("other/c", ChangeKind::Modified), later);
+        let changes = changes_of(coalescer.settle(later + Duration::from_secs(1), &exists));
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].path, "other/c");
+    }
+
+    #[test]
+    fn a_second_burst_after_a_rescan_is_a_second_rescan() {
+        let mut coalescer = coalescer(1);
+        let start = Instant::now();
+        coalescer.push(notice("first/a", ChangeKind::Created), start);
+        coalescer.push(notice("first/b", ChangeKind::Created), start);
+        assert_eq!(coalescer.settle(start, &exists), None);
+        assert_eq!(
+            coalescer.settle(start + Duration::from_secs(1), &exists),
+            Some(Batch::Rescan {
+                dir: Some("first".to_owned())
+            })
+        );
+        let later = start + Duration::from_secs(2);
+        coalescer.push(notice("second/a", ChangeKind::Created), later);
+        coalescer.push(notice("second/b", ChangeKind::Created), later);
+        assert_eq!(coalescer.settle(later, &exists), None);
+        assert_eq!(
+            coalescer.settle(later + Duration::from_secs(1), &exists),
+            Some(Batch::Rescan {
+                dir: Some("second".to_owned())
+            })
+        );
     }
 
     #[test]
@@ -379,24 +405,40 @@ mod tests {
         let mut coalescer = coalescer(100);
         let now = Instant::now();
         coalescer.push(notice("src/a.txt", ChangeKind::Modified), now);
+        coalescer.overflow(Some("src".to_owned()), now);
+        assert_eq!(coalescer.settle(now, &exists), None);
         assert_eq!(
-            coalescer.overflow(Some("src".to_owned()), now),
+            coalescer.settle(now + Duration::from_secs(1), &exists),
             Some(Batch::Rescan {
                 dir: Some("src".to_owned())
             })
         );
-        assert_eq!(coalescer.settle(now, &exists), None);
     }
 
     #[test]
     fn an_overflow_without_a_folder_rescans_the_root() {
         let mut coalescer = coalescer(100);
         let now = Instant::now();
+        coalescer.overflow(None, now);
+        assert_eq!(coalescer.settle(now, &gone), None);
         assert_eq!(
-            coalescer.overflow(None, now),
+            coalescer.settle(now + Duration::from_secs(1), &gone),
             Some(Batch::Rescan { dir: None })
         );
-        assert_eq!(coalescer.settle(now, &gone), None);
+    }
+
+    #[test]
+    fn a_change_outside_an_overflowing_folder_widens_its_rescan() {
+        let mut coalescer = coalescer(100);
+        let now = Instant::now();
+        coalescer.overflow(Some("src".to_owned()), now);
+        coalescer.push(notice("docs/a.txt", ChangeKind::Modified), now);
+        assert_eq!(coalescer.settle(now, &exists), None);
+        assert_eq!(
+            coalescer.settle(now + Duration::from_secs(1), &exists),
+            Some(Batch::Rescan { dir: None }),
+            "the root holds both folders"
+        );
     }
 
     #[test]
@@ -416,8 +458,10 @@ mod tests {
             now,
         );
         coalescer.push(notice("burst/a.txt", ChangeKind::Created), now);
+        coalescer.overflow(Some("burst".to_owned()), now);
+        assert_eq!(coalescer.settle(now, &exists), None);
         assert_eq!(
-            coalescer.overflow(Some("burst".to_owned()), now),
+            coalescer.settle(now + Duration::from_secs(1), &exists),
             Some(Batch::Rescan {
                 dir: Some("burst".to_owned())
             })
