@@ -29,8 +29,8 @@ export interface CommandAdmission {
   flights: { count: number };
   open(): boolean;
   authorize(scope: DeviceScope): boolean;
-  /** The socket authenticated with the daemon's token file (`answer-gate.ts`). */
-  hostCredential(): boolean;
+  /** The socket holds the daemon's token file alone, not as the app (`answer-gate.ts`). */
+  hostTokenOnly(): boolean;
   send(message: ServerMessage): void;
   delay(run: () => void, milliseconds: number): () => void;
 }
@@ -119,7 +119,7 @@ export async function admitCommand(command: Command, admission: CommandAdmission
   const market = options.marketAgent;
   const held = market
     ? await hostAnswerRefusal(command, {
-        hostCredential: admission.hostCredential(),
+        hostTokenOnly: admission.hostTokenOnly(),
         personOnlyMarket: (id) => market.requests.isPending(id),
         fresh: () => market.freshSignIn(),
       })

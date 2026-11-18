@@ -15,6 +15,11 @@ export interface LocalDaemon {
    * only when the file is missing or unreadable.
    */
   hostId?: string;
+  /**
+   * Set by the supervisor for the daemon it spawned, and only that one: the page's proof that
+   * it is the app's (ADR 0178 §12.8), made with the key the app gave that daemon on stdin.
+   */
+  appProof?: string;
 }
 
 const Origin = z

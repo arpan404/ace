@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
+import { appKeyEnv, appKeyLine, appKeyOnStdin } from "@ace/service/app-key";
 import type { Launch } from "./launch-priority.ts";
 import { requestStop } from "./stop-request.ts";
 import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
@@ -55,6 +56,11 @@ export interface SpawnOptions {
   prioritize?: ((launch: Launch) => Launch) | undefined;
   /** The OS the daemon runs on; `process.platform` unless a test says otherwise. */
   platform?: NodeJS.Platform | undefined;
+  /**
+   * The app's key for this daemon (ADR 0178 §12.8): written on its stdin, which then closes,
+   * and named nowhere else. The environment only says a key is on stdin.
+   */
+  appKey?: Uint8Array | undefined;
 }
 
 /**
@@ -81,6 +87,9 @@ export function daemonEnvironment(
     ACE_VERSION: daemonVersion(options.version),
     PATH: path,
   };
+  // Only a spawn that writes a key on stdin says there is one; never an inherited flag.
+  if (options.appKey) env[appKeyEnv] = appKeyOnStdin;
+  else delete env[appKeyEnv];
   // Electron-only switches must not leak into the Node child.
   if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
@@ -111,9 +120,14 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   const child = spawn(launch.command, launch.args, {
     cwd: dirname(options.resources.entry),
     env: daemonEnvironment(options, program.env),
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [options.appKey ? "pipe" : "ignore", "pipe", "pipe"],
     windowsHide: true,
   });
+  if (options.appKey && child.stdin) {
+    // A daemon that exits before reading it closes the pipe: that failure is its exit's.
+    child.stdin.on("error", () => {});
+    child.stdin.end(appKeyLine(options.appKey));
+  }
   for (const [name, stream] of [
     ["stdout", child.stdout],
     ["stderr", child.stderr],

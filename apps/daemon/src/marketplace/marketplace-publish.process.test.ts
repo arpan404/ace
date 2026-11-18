@@ -188,7 +188,8 @@ describe("the market grant", () => {
     expect(await publish({ action: "changeHandle", handle: "new-name" }, grant)).toEqual({
       op: "error",
       code: "reauth",
-      message: "Sign in again to do this.",
+      message:
+        "Sign in again to do this: the market needs a sign-in from the last 10 minutes. Sign in to ace again (ace login), then try it again.",
     });
   });
 });

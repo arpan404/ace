@@ -134,6 +134,8 @@ export type DaemonOptions = {
     Pick<import("../user-browser.ts").UserBrowserOptions, "home" | "node" | "extraHostDirs">
   >;
   preview?: DaemonPreviewOptions;
+  /** The desktop app's key for this daemon, read from stdin by `ace start` (ADR 0178 §12.8). */
+  appKey?: Uint8Array | undefined;
   review?: DaemonReviewOptions;
   history?: DaemonHistoryOptions;
 };

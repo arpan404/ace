@@ -97,3 +97,41 @@ it.runIf(process.platform === "darwin")(
     expect(await exit).toEqual([null, "SIGTERM"]);
   },
 );
+
+it("gives the daemon it spawns the app's key on stdin, and its environment only says one is there", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
+  roots.push(root);
+  const entry = join(root, "ace.mjs");
+  await writeFile(
+    entry,
+    [
+      'let read = "";',
+      'process.stdin.setEncoding("utf8").on("data", (chunk) => (read += chunk));',
+      'process.stdin.on("end", () => {',
+      "  const env = JSON.stringify(process.env);",
+      '  process.stdout.write(JSON.stringify({ read, flag: process.env.ACE_APP_KEY, env }) + "\\n");',
+      "});",
+    ].join("\n"),
+  );
+  const key = new Uint8Array(32).fill(0xab);
+  const hex = "ab".repeat(32);
+  const output: string[] = [];
+  const child = spawnDaemon({
+    home: root,
+    resources: { entry, node: process.execPath, packaged: false },
+    path: "",
+    version: "0.0.0",
+    // A flag inherited from whatever started the app means nothing.
+    env: { ACE_APP_KEY: "inherited" },
+    appKey: key,
+    onOutput: (line, stream) => {
+      if (stream === "stdout") output.push(line);
+    },
+  });
+  await new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
+  await vi.waitFor(() => expect(output).toHaveLength(1));
+  const seen = JSON.parse(output[0] ?? "{}") as { read: string; flag: string; env: string };
+  expect(seen.read).toBe(`${hex}\n`);
+  expect(seen.flag).toBe("stdin");
+  expect(seen.env).not.toContain(hex);
+});

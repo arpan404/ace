@@ -45,6 +45,7 @@ import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
+import { appSocketProven } from "@ace/service/app-key";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
 import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
@@ -386,6 +387,12 @@ export async function startServer(options: ServerOptions): Promise<{
       });
     };
     const stillAdmitted = () => accountAdmitted?.() !== false;
+    // The desktop app's page, by the key the app gave this daemon at its start, for the port
+    // this socket dialled: a proof made for any other address doesn't verify here.
+    const appKey = options.appKey;
+    const dialled = request?.socket.localPort;
+    const appProven = (proof: string) =>
+      appKey !== undefined && dialled !== undefined && appSocketProven(appKey, dialled, proof);
     // A paired device's authority is its credential's: once that credential is replaced or
     // revoked, nothing it opened authorizes anything (ADR 0115).
     const holds = (actor: SessionActor | undefined, scope: import("@ace/protocol").DeviceScope) => {
@@ -394,12 +401,14 @@ export async function startServer(options: ServerOptions): Promise<{
         : actor;
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
-    // Authenticated with the daemon's token file on loopback: the person's whole authority, which
-    // any process able to read the file has (ADR 0178 §12.5).
+    // Authenticated with the daemon's token file on loopback: the host's whole authority.
     const hostCredential = () =>
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
+    // The token file alone, which any process able to read it has (ADR 0178 §12.5); not the
+    // desktop app's page, which proved it holds the key the app gave this daemon (§12.8).
+    const hostTokenOnly = () => hostCredential() && authenticated.get(socket)?.app !== true;
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
@@ -434,6 +443,7 @@ export async function startServer(options: ServerOptions): Promise<{
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential,
+      hostTokenOnly,
       accountDevice: () => accountId,
       access: {
         auth,
@@ -631,7 +641,7 @@ export async function startServer(options: ServerOptions): Promise<{
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.
           if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, message.deviceId);
-        } else actor = helloActor(message, auth, isLocal);
+        } else actor = helloActor(message, auth, isLocal, appProven);
         if (!actor) {
           fail("unauthorized", "Valid hello required", true);
           return;
@@ -754,7 +764,7 @@ export async function startServer(options: ServerOptions): Promise<{
             flights,
             open: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
             authorize,
-            hostCredential,
+            hostTokenOnly,
             send,
             delay: runtime.delay,
           });

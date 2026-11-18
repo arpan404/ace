@@ -9,7 +9,12 @@ export interface SupervisorPorts {
    * Start the bundled daemon. Without it (development, attached to `bun run daemon`) the
    * supervisor only waits for a daemon.
    */
-  spawn?: ((launch: { safeMode: boolean }) => DaemonProcess) | undefined;
+  spawn?: ((launch: { safeMode: boolean; appKey?: Uint8Array }) => DaemonProcess) | undefined;
+  /**
+   * A fresh 32-byte key for each daemon this app spawns, given to it on stdin (ADR 0178
+   * §12.8). Without it the app's page is a host-token socket like any other.
+   */
+  appKey?: (() => Uint8Array) | undefined;
   /**
    * Settles once a spawn has what it needs (the login shell's PATH). Awaited only on the way to
    * spawning, so adopting a daemon that already runs never waits on it.

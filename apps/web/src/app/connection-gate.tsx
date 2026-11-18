@@ -665,7 +665,8 @@ function sameTarget(current: DaemonTarget | undefined, target: DaemonTarget): bo
     current?.url === target.url &&
     current.token === target.token &&
     current.pairedDeviceId === target.pairedDeviceId &&
-    current.localHostId === target.localHostId
+    current.localHostId === target.localHostId &&
+    current.appProof === target.appProof
   );
 }
 

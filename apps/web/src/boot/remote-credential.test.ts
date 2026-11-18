@@ -11,3 +11,9 @@ it("a local loopback connection can still authenticate with the host token", asy
     "a".repeat(64),
   );
 });
+it("the desktop app's page presents its proof with the host token, so the daemon knows it's the app's", async () => {
+  const appProof = "p".repeat(43);
+  expect(
+    await browserCredential({ url: "ws://127.0.0.1:4242/", token: "a".repeat(64), appProof })(),
+  ).toEqual({ token: "a".repeat(64), appProof });
+});

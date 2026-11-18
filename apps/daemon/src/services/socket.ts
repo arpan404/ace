@@ -79,6 +79,12 @@ export interface SocketContext {
    * only, never revocable), not by a paired device.
    */
   hostCredential?(): boolean;
+  /**
+   * True while this socket holds the host credential by the token file alone: the person, or
+   * any process that read the file. False for the desktop app's own page, which proved the key
+   * the app gave this daemon (ADR 0178 §12.8). Person-only actions check this one.
+   */
+  hostTokenOnly?(): boolean;
   /** The ace account an account device's grant names (ADR 0111); undefined for others. */
   accountDevice?(): string | undefined;
   /** Pairing and paired devices on this daemon (`fleet.request`). */

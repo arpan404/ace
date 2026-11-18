@@ -122,6 +122,11 @@ export interface ServerOptions {
    */
   outsideMcpHttp?: import("./relay-http.ts").RelayHttpHandler | undefined;
   preview?: DaemonPreviewOptions;
+  /**
+   * The key the desktop app gave this daemon on stdin when it started it (ADR 0178 §12.8): a
+   * host-token hello proving it is the app's page. Unset for a daemon nothing gave a key.
+   */
+  appKey?: Uint8Array | undefined;
   history?: Pick<DaemonHistory, "handle">;
   usage?: UsageCommands;
   maintenance?: boolean;

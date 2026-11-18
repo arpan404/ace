@@ -56,8 +56,11 @@ const draft = (hash: string): MarketDraft => ({
 });
 
 /** A daemon with the marketplace on, signed in to a fake ace account, beside a fake market. */
-async function world(options: { signedInAt?: () => number } = {}) {
-  const backend = await startFakeAccountBackend(() => Date.now(), options);
+async function world(options: { signedInAt?: () => number; appKey?: Uint8Array } = {}) {
+  const backend = await startFakeAccountBackend(
+    () => Date.now(),
+    options.signedInAt ? { signedInAt: options.signedInAt } : {},
+  );
   cleanup.push(() => backend.close());
   const market = await fakeMarket();
   cleanup.push(() => market.close());
@@ -73,7 +76,7 @@ async function world(options: { signedInAt?: () => number } = {}) {
   });
   const f = await daemonFixture(
     undefined,
-    {},
+    options.appKey ? { appKey: options.appKey } : {},
     {
       ACE_MARKET_URL: market.origin,
       ACE_ACCOUNT_URL: backend.origin,
@@ -241,4 +244,34 @@ test("the person's own terminal needs a fresh sign-in to withdraw, too", async (
   expect(refused.code).toBe(2);
   expect(JSON.parse(refused.stdout)).toMatchObject({ code: "reauth" });
   expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
+});
+
+test("the desktop app's page installs, answers and changes the ask without a fresh sign-in; the host token alone can't", async () => {
+  // The key the app gave its daemon on stdin, which no file holds.
+  const appKey = new Uint8Array(32).fill(7);
+  const { f, cli, home, market } = await world({ signedInAt: elevenMinutesAgo, appKey });
+  const page = await hostSocket(home, "desktop-page", cleanup, { appKey });
+  const token = await hostSocket(home, "ace-cli", cleanup);
+  // A process that read every file in ACE_HOME can only guess at the key.
+  const guessed = await hostSocket(home, "ace-cli", cleanup, { appKey: new Uint8Array(32) });
+
+  for (const socket of [token, guessed])
+    expect(await socket.market("by-token", install)).toMatchObject({ op: "error", code: "reauth" });
+  // Past the sign-in check, the marketplace itself answers: there's no such review.
+  expect(await page.market("by-page", install)).not.toMatchObject({ code: "reauth" });
+
+  const ask = "market.askBeforeAgentPublish";
+  expect(await page.settings("ask-on", ask, true)).toMatchObject({ ok: true });
+  expect(await token.settings("ask-off", ask, false)).not.toMatchObject({ ok: true });
+  expect((await f.daemon.settings.get(ask)).value).toBe(true);
+
+  const asked = await cli(
+    ["market", "withdraw", "spade-skill/triage-mail@1.0.0", "--reason", "Broken", "--json"],
+    { ACE_THREAD_ID: f.caller.threadId },
+  );
+  const request = z.object({ request: z.string() }).loose().parse(JSON.parse(asked.stdout)).request;
+  expect(await token.answer("by-token", request)).toMatchObject({ type: "error", code: "reauth" });
+  expect(f.daemon.store.getInteraction(request)?.state).toBe("pending");
+  expect(await page.answer("by-page", request)).toMatchObject({ type: "commandResult", ok: true });
+  await expect.poll(() => market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(true);
 });

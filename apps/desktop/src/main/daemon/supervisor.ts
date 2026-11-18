@@ -16,6 +16,7 @@ import {
   safeModeMessage,
   safeModeRestartMessage,
 } from "./exit-policy.ts";
+import { appSocketProof } from "@ace/service/app-key";
 import type { AdmissionFacts, LocalDaemon } from "./probe.ts";
 import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
@@ -51,6 +52,8 @@ export class DaemonSupervisor {
   private status: DaemonStatus = { state: "starting", source: "app", restarts: 0, paused: false };
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
+  /** The key each spawned child was given, for its page's proof (ADR 0178 §12.8). */
+  private keys = new WeakMap<Child, Uint8Array>();
   private crashes = 0;
   /** The next start, and the daemon it starts, leave off what kept failing (ADR 0175). */
   private safeMode = false;
@@ -308,11 +311,25 @@ export class DaemonSupervisor {
   }
 
   private spawnChild(spawn: NonNullable<SupervisorPorts["spawn"]>): Child {
-    const child = trackChild(spawn({ safeMode: this.safeMode }), (exited, code, signal, error) =>
-      this.onChildExit(exited, code, signal, error),
+    const appKey = this.ports.appKey?.();
+    const child = trackChild(
+      spawn({ safeMode: this.safeMode, ...(appKey ? { appKey } : {}) }),
+      (exited, code, signal, error) => this.onChildExit(exited, code, signal, error),
     );
+    if (appKey) this.keys.set(child, appKey);
     this.child = child;
     return child;
+  }
+
+  /**
+   * Our own child's address with the page's proof for it. Bound to the port the page will
+   * dial, so if the endpoint file named another listener, the proof is worthless there.
+   */
+  private withProof(daemon: LocalDaemon, child: Child): LocalDaemon {
+    const key = this.keys.get(child);
+    if (!key) return daemon;
+    const url = new URL(daemon.url);
+    return { ...daemon, appProof: appSocketProof(key, Number(url.port || 80)) };
   }
 
   /** Report the child as running once it answers; kill it if it never does. */
@@ -320,7 +337,7 @@ export class DaemonSupervisor {
     void this.waitForDaemon(generation, () => !child.done)
       .then(async (found) => {
         if (this.stale(generation) || child.done) return;
-        if (found) await this.running(found, "app", generation);
+        if (found) await this.running(this.withProof(found, child), "app", generation);
         else {
           this.ports.log("error", "The daemon did not become ready; restarting it", {
             readyTimeoutMs: this.options.readyTimeoutMs,

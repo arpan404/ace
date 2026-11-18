@@ -588,6 +588,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         })(),
       }),
       ...(options.preview ? { preview: options.preview } : {}),
+      ...(options.appKey ? { appKey: options.appKey } : {}),
       health: health.collect,
       doctorFix: async (assertAuthorized) => {
         const result = await fixDoctorReport(config, process.env, now, { assertAuthorized });

@@ -33,6 +33,14 @@ export const DaemonConnection = z.discriminatedUnion("mode", [
      * remote daemon, whose remembered identity stays the check.
      */
     localHostId: z.string().min(1).max(256).optional(),
+    /**
+     * Only for the daemon this app started: the page's proof, for its hello, that it is the
+     * app's (ADR 0178 §12.8), bound to `url`'s port. Never set for a daemon the app adopted.
+     */
+    appProof: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{43}$/)
+      .optional(),
   }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),

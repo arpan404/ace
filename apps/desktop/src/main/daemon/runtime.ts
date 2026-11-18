@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { prepareDaemonHome, resolveDaemonHome } from "@ace/service/home";
@@ -135,10 +136,11 @@ export class DaemonRuntime {
         {
           spawn:
             this.target.kind === "managed"
-              ? ({ safeMode }) => {
+              ? ({ safeMode, appKey }) => {
                   launchStep("Spawning the daemon", { safeMode });
                   return (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath, safeMode),
+                    ...(appKey ? { appKey } : {}),
                     prioritize: launchPolicy.wrap,
                     onOutput:
                       options.daemonOutput ??
@@ -147,6 +149,7 @@ export class DaemonRuntime {
                   });
                 }
               : undefined,
+          appKey: () => new Uint8Array(randomBytes(32)),
           prepareSpawn: async () => {
             const [path] = await Promise.all([this.path, launchPolicy.ready()]);
             this.resolvedPath = path;
@@ -239,6 +242,7 @@ export class DaemonRuntime {
       url: daemon.url,
       token: daemon.token,
       ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+      ...(daemon.appProof ? { appProof: daemon.appProof } : {}),
     };
   }
 

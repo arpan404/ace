@@ -15,6 +15,7 @@ import {
   type MarketResult,
 } from "@ace/protocol/marketplace";
 import { draftArchive, pictureBytes } from "./draft-files.ts";
+import { marketReauthSentence } from "./fresh-sign-in.ts";
 import { MarketHttpError, type MarketHttp } from "./http.ts";
 import { Refused } from "./prepare.ts";
 
@@ -144,7 +145,7 @@ export function workerError(status: number, body: unknown): ErrorResult {
   const code = codes[error];
   const words =
     code === "reauth"
-      ? "Sign in again to do this."
+      ? marketReauthSentence
       : code === "signed_out"
         ? "Sign in to publish."
         : message || `The market refused it (${error})`;

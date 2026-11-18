@@ -7,12 +7,15 @@ type Hello = Extract<ClientMessage, { type: "hello" }>;
 /**
  * The device a hello authenticates, or undefined when it authenticates nothing. The host token
  * counts only on loopback. A ticket or a desktop bearer must name the device the hello claims,
- * and both stay revocable; the host token does not.
+ * and both stay revocable; the host token does not. A host-token hello whose `appProof`
+ * verifies (`appProven`) is the desktop app's page (ADR 0178 §12.8); one whose proof doesn't
+ * is still a host-token hello, never refused for it.
  */
 export function helloActor(
   message: Hello,
   auth: RemoteAuth,
   isLocal: boolean,
+  appProven: (proof: string) => boolean = () => false,
 ): SessionActor | undefined {
   const bearer =
     message.token !== undefined && isLocal && !auth.local(message.token)
@@ -41,7 +44,9 @@ export function helloActor(
   if (!actor || (revocable && actor.id !== message.deviceId)) return undefined;
   // A paired device names its app install, so its records fold into one (ADR 0115).
   if (message.ticket !== undefined) auth.recognize(actor, message.installId);
-  return { ...actor, scopes: [...actor.scopes], revocable };
+  const app =
+    !revocable && message.appProof !== undefined && appProven(message.appProof) ? true : undefined;
+  return { ...actor, scopes: [...actor.scopes], revocable, ...(app ? { app } : {}) };
 }
 
 /**

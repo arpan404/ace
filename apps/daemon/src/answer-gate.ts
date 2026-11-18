@@ -31,8 +31,8 @@ export function agentAnswerRefusal(
 }
 
 export interface HostAnswerFacts {
-  /** The socket authenticated with the daemon's token file, not as the app or a device. */
-  readonly hostCredential: boolean;
+  /** The socket holds the daemon's token file alone: not the app's page, not a device. */
+  readonly hostTokenOnly: boolean;
   /** The interaction is an open person-only market request (`market_person_pending`). */
   personOnlyMarket(interactionId: string): boolean;
   /** This machine's ace account signed in within the last ten minutes. */
@@ -44,7 +44,7 @@ export async function hostAnswerRefusal(
   facts: HostAnswerFacts,
 ): Promise<{ code: "reauth"; message: string } | undefined> {
   const payload = command.payload;
-  if (payload.type !== "interaction.resolve" || !facts.hostCredential) return undefined;
+  if (payload.type !== "interaction.resolve" || !facts.hostTokenOnly) return undefined;
   // An agent's own device is refused outright where the request is answered.
   if (isAgentDevice(command.deviceId)) return undefined;
   if (!facts.personOnlyMarket(payload.interactionId)) return undefined;
@@ -70,13 +70,13 @@ export async function settingWriteRefusal(
   key: string,
   facts: {
     readonly device: string | undefined;
-    readonly hostCredential: boolean;
+    readonly hostTokenOnly: boolean;
     fresh(): Promise<boolean>;
   },
 ): Promise<{ code: "validation"; message: string } | undefined> {
   if (isAgentDevice(facts.device))
     return { code: "validation", message: "Settings are the person's; agents don't change them." };
-  if (!guardedSettings.has(key) || !facts.hostCredential) return undefined;
+  if (!guardedSettings.has(key) || !facts.hostTokenOnly) return undefined;
   if (await facts.fresh()) return undefined;
   return { code: "validation", message: reauthSentence };
 }

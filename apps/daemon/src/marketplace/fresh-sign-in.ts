@@ -5,14 +5,25 @@ import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
  * can read it acts as the person, an unsandboxed coding agent included. So for person-only
  * market actions, the host token alone isn't enough (ADR 0178 §12.5): they need the app or a
  * paired device, or an ace sign-in from the last ten minutes, which takes the person in a
- * browser (ADR 0174 §2's rule). Pure.
+ * browser (ADR 0174 §2's rule). The desktop app's page holds the host token too, and proves it
+ * is the app with the key the app gave its daemon (§12.8), so it isn't "the host token alone".
+ * Pure.
  */
 
 /** ADR 0174 §2: a sensitive action needs a sign-in this recent. */
 export const freshSignInMs = 10 * 60_000;
 
+/** Says what to do: the code stays `reauth`, so a client can offer its sign-in. */
 export const reauthSentence =
-  "Do this in the app or on a paired device, or sign in to ace again (ace login) and do it within 10 minutes.";
+  "This needs the ace app, a paired device or a recent sign-in. Sign in to ace again (ace login), then do it within 10 minutes.";
+
+/**
+ * The market's own refusal of a stale sign-in (ADR 0174 §2), which no client of this daemon
+ * can skip: withdraw, transfers, handle changes and verified-profile edits check it at the
+ * market, from the app too.
+ */
+export const marketReauthSentence =
+  "Sign in again to do this: the market needs a sign-in from the last 10 minutes. Sign in to ace again (ace login), then try it again.";
 
 /** Install, withdraw, transfers, handle changes, deleting an entry and verification. */
 export function needsFreshSignIn(operation: MarketOperation): boolean {
@@ -41,15 +52,15 @@ export function signedInRecently(age: number | undefined): boolean {
 }
 
 /**
- * The refusal for a market request a host-token socket makes without naming a thread, or
- * undefined when it may run. The app and paired devices aren't host-token sockets.
+ * The refusal for a market request a socket holding only the host token makes without naming a
+ * thread, or undefined when it may run. The app's page and paired devices pass as they are.
  */
 export async function hostMarketRefusal(input: {
   readonly operation: MarketOperation;
-  readonly hostCredential: boolean;
+  readonly hostTokenOnly: boolean;
   readonly fresh: () => Promise<boolean>;
 }): Promise<MarketResult | undefined> {
-  if (!input.hostCredential || !needsFreshSignIn(input.operation)) return undefined;
+  if (!input.hostTokenOnly || !needsFreshSignIn(input.operation)) return undefined;
   if (await input.fresh()) return undefined;
   return { op: "error", code: "reauth", message: reauthSentence };
 }

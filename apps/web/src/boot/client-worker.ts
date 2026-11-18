@@ -18,7 +18,8 @@ const host = new ClientHost({
     const target = WorkerTarget.parse(config);
     return {
       // Tabs reaching the same daemon as the same device share one client and one socket.
-      key: `${outboxKey(target)}\u0000${target.token}`,
+      // A new proof (the app started its daemon again) is a new credential: a new client.
+      key: `${outboxKey(target)}\u0000${target.token}\u0000${target.appProof ?? ""}`,
       create: (report) =>
         new ClientCore(
           browserClientOptions({

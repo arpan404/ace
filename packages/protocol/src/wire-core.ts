@@ -304,6 +304,16 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        */
       link: PairingLinkProof.optional(),
       /**
+       * With the host token, from the desktop app's own page: the base64url HMAC-SHA256 of
+       * `ace-app/v1\n<port>` keyed by the key the app gave the daemon it started (ADR 0178
+       * §12.8). It makes the socket the app's, not the host token's alone. Older daemons ignore
+       * it; a proof that doesn't verify leaves the socket a host-token one.
+       */
+      appProof: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]{43}$/)
+        .optional(),
+      /**
        * Message compression this client can undo on a relayed channel: `deflate-raw` lets the
        * daemon deflate bulk JSON messages, each alone, before encrypting them. Unknown names
        * are ignored.
