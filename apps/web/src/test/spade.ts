@@ -26,6 +26,9 @@ export async function spadeApp(
     ...(options.history ? { history: options.history } : {}),
   });
   const spade = runningSpade(app.daemon);
+  if (options.machines?.length) spade.here = "this-mac";
+  for (const machine of options.machines ?? [])
+    spade.machineNames.set(machine.hostId, machine.name);
   seed(spade);
   options.daemon?.(app.daemon);
   const others = new Map<string, FakeSpadeApi>();
@@ -33,6 +36,8 @@ export async function spadeApp(
     const daemon = app.machines.get(machine.hostId);
     if (!daemon) continue;
     const api = runningSpade(daemon);
+    api.here = machine.hostId;
+    api.machineNames.set("this-mac", "This Mac");
     machine.seed(api);
     others.set(machine.hostId, api);
   }

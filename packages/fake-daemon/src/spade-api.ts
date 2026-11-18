@@ -89,8 +89,22 @@ export class FakeSpadeApi implements FakeSpadeServer {
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
-  /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
+  /** `PUT /v1/main` without `by`: the old election's switch, obeyed until a host record. */
   mainEnabled = true;
+  /** This machine's host id, as Spade reads it from ace's home. */
+  here: string | undefined = undefined;
+  /** Where Spade lives, as this machine last heard (ADR 0187). */
+  hostRecord: Json | undefined = undefined;
+  /** The person switched Spade off here. */
+  mainOff = false;
+  /** Names of the machines a move can go to, by host id. */
+  machineNames = new Map<string, string>();
+  /** Whether Spade's main bot shows here, as Spade decides it. */
+  private mainShown(): boolean {
+    if (this.mainOff) return false;
+    if (this.hostRecord && this.here) return this.hostRecord.host === this.here;
+    return this.mainEnabled;
+  }
   /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
   subscriptions: Json[] = [];
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
@@ -533,6 +547,36 @@ export class FakeSpadeApi implements FakeSpadeServer {
       agent.pinned_at = body.pinned === true ? (agent.pinned_at ?? this.now()) : null;
       return reply({ agent });
     }
+    if (root === "agents" && id && (sub === "move" || sub === "arrival")) {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      if (sub === "arrival") {
+        agent.arrived = null;
+        return { status: 204 };
+      }
+      if (request.method === "DELETE") {
+        agent.move = null;
+        return reply({ move: null });
+      }
+      if (request.method === "GET") return reply({ move: agent.move ?? null });
+      if (agent.state !== "idle")
+        return problem(
+          409,
+          `${agent.name} is working; it can move once that ends, or once you stop it.`,
+        );
+      const to = String(body.to);
+      agent.move = {
+        id: `mv_${agent.id}`,
+        to: { host: to, name: this.machineNames.get(to) ?? to },
+        state: "sending",
+        sent: 3,
+        total: 12,
+        waiting: false,
+        problem: null,
+        can_cancel: true,
+      };
+      return reply({ move: agent.move }, 202);
+    }
     if (root === "agents") return this.agentRoute(request.method, id, body, query);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
@@ -571,8 +615,28 @@ export class FakeSpadeApi implements FakeSpadeServer {
       }
       return { status: 204 };
     }
+    if (root === "main" && id === "host" && request.method === "PUT") {
+      const held = this.hostRecord;
+      const newer =
+        !held ||
+        Number(body.version) > Number(held.version) ||
+        (Number(body.version) === Number(held.version) && Number(body.at) > Number(held.at));
+      if (newer) {
+        this.hostRecord = body;
+        this.mainEnabled = true;
+      }
+      return reply({ host: this.hostRecord });
+    }
+    if (root === "main" && request.method === "GET")
+      return reply({
+        here: this.here ?? null,
+        host: this.hostRecord ?? null,
+        shown: this.mainShown(),
+        off: this.mainOff,
+      });
     if (root === "main") {
-      this.mainEnabled = body.enabled !== false;
+      if (body.by === "person") this.mainOff = body.enabled === false;
+      else if (!this.hostRecord) this.mainEnabled = body.enabled !== false;
       return { status: 204 };
     }
     if (root === "conversations" && id)
@@ -600,7 +664,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   /** The agents `GET /v1/agents` lists, in its order: Spade first (while on), then by activity. */
   private listed(): FakeSpadeAgent[] {
     return this.agents
-      .filter((agent) => agent.kind !== "main" || this.mainEnabled)
+      .filter((agent) => agent.kind !== "main" || this.mainShown())
       .toSorted(
         (a, b) =>
           Number(b.kind === "main") - Number(a.kind === "main") ||

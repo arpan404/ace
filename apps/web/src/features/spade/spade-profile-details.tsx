@@ -6,6 +6,7 @@ import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
+import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfilePlugins } from "./spade-bot-plugins.tsx";
@@ -20,7 +21,8 @@ import { useMakerWorkers } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /**
- * Details: what the bot is and how it behaves. Its task, the model and machine it runs with
+ * Details: what the bot is and how it behaves. A move to another machine, or what needs the
+ * person since one, first (ADR 0187). Its task, the model and machine it runs with
  * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its boundaries, its spending, then Duplicate,
  * Export and Delete. Everything edits where it shows.
  */
@@ -30,6 +32,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
   const [modelProblem, setModelProblem] = useState<string>();
   return (
     <>
+      <ProfileMoveLine bot={bot} />
       <ProfileSection label="Task">
         <TaskField bot={bot} />
       </ProfileSection>
@@ -47,9 +50,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
             }}
           />
         </SettingRow>
-        <SettingRow title="Machine" inline>
-          <span className="truncate text-ui text-foreground">{bot.machine.name}</span>
-        </SettingRow>
+        <ProfileMachine bot={bot} />
         <BotRoles bot={bot} />
       </ProfileSection>
       <ProfileRoutines bot={bot} />

@@ -13,6 +13,7 @@ export * from "./notes.ts";
 export * from "./endpoints.ts";
 export * from "./markup.ts";
 export * from "./hosting.ts";
+export * from "./moves.ts";
 export * from "./skills.ts";
 export * from "./connectors.ts";
 export * from "./plugins.ts";
