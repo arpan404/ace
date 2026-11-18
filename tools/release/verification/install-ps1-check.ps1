@@ -61,6 +61,10 @@ $environment.SetValue('Path', $(if ($originalPath) { "$originalPath;$seed" } els
 $home_ = Join-Path $Work 'home'
 $ace = Join-Path $home_ 'bin\ace.cmd'
 $failed = $null
+$task = $null
+function AceTasks {
+  & schtasks.exe /Query /FO CSV /NH | Where-Object { $_ -match '^"\\ace-next-daemon(-[0-9a-f]{10})?"' } | ForEach-Object { ($_ -split '","')[0].Trim('"') }
+}
 try {
   Start-Sleep -Seconds 2
   $env:ACE_HOME = $home_
@@ -81,6 +85,12 @@ try {
   if (-not $status) { throw 'The installed daemon never answered ace status' }
   Write-Host "ace status: $status"
 
+  # A home other than %USERPROFILE%\.ace registers its own task, ace-next-daemon-<hash> (ADR 0185).
+  $tasks = @(AceTasks)
+  if ($tasks.Count -ne 1) { throw "Expected one ace login task, found: $($tasks -join ', ')" }
+  $task = $tasks[0]
+  if ($task -eq '\ace-next-daemon') { throw 'A temporary ACE_HOME registered the default home''s task name' }
+
   $service = & $ace service status --json
   if ("$service" -notmatch '"active":true') { throw "Service not active: $service" }
   $stopped = & $ace service stop --json
@@ -89,7 +99,7 @@ try {
   if ("$started" -notmatch '"active":true') { throw "Service did not start: $started" }
   $removed = & $ace service uninstall --json
   if ($LASTEXITCODE -ne 0 -or "$removed" -notmatch '"active":false') { throw "Service did not uninstall cleanly ($LASTEXITCODE): $removed" }
-  & schtasks.exe /Query /TN ace-next-daemon *> $null
+  & schtasks.exe /Query /TN $task *> $null
   if ($LASTEXITCODE -eq 0) { throw 'The login task is still registered after uninstall' }
   # The release the CLI ran from is removed once that process has exited.
   for ($i = 0; $i -lt 60 -and ((Test-Path (Join-Path $home_ 'releases')) -or (Test-Path $ace)); $i++) { Start-Sleep -Milliseconds 500 }
@@ -106,8 +116,10 @@ try {
     Write-Host "--- $($_.Name)"; Get-Content $_.FullName -Tail 50
   }
 } finally {
-  & schtasks.exe /End /TN ace-next-daemon *> $null
-  & schtasks.exe /Delete /TN ace-next-daemon /F *> $null
+  foreach ($left in $(if ($task) { @($task) } else { @(AceTasks) })) {
+    & schtasks.exe /End /TN $left *> $null
+    & schtasks.exe /Delete /TN $left /F *> $null
+  }
   Stop-Process -Id $serving.Id -Force -ErrorAction SilentlyContinue
   if ($null -ne $originalPath) { $environment.SetValue('Path', $originalPath, $originalKind) } else { $environment.DeleteValue('Path', $false) }
   $environment.Close()

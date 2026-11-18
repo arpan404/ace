@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { win32 } from "node:path";
 import { z } from "zod";
+import { homeServiceName } from "./service-name.ts";
 const text = z
   .string()
   .min(1)
@@ -31,6 +32,11 @@ export const ServiceConfig = z.object({
   executable: absolute,
   path: text,
   uid: z.number().int().nonnegative(),
+  /**
+   * The home the service under the default name runs, when one is registered (the I/O shell
+   * reads it): a home registered there before ADR 0185 keeps that name.
+   */
+  sharedNameHome: absolute.optional(),
 });
 export type ServiceConfig = z.input<typeof ServiceConfig>;
 export interface ServicePlan {
@@ -54,8 +60,10 @@ export const quote = (s: string) =>
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
-  const label = "dev.ace.next.daemon";
-  const unit = "ace-next.service";
+  // The default home's names; any other home's carry a hash of its path (ADR 0185).
+  const owner = { userHome: c.home, sharedNameHome: c.sharedNameHome };
+  const label = homeServiceName("dev.ace.next.daemon", ".", c.dataDir, owner, c.platform);
+  const unit = `${homeServiceName("ace-next", "-", c.dataDir, owner, c.platform)}.service`;
   const variables: [string, string][] = [
     ["ACE_HOME", c.dataDir],
     ["PATH", c.path],
@@ -106,10 +114,15 @@ export const TaskConfig = z.object({
   /** The account's SID, from `whoami /user`. */
   user: z.string().regex(/^S-1-\d+(?:-\d+){1,14}$/),
   systemRoot: windowsAbsolute,
+  /** The person's profile folder: its `.ace` is the default home, which keeps the plain name. */
+  userHome: windowsAbsolute,
+  /** The home the task under the default name runs, when one is registered (as above). */
+  sharedNameHome: windowsAbsolute.optional(),
+  /** The task's name; by default `ace-next-daemon`, with a hash of any other home's path. */
   name: z
     .string()
     .regex(/^[A-Za-z0-9-]{1,64}$/)
-    .default("ace-next-daemon"),
+    .optional(),
 });
 export type TaskConfig = z.input<typeof TaskConfig>;
 export interface TaskPlan {
@@ -152,7 +165,7 @@ export function planTask(input: TaskConfig): TaskPlan {
   return {
     platform: "win32",
     command: [c.executable, "supervise"],
-    name: `\\${c.name}`,
+    name: `\\${c.name ?? homeServiceName("ace-next-daemon", "-", c.dataDir, { userHome: c.userHome, sharedNameHome: c.sharedNameHome }, "win32")}`,
     file: win32.join(c.dataDir, "service", "task.xml"),
     content,
     environmentFile: win32.join(c.dataDir, "service", "environment.json"),
