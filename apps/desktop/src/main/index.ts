@@ -1,6 +1,7 @@
 import { deliverAfterLoads } from "./deep-link-delivery.ts";
 import { followDaemonWithSpade } from "./spade-follow.ts";
 import { rememberSpadeUpdateMode } from "@ace/service/spade-update-mode";
+import { randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -24,7 +25,9 @@ import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
+import { appKeyStore } from "./daemon/app-key-store.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
+import { secureStorage } from "./secure-storage.ts";
 import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { appUpdateReport, UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
@@ -218,6 +221,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     log: logger("supervisor"),
     sinceLaunch: () => performance.now(),
     freezes: beat,
+    // Kept with the OS keychain's key, never in the clear (ADR 0178 §12.8).
+    appKeys: appKeyStore(app.getPath("userData"), secureStorage, () => randomBytes(32)),
     daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
       daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
     ),

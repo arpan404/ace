@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { WebSocket } from "ws";
-import { ServerMessage } from "@ace/protocol";
+import { DeviceScope, ServerMessage } from "@ace/protocol";
+import { z } from "zod";
 import { sampleSkill, signedVersion } from "@ace/marketplace/testing";
 import { expect, test } from "vitest";
 import { fakeMarket, fakeSpade, marketplaceHarness } from "./marketplace/test-support.ts";
@@ -13,8 +14,21 @@ import { setup } from "./remote-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
-async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
-  const device = await f.pair(scopes);
+/**
+ * A paired device's socket. `person`: paired from a link the person made, so its installs need
+ * no fresh sign-in (ADR 0178 §12.8); a link made with the host token alone pairs one that does.
+ */
+async function connect(f: Fixture, sockets: WebSocket[], scopes: string[], person = false) {
+  const device = person
+    ? f.store.devices.create(
+        "Phone",
+        z.array(DeviceScope).parse(scopes),
+        1000,
+        null,
+        undefined,
+        true,
+      )
+    : await f.pair(scopes);
   const ticket = await f.ticket(device.token);
   const socket = new WebSocket(f.server.url);
   sockets.push(socket);
@@ -61,7 +75,7 @@ test("a read device browses the marketplace and hears installs, but only an admi
     market.publish(signedVersion({ type: "spade-skill", name: "triage-mail", files }), files);
     const f = await setup({ marketplace: harness.service });
     const reader = await connect(f, sockets, ["read"]);
-    const admin = await connect(f, sockets, ["admin"]);
+    const admin = await connect(f, sockets, ["admin"], true);
     // Off in Settings › Beta, every request over the socket is answered as turned off.
     harness.hooks.on = false;
     expect(await admin.ask("off", { op: "search", query: "triage" })).toMatchObject({

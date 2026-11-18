@@ -44,9 +44,11 @@ export function helloActor(
   if (!actor || (revocable && actor.id !== message.deviceId)) return undefined;
   // A paired device names its app install, so its records fold into one (ADR 0115).
   if (message.ticket !== undefined) auth.recognize(actor, message.installId);
-  const app =
-    !revocable && message.appProof !== undefined && appProven(message.appProof) ? true : undefined;
-  return { ...actor, scopes: [...actor.scopes], revocable, ...(app ? { app } : {}) };
+  // A device is the person's as its record says; the host token only with the app's proof.
+  const person = revocable
+    ? "person" in actor && actor.person === true
+    : message.appProof !== undefined && appProven(message.appProof);
+  return { ...actor, scopes: [...actor.scopes], revocable, person };
 }
 
 /**

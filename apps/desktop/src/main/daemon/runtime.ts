@@ -14,10 +14,13 @@ import {
   maintenanceBlockers,
   maintenanceStatus,
   readLocalDaemon,
+  registerAppKey,
   setMaintenance,
   setUpdateHold,
   type LocalDaemon,
 } from "./probe.ts";
+import { adoptedProofs } from "./adopted-proof.ts";
+import type { AppKeyStore } from "./app-key-store.ts";
 import { expectedLocalDaemon } from "./expected.ts";
 import { loginService } from "./service.ts";
 import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions } from "./spawn.ts";
@@ -74,6 +77,11 @@ export interface RuntimeOptions {
   sinceLaunch?: () => number;
   /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
   freezes?: FreezeSignal;
+  /**
+   * The app's keys for daemons it didn't start, kept with the OS keychain (ADR 0178 §12.8).
+   * Without it, the page is a host-token socket on such a daemon.
+   */
+  appKeys?: AppKeyStore;
 }
 
 /**
@@ -88,9 +96,18 @@ export class DaemonRuntime {
   private status: DaemonStatus;
   private resolvedPath = "";
   private listeners = new Set<(status: DaemonStatus) => void>();
+  private adopted: ReturnType<typeof adoptedProofs> | undefined;
 
   constructor(options: RuntimeOptions) {
     this.options = options;
+    const keys = options.appKeys;
+    this.adopted = keys
+      ? adoptedProofs({
+          pair: (hostId) => keys.pair(hostId),
+          register: registerAppKey,
+          now: () => Date.now(),
+        })
+      : undefined;
     this.target =
       options.target ??
       desktopTarget({
@@ -236,7 +253,9 @@ export class DaemonRuntime {
         ...(this.target.pairedDeviceId ? { pairedDeviceId: this.target.pairedDeviceId } : {}),
       };
     if (!this.supervisor) throw new Error("No local daemon for this target");
-    const daemon = await this.supervisor.reachable();
+    const reached = await this.supervisor.reachable();
+    // A daemon the app didn't start: its proof once the app's key is registered there.
+    const daemon = this.adopted ? await this.adopted.withProof(reached) : reached;
     return {
       mode: "daemon",
       url: daemon.url,
@@ -265,6 +284,16 @@ export class DaemonRuntime {
           ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
         }
       : null;
+  }
+
+  /**
+   * The person just signed in through the app: a daemon it didn't start may take its key now,
+   * so the page asks for its connection again.
+   */
+  retryAppKey(): void {
+    if (!this.adopted) return;
+    this.adopted.retry();
+    this.update({ ...this.status });
   }
 
   /** The local daemon's address, once running (managed or dev). */

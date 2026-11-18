@@ -80,11 +80,12 @@ export interface SocketContext {
    */
   hostCredential?(): boolean;
   /**
-   * True while this socket holds the host credential by the token file alone: the person, or
-   * any process that read the file. False for the desktop app's own page, which proved the key
-   * the app gave this daemon (ADR 0178 §12.8). Person-only actions check this one.
+   * True when this socket's credential is the person's (ADR 0178 §12.8): the desktop app's page
+   * by its proof, a device whose pairing link the person made, an account device. False for the
+   * host token alone, which any process that read the file has, and for devices it paired.
+   * Person-only actions without a fresh sign-in check this one; absent counts as false.
    */
-  hostTokenOnly?(): boolean;
+  personProven?(): boolean;
   /** The ace account an account device's grant names (ADR 0111); undefined for others. */
   accountDevice?(): string | undefined;
   /** Pairing and paired devices on this daemon (`fleet.request`). */

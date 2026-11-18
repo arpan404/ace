@@ -1,13 +1,11 @@
 import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { safeStorage } from "electron";
 import { z } from "zod";
 import { savedOriginKey, sessionsByCurrentOrigin } from "./account-origins.ts";
+import { secureStorage } from "./secure-storage.ts";
 
-const available = () =>
-  safeStorage.isEncryptionAvailable() &&
-  (process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text");
+const available = () => secureStorage.available();
 
 /** A single encrypted credential file. Linux's plaintext fallback is refused. */
 export function accountSecrets(directory: string) {
@@ -25,7 +23,7 @@ export function accountSecrets(directory: string) {
     }
     if (!available()) throw new Error("Secure account storage is unavailable");
     try {
-      const data: unknown = JSON.parse(safeStorage.decryptString(bytes));
+      const data: unknown = JSON.parse(secureStorage.decrypt(bytes));
       const saved = z.record(z.string(), z.string().regex(/^[A-Za-z0-9_-]{43}$/)).parse(data);
       // Sessions saved under ace's former address; the next write stores them under the current one.
       return sessionsByCurrentOrigin(saved);
@@ -55,7 +53,7 @@ export function accountSecrets(directory: string) {
         else delete entries[savedOriginKey(origin)];
         await mkdir(directory, { recursive: true, mode: 0o700 });
         const temporary = `${path}.${randomUUID()}`;
-        await writeFile(temporary, safeStorage.encryptString(JSON.stringify(entries)), {
+        await writeFile(temporary, secureStorage.encrypt(JSON.stringify(entries)), {
           mode: 0o600,
         });
         await rename(temporary, path);

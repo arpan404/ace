@@ -64,7 +64,7 @@ describe("a person-only market action from the host token, with no thread", () =
   it("is refused without a fresh sign-in: the host token alone may be an agent", async () => {
     const refusal = await hostMarketRefusal({
       operation: install,
-      hostTokenOnly: true,
+      unproven: true,
       fresh: fresh(false),
     });
     expect(refusal).toMatchObject({ op: "error", code: "reauth" });
@@ -73,7 +73,7 @@ describe("a person-only market action from the host token, with no thread", () =
 
   it("runs after a sign-in in the last ten minutes", async () => {
     expect(
-      await hostMarketRefusal({ operation: install, hostTokenOnly: true, fresh: fresh(true) }),
+      await hostMarketRefusal({ operation: install, unproven: true, fresh: fresh(true) }),
     ).toBeUndefined();
   });
 
@@ -81,7 +81,7 @@ describe("a person-only market action from the host token, with no thread", () =
     let asked = false;
     const result = await hostMarketRefusal({
       operation: install,
-      hostTokenOnly: false,
+      unproven: false,
       fresh: async () => {
         asked = true;
         return false;
@@ -95,7 +95,7 @@ describe("a person-only market action from the host token, with no thread", () =
     expect(
       await hostMarketRefusal({
         operation: { op: "search", query: "", offset: 0, limit: 50 },
-        hostTokenOnly: true,
+        unproven: true,
         fresh: fresh(false),
       }),
     ).toBeUndefined();

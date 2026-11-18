@@ -1,17 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { z } from "zod";
-import { contentHash, hashFiles, readArchive, typeLimits } from "@ace/marketplace";
-import type { MarketDraft, MarketMe } from "@ace/protocol/marketplace";
-import { startFakeAccountBackend } from "./account-backend-test-support.ts";
-import { daemonFixture } from "./agent-control/daemon-test-support.ts";
-import { invoke } from "./cli-test-support.ts";
-import { hostConnection } from "./cli/connection.ts";
 import { hostSocket } from "./host-socket-test-support.ts";
-import { accessRequest } from "./client-access.ts";
-import { fakeMarket } from "./marketplace/test-support.ts";
+import { marketWorld } from "./market-world-test-support.ts";
 
 /*
  * `ace market` against a real daemon, a fake market and a fake ace account (ADR 0178 §12):
@@ -23,89 +13,7 @@ const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const step of cleanup.splice(0).toReversed()) await step();
 });
-
-const me: MarketMe = {
-  state: "active",
-  newPublisher: true,
-  limits: {
-    uploadsToday: 0,
-    uploadsPerDay: 10,
-    storedBytes: 0,
-    quotaBytes: 256 * 1024 * 1024,
-    drafts: 0,
-    draftLimit: 20,
-  },
-  entries: [],
-  drafts: [],
-  transfers: [],
-};
-const draft = (hash: string): MarketDraft => ({
-  id: "drf_abcdefgh",
-  type: "spade-skill",
-  name: "triage-mail",
-  version: "1.0.0",
-  hash,
-  size: 100,
-  files: 1,
-  created: 1,
-  updated: 1,
-  changelog: "",
-  title: "Triage mail",
-  problems: [],
-  scan: { state: "scanning", read: 0, files: 1 },
-});
-
-/** A daemon with the marketplace on, signed in to a fake ace account, beside a fake market. */
-async function world(options: { signedInAt?: () => number; appKey?: Uint8Array } = {}) {
-  const backend = await startFakeAccountBackend(
-    () => Date.now(),
-    options.signedInAt ? { signedInAt: options.signedInAt } : {},
-  );
-  cleanup.push(() => backend.close());
-  const market = await fakeMarket();
-  cleanup.push(() => market.close());
-  market.route((seen, _response, answer) => {
-    if (seen.method === "GET" && seen.path === "/v1/me") answer(200, me);
-    else if (seen.method === "POST" && seen.path.startsWith("/v1/me/drafts?")) {
-      const files = readArchive(new Uint8Array(seen.body), typeLimits["spade-skill"]);
-      answer(201, draft(contentHash(hashFiles(files))));
-    } else if (seen.method === "POST" && seen.path.endsWith("/withdraw"))
-      answer(202, { status: "pending", versions: ["1.0.0"] });
-    else return false;
-    return true;
-  });
-  const f = await daemonFixture(undefined, options.appKey ? { appKey: options.appKey } : {}, {
-    ACE_MARKET_URL: market.origin,
-    ACE_ACCOUNT_URL: backend.origin,
-  });
-  cleanup.push(() => f.daemon.close());
-  await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
-  // Signing in starts ace's relay registration, which this fake account doesn't serve; remote
-  // access isn't what these tests are about, and left on it holds the daemon's shutdown.
-  await f.daemon.settings.set("remote.enabled", false, { kind: "global" });
-  const home = join(f.h.home, "daemon");
-  const { origin, token } = hostConnection(home);
-  await accessRequest(origin, "/v1/ace-account", {
-    method: "PUT",
-    token,
-    body: { origin: backend.origin, token: backend.token },
-  });
-  const root = await mkdtemp(join(tmpdir(), "ace-cli-market-agent-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
-  // The CLI never reads the person's own home.
-  const emptyHome = join(root, "home");
-  await mkdir(emptyHome);
-  const skill = join(root, "triage-mail");
-  await mkdir(skill);
-  await writeFile(
-    join(skill, "SKILL.md"),
-    "---\nname: triage-mail\ndescription: Sorts mail.\n---\n# Triage\n",
-  );
-  const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
-    // The person's own shell unless a test says otherwise: nothing from an agent session.
-    invoke(home, args, "", { HOME: emptyHome, ACE_THREAD_ID: "", ACE_NO_INPUT: "", ...env });
-  return { f, market, skill, cli, home };
-}
+const world = (options: { signedInAt?: () => number } = {}) => marketWorld(cleanup, options);
 
 test("market publish --draft uploads the folder with this machine's grant and prints the draft", async () => {
   const { market, skill, cli } = await world();
@@ -240,34 +148,4 @@ test("the person's own terminal needs a fresh sign-in to withdraw, too", async (
   expect(refused.code).toBe(2);
   expect(JSON.parse(refused.stdout)).toMatchObject({ code: "reauth" });
   expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
-});
-
-test("the desktop app's page installs, answers and changes the ask without a fresh sign-in; the host token alone can't", async () => {
-  // The key the app gave its daemon on stdin, which no file holds.
-  const appKey = new Uint8Array(32).fill(7);
-  const { f, cli, home, market } = await world({ signedInAt: elevenMinutesAgo, appKey });
-  const page = await hostSocket(home, "desktop-page", cleanup, { appKey });
-  const token = await hostSocket(home, "ace-cli", cleanup);
-  // A process that read every file in ACE_HOME can only guess at the key.
-  const guessed = await hostSocket(home, "ace-cli", cleanup, { appKey: new Uint8Array(32) });
-
-  for (const socket of [token, guessed])
-    expect(await socket.market("by-token", install)).toMatchObject({ op: "error", code: "reauth" });
-  // Past the sign-in check, the marketplace itself answers: there's no such review.
-  expect(await page.market("by-page", install)).not.toMatchObject({ code: "reauth" });
-
-  const ask = "market.askBeforeAgentPublish";
-  expect(await page.settings("ask-on", ask, true)).toMatchObject({ ok: true });
-  expect(await token.settings("ask-off", ask, false)).not.toMatchObject({ ok: true });
-  expect((await f.daemon.settings.get(ask)).value).toBe(true);
-
-  const asked = await cli(
-    ["market", "withdraw", "spade-skill/triage-mail@1.0.0", "--reason", "Broken", "--json"],
-    { ACE_THREAD_ID: f.caller.threadId },
-  );
-  const request = z.object({ request: z.string() }).loose().parse(JSON.parse(asked.stdout)).request;
-  expect(await token.answer("by-token", request)).toMatchObject({ type: "error", code: "reauth" });
-  expect(f.daemon.store.getInteraction(request)?.state).toBe("pending");
-  expect(await page.answer("by-page", request)).toMatchObject({ type: "commandResult", ok: true });
-  await expect.poll(() => market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(true);
 });

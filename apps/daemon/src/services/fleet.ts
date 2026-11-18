@@ -69,6 +69,7 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
         access.pairing(),
         request,
         (scope) => context.authorize(scope),
+        context.personProven?.() === true,
         app,
       );
       return { kind: "pairing", ...issued };

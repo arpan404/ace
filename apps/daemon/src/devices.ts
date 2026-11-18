@@ -1,3 +1,4 @@
+import { AppKeys } from "./app-keys.ts";
 import { generateSecret, type CredentialRuntime } from "./credential-runtime.ts";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync, StatementSync, SQLOutputValue } from "node:sqlite";
@@ -34,7 +35,15 @@ export const activeDevice = (
  * opened (tickets, sockets, leases) stops carrying authority (ADR 0115). It is derived from the
  * stored hash, never the token, so holding it authenticates nothing.
  */
-export type PairedDevice = Device & { generation: string };
+export type PairedDevice = Device & {
+  generation: string;
+  /**
+   * Whether its pairing link came from someone proven to be the person (ADR 0178 §12.8): the
+   * app's page, a device that is itself the person's. A link made with the host token alone
+   * makes a device that, like the token, needs a fresh sign-in for person-only actions.
+   */
+  person: boolean;
+};
 /**
  * Who a socket or channel speaks for. A revocable actor is a paired device and carries the
  * generation of the credential that opened it; the host and account devices are not revocable.
@@ -44,8 +53,14 @@ export type PairedDevice = Device & { generation: string };
 export type SessionActor = Device & {
   revocable: boolean;
   generation?: string | undefined;
-  app?: boolean | undefined;
+  /**
+   * The credential is the person's for §12.7's checks: the app's page (by its proof), a device
+   * whose link the person made, an account device. Absent: it needs a fresh sign-in.
+   */
+  person?: boolean | undefined;
 };
+/** Devices paired before links said who made them (NULL) keep the standing they had. */
+const personOf = (row: Record<string, SQLOutputValue>) => row.person === null || row.person === 1;
 const generationOf = (row: Record<string, SQLOutputValue>) =>
   hash(`generation:${String(row.token_hash)}`).slice(0, 32);
 
@@ -86,15 +101,18 @@ export class Devices {
   private unfold: StatementSync;
   private folded: StatementSync;
   private linkAccount: StatementSync;
+  /** The desktop app's keys for a daemon it didn't start, listed as device records here. */
+  readonly appKeys: AppKeys;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.runtime = runtime;
+    this.appKeys = new AppKeys(db, this);
     const live = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
     this.byInstall = db.prepare(
       `SELECT * FROM devices WHERE install_id = ? AND merged_into IS NULL AND ${live} ORDER BY last_seen_at DESC, id LIMIT 1`,
     );
     // A new credential is a new proof: the account device it was linked to proves it again.
     this.rekey = db.prepare(
-      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, account_link = NULL WHERE id = ?",
+      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, person = ?, account_link = NULL WHERE id = ?",
     );
     this.linkAccount = db.prepare("UPDATE devices SET account_link = ? WHERE id = ?");
     this.stamp = db.prepare("UPDATE devices SET install_id = ? WHERE id = ?");
@@ -111,7 +129,7 @@ export class Devices {
       "SELECT id FROM devices WHERE merged_into = ? AND revoked_at IS NULL ORDER BY id",
     );
     this.insert = db.prepare(
-      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id, person) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
     );
     this.byId = db.prepare("SELECT * FROM devices WHERE id = ?");
     this.byToken = db.prepare(
@@ -130,7 +148,8 @@ export class Devices {
   /**
    * `expiresAt` null: access lasts until revoked. An install that already holds a device here
    * (ADR 0115) keeps that record and its id: the new pairing's name, scopes and expiry replace
-   * the old ones and the old token stops working.
+   * the old ones and the old token stops working. `person`: its link came from the person
+   * (ADR 0178 §12.8); a credential the daemon mints for itself is not.
    */
   create(
     name: string,
@@ -138,6 +157,7 @@ export class Devices {
     at: number,
     expiresAt: number | null = null,
     installId?: InstallId,
+    person = false,
   ): { device: Device; token: string } {
     const token = generateSecret(this.runtime.randomBytes);
     const held = installId === undefined ? undefined : this.byInstall.get(installId, at);
@@ -155,6 +175,7 @@ export class Devices {
         JSON.stringify(device.scopes),
         at,
         device.expiresAt ?? null,
+        person ? 1 : 0,
         device.id,
       );
       return { device, token };
@@ -180,6 +201,7 @@ export class Devices {
       device.lastSeenAt,
       device.expiresAt ?? null,
       installId ?? null,
+      person ? 1 : 0,
     );
     return { device, token };
   }
@@ -263,7 +285,7 @@ export class Devices {
     const row = this.byId.get(id);
     if (!row || generation === undefined || generationOf(row) !== generation) return undefined;
     const device = decode(row);
-    return activeDevice(device, at) ? { ...device, generation } : undefined;
+    return activeDevice(device, at) ? { ...device, generation, person: personOf(row) } : undefined;
   }
   authenticate(token: string, at: number): PairedDevice | undefined {
     const row = this.byToken.get(hash(token), at);
@@ -273,7 +295,7 @@ export class Devices {
     const device = decode(row);
     this.touch(device.id, at);
     device.lastSeenAt = at;
-    return { ...device, generation: generationOf(row) };
+    return { ...device, generation: generationOf(row), person: personOf(row) };
   }
   /** An ace account device connected: the paired record of the same install is seen too. */
   seen(installId: string, at: number): void {

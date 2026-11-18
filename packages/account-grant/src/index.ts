@@ -242,6 +242,20 @@ export function grantSignInAge(token: string): number | undefined {
   }
 }
 
+/**
+ * When the session behind a market grant signed in (`authAt`, on the backend's clock), so one
+ * sign-in can be spent once (ADR 0178 §12.8). Undefined for any other grant or a malformed one.
+ */
+export function grantSignedInAt(token: string): number | undefined {
+  try {
+    const body = token.split(".")[0] ?? "";
+    return MarketGrantClaims.parse(JSON.parse(new TextDecoder().decode(decodeBase64url(body))))
+      .authAt;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The grant a WebSocket upgrade offered in `Sec-WebSocket-Protocol`, if any. */
 export function grantFromSubprotocols(header: string | null): string | undefined {
   for (const protocol of header?.split(",") ?? []) {

@@ -27,6 +27,11 @@ export interface PairingTerms {
   ttlMs?: number | undefined;
   /** How long the paired device keeps access; until revoked when omitted or null. */
   deviceTtlMs?: number | null | undefined;
+  /**
+   * The link's maker is proven to be the person (ADR 0178 §12.8), so its device is the person's
+   * for person-only actions. Omitted: made with the host token alone, or by a device that isn't.
+   */
+  person?: boolean | undefined;
 }
 const localOnly = (device: Pick<Device, "scopes">) =>
   device.scopes.includes("desktop") || device.scopes.includes("user-browser");
@@ -96,6 +101,7 @@ export class RemoteAuth {
       scopes: granted,
       ...(terms.label ? { label: terms.label } : {}),
       ...(terms.deviceTtlMs ? { deviceTtlMs: terms.deviceTtlMs } : {}),
+      person: terms.person === true,
     });
     return { id, code, expiresAt };
   }
@@ -128,6 +134,7 @@ export class RemoteAuth {
       at,
       pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
       installId,
+      pairing.person,
     );
     // The install's record got a new credential and scopes: what the old one opened ends, so
     // no ticket, socket or lease carries the old authority or picks up the new.
@@ -175,7 +182,10 @@ export class RemoteAuth {
   handOver(actor: SessionActor, epoch = ""): { ticket: string; ttlMs: number } | undefined {
     if (!actor.revocable || actor.generation === undefined) return undefined;
     try {
-      const { ticket, expiresAt } = this.ticket({ ...actor, generation: actor.generation }, epoch);
+      const { ticket, expiresAt } = this.ticket(
+        { ...actor, generation: actor.generation, person: actor.person === true },
+        epoch,
+      );
       return { ticket, ttlMs: expiresAt - this.now() };
     } catch {
       return undefined;

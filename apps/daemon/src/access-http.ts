@@ -8,6 +8,9 @@ import {
   PairingRedemption,
   type Device,
 } from "@ace/protocol";
+import { isAppPublicKey } from "@ace/service/app-signature";
+import { z } from "zod";
+import { reauthSentence } from "./marketplace/fresh-sign-in.ts";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
@@ -67,6 +70,9 @@ function accountPath(path: string): boolean {
   );
 }
 
+/** What the desktop app sends to register its key (ADR 0178 §12.8). */
+const AppKeyRegistration = z.object({ publicKey: z.string() });
+
 export interface AccessHttpOptions {
   shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
   auth: RemoteAuth;
@@ -94,6 +100,12 @@ export interface AccessHttpOptions {
   providerProcesses?: () => readonly import("./engine/provider-release.ts").ProviderProcess[];
   /** This machine's ace account and machine code (ADR 0111). */
   account?: () => import("./account-access/machine-account.ts").MachineAccount | undefined;
+  /**
+   * The desktop app's key for a daemon it didn't start (ADR 0178 §12.8): `register` answers this
+   * daemon's run id for a registered key, registering it on a fresh sign-in, and undefined when
+   * it needs one.
+   */
+  appKey?: { register(publicKey: string): Promise<{ run: string } | undefined> };
 }
 export function accessHttp({
   shutdown,
@@ -114,6 +126,7 @@ export function accessHttp({
   remoteStatus,
   providerProcesses,
   account,
+  appKey,
 }: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -206,6 +219,16 @@ export function accessHttp({
             result = homeData ? { ...reply, homeData: homeData() } : reply;
           } else if (request.method === "DELETE") result = appUpdate.clear();
           else throw new AccessError(405, "Unsupported method");
+        } else if (path === "/v1/app-key" && request.method === "POST" && appKey) {
+          // The desktop app's main process only: it holds the host token, as an agent may, so a
+          // key it hasn't registered yet needs a fresh ace sign-in, which an agent can't make.
+          if (!auth.local(token)) throw new AccessError(403, "Host token required");
+          const publicKey = AppKeyRegistration.safeParse(await body(request));
+          if (!publicKey.success || !isAppPublicKey(publicKey.data.publicKey))
+            throw new AccessError(400, "Invalid app key");
+          const registered = await appKey.register(publicKey.data.publicKey);
+          if (!registered) throw new AccessError(401, reauthSentence);
+          result = registered;
         } else if (path === "/v1/pairings" && request.method === "POST") {
           // Awaits come first: the address is read again right before the code is issued, since
           // remote access can change or turn off while they wait.
@@ -218,6 +241,11 @@ export function accessHttp({
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),
+            // The host token alone proves no person: its links make devices that don't either.
+            !auth.local(token) &&
+              creator !== undefined &&
+              "person" in creator &&
+              creator.person === true,
             app,
           );
           result = { url, expiresAt, id };

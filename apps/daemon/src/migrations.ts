@@ -186,6 +186,13 @@ const migrations = [
   // (`item.raw`) can tell versions apart without reading them. Existing rows keep 0, which the
   // reader takes as their creation (`ItemStore.rawRevision`), so the step rewrites no row.
   `ALTER TABLE item_heads ADD COLUMN raw_seq INTEGER NOT NULL DEFAULT 0;`,
+  // Whether a paired device's link came from someone proven to be the person (ADR 0178 §12.8):
+  // 1 or 0, NULL for devices paired before it, which keep the standing they had. And the desktop
+  // app's public keys for daemons it didn't start; none exist before it.
+  `ALTER TABLE devices ADD COLUMN person INTEGER;
+  CREATE TABLE IF NOT EXISTS app_keys (
+    device_id TEXT PRIMARY KEY, public_key TEXT NOT NULL, auth_at INTEGER NOT NULL
+  );`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

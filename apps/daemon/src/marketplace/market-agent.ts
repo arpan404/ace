@@ -5,7 +5,7 @@ import type { SettingsService } from "@ace/settings";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
-import { grantSignInAge } from "@ace/account-grant";
+import { grantSignedInAt, grantSignInAge } from "@ace/account-grant";
 import { agentMarketRequest } from "./agent-requests.ts";
 import { signedInRecently } from "./fresh-sign-in.ts";
 import { MarketPersonRequests } from "./person-requests.ts";
@@ -74,13 +74,20 @@ export class MarketAgent {
    * the account service can't be reached.
    */
   async freshSignIn(): Promise<boolean> {
+    return (await this.freshSignInAt()) !== undefined;
+  }
+
+  /** When this machine's ace account signed in, if that was in the last ten minutes. */
+  async freshSignInAt(): Promise<number | undefined> {
     const bound = this.account;
-    if (!bound) return false;
+    if (!bound) return undefined;
     try {
       const grant = await bound.account.marketGrant(bound.hostId);
-      return grant !== undefined && signedInRecently(grantSignInAge(grant));
+      return grant !== undefined && signedInRecently(grantSignInAge(grant))
+        ? grantSignedInAt(grant)
+        : undefined;
     } catch {
-      return false;
+      return undefined;
     }
   }
 

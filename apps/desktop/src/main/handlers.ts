@@ -129,7 +129,11 @@ export function createHandlers(options: {
       await account.write(origin, token);
       // The machine follows the app's account only where that moves no one's own sign-in
       // (`account-write.ts`); a failure here leaves the app signed in.
-      void daemonAccount.followApp(origin).catch(() => {});
+      // Once the daemon has the new sign-in, it may take the app's key (ADR 0178 §12.8).
+      void daemonAccount
+        .followApp(origin)
+        .then(() => runtime.retryAppKey())
+        .catch(() => {});
       return undefined;
     },
     "daemon.account": async (request) =>

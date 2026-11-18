@@ -52,15 +52,17 @@ export function signedInRecently(age: number | undefined): boolean {
 }
 
 /**
- * The refusal for a market request a socket holding only the host token makes without naming a
- * thread, or undefined when it may run. The app's page and paired devices pass as they are.
+ * The refusal for a market request a socket whose credential isn't the person's makes without
+ * naming a thread, or undefined when it may run. The app's page, devices the person paired and
+ * account devices pass as they are.
  */
 export async function hostMarketRefusal(input: {
   readonly operation: MarketOperation;
-  readonly hostTokenOnly: boolean;
+  /** The socket's credential isn't the person's (`personProven`, ADR 0178 §12.8). */
+  readonly unproven: boolean;
   readonly fresh: () => Promise<boolean>;
 }): Promise<MarketResult | undefined> {
-  if (!input.hostTokenOnly || !needsFreshSignIn(input.operation)) return undefined;
+  if (!input.unproven || !needsFreshSignIn(input.operation)) return undefined;
   if (await input.fresh()) return undefined;
   return { op: "error", code: "reauth", message: reauthSentence };
 }

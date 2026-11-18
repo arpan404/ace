@@ -88,7 +88,12 @@ export async function accountHello(
   };
 }
 
-/** An admitted account device: admin while it stays admitted, never revoked by device id. */
+/**
+ * An admitted account device: admin while it stays admitted, never revoked by device id. It
+ * counts as the person for §12.7's checks, as before ADR 0178 §12.8; that ADR names the gap: any
+ * holder of an ace session, the one a machine keeps in `ace-account.json` included, can mint a
+ * device grant for any device id.
+ */
 export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
   return {
     id,
@@ -98,6 +103,7 @@ export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
     lastSeenAt: now,
     revokedAt: null,
     revocable: false,
+    person: true,
   };
 }
 

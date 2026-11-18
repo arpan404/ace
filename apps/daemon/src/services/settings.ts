@@ -63,7 +63,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (!key.startsWith("beta.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
           // A reset would turn the ask off; over the host token only `config set` changes it.
-          (key !== "market.askBeforeAgentPublish" || context.hostTokenOnly?.() !== true) &&
+          (key !== "market.askBeforeAgentPublish" || context.personProven?.() === true) &&
           ((key !== "computer.blockedApps" &&
             key !== "providers.codex.toolSource" &&
             key !== "providers.claude.chrome" &&
@@ -75,7 +75,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
       const market = options.marketAgent;
       const refused = await settingWriteRefusal(key, {
         device: context.device(),
-        hostTokenOnly: context.hostTokenOnly?.() === true,
+        unproven: context.personProven?.() !== true,
         fresh: () => market?.freshSignIn() ?? Promise.resolve(false),
       });
       if (refused) throw new SettingsError(refused.code, refused.message);
