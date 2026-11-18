@@ -67,7 +67,7 @@ struct ProjectsView: View {
                 }
             case .rows(let ids, let more):
                 Section {
-                    ForEach(projects.filter { ids.contains($0.id) }) { project in
+                    ForEach(listed(ids)) { project in
                         NavigationLink { ProjectDetailView(model: model, project: project) } label: { ProjectRowLabel(project: project) }
                             .accessibilityIdentifier("projects.row.\(project.id)")
                     }
@@ -119,6 +119,12 @@ struct ProjectsView: View {
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }
+    /// The listing's projects, in the machine's order: one pass over what has been read.
+    private func listed(_ ids: [String]) -> [NativeProject] {
+        let wanted = Set(ids)
+        return projects.filter { wanted.contains($0.id) }
+    }
+
     /// The next page, offered while searching too: a search only filters the pages read so far.
     private var moreButton: some View {
         Button(query.isEmpty ? "Show more projects" : "Search more projects") { Task { await read(more: true) } }
