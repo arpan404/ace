@@ -312,70 +312,70 @@ function Manage(props: { entry: MarketOwnEntry }) {
       />
       <Section title="Who can find it">
         <div className="mk-section-body">
-        <div className="mk-word-choice" role="group" aria-label="Visibility">
-          {(["listed", "unlisted"] as const).map((visibility) => (
-            <button
-              key={visibility}
-              type="button"
-              aria-pressed={summary.visibility === visibility}
-              onClick={() =>
-                summary.visibility !== visibility && act({ action: "visibility", visibility })
-              }
-            >
-              {visibility === "listed" ? "Listed" : "Unlisted"}
-            </button>
-          ))}
-        </div>
-        <p className="mk-line">
-          {summary.visibility === "unlisted"
-            ? "Only people with its link find it; search and Discover leave it out."
-            : "Anyone finds it in search and Discover."}
-        </p>
-        <div className="mk-actions" style={{ justifyContent: "flex-start" }}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => act({ action: "archive", archived: !summary.archived })}
-          >
-            {summary.archived ? "Unarchive" : "Archive"}
-          </Button>
-          {live.length > 0 && (
+          <div className="mk-word-choice" role="group" aria-label="Visibility">
+            {(["listed", "unlisted"] as const).map((visibility) => (
+              <button
+                key={visibility}
+                type="button"
+                aria-pressed={summary.visibility === visibility}
+                onClick={() =>
+                  summary.visibility !== visibility && act({ action: "visibility", visibility })
+                }
+              >
+                {visibility === "listed" ? "Listed" : "Unlisted"}
+              </button>
+            ))}
+          </div>
+          <p className="mk-line">
+            {summary.visibility === "unlisted"
+              ? "Only people with its link find it; search and Discover leave it out."
+              : "Anyone finds it in search and Discover."}
+          </p>
+          <div className="mk-actions" style={{ justifyContent: "flex-start" }}>
             <Button
-              variant="ghost"
-              tone="danger"
+              variant="secondary"
               size="sm"
-              onClick={() => setAsking({ kind: "withdraw" })}
+              onClick={() => act({ action: "archive", archived: !summary.archived })}
             >
-              Withdraw every version
+              {summary.archived ? "Unarchive" : "Archive"}
             </Button>
-          )}
-        </div>
+            {live.length > 0 && (
+              <Button
+                variant="ghost"
+                tone="danger"
+                size="sm"
+                onClick={() => setAsking({ kind: "withdraw" })}
+              >
+                Withdraw every version
+              </Button>
+            )}
+          </div>
         </div>
       </Section>
       <Section title="Hand it to another publisher">
         <div className="mk-section-body">
-        <div style={{ display: "flex", gap: 8, alignItems: "end", width: "100%", maxWidth: 480 }}>
-          <div style={{ flex: 1 }}>
-            <label className="mk-label" htmlFor="mk-transfer">
-              Their handle
-            </label>
-            <input
-              id="mk-transfer"
-              className="mk-field"
-              value={handle}
-              autoComplete="off"
-              onChange={(event) => setHandle(event.target.value.toLowerCase())}
-            />
+          <div style={{ display: "flex", gap: 8, alignItems: "end", width: "100%", maxWidth: 480 }}>
+            <div style={{ flex: 1 }}>
+              <label className="mk-label" htmlFor="mk-transfer">
+                Their handle
+              </label>
+              <input
+                id="mk-transfer"
+                className="mk-field"
+                value={handle}
+                autoComplete="off"
+                onChange={(event) => setHandle(event.target.value.toLowerCase())}
+              />
+            </div>
+            <Button
+              variant="secondary"
+              disabled={!MarketPublisherName.safeParse(handle).success || action.isPending}
+              onClick={() => act({ action: "transfer", to: handle })}
+            >
+              Offer it
+            </Button>
           </div>
-          <Button
-            variant="secondary"
-            disabled={!MarketPublisherName.safeParse(handle).success || action.isPending}
-            onClick={() => act({ action: "transfer", to: handle })}
-          >
-            Offer it
-          </Button>
-        </div>
-        <p className="mk-line">It moves once they accept, within a week.</p>
+          <p className="mk-line">It moves once they accept, within a week.</p>
         </div>
       </Section>
       <SignalsSection type={summary.type} name={summary.name} />

@@ -1,8 +1,4 @@
-import type {
-  MarketEntryDetail,
-  MarketReview,
-  MarketReviewBody,
-} from "@ace/protocol/marketplace";
+import type { MarketEntryDetail, MarketReview, MarketReviewBody } from "@ace/protocol/marketplace";
 import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 import { botFaceColourVars } from "@ace/ui-core/bot-face";

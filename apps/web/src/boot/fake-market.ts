@@ -107,7 +107,13 @@ const byAce: Listing[] = [
     "Rain on a window over a city out of focus, in slate and lamplight.",
     ["calm", "dark"],
   ],
-  ["suit", "tarn", "Tarn", "A mountain lake at blue hour behind cool slate panels.", ["calm", "dark"]],
+  [
+    "suit",
+    "tarn",
+    "Tarn",
+    "A mountain lake at blue hour behind cool slate panels.",
+    ["calm", "dark"],
+  ],
 ];
 
 const byHarbour: Listing[] = [
@@ -165,7 +171,13 @@ export function fakeMarket(now: number): MarketplaceSeed {
     collections: [],
     publishers: [
       { handle: "ace", displayName: "ace", verified: true, entries: byAce.length, downloads: 900 },
-      { handle: "harbour", displayName: "Harbour Studio", verified: true, entries: 3, downloads: 480 },
+      {
+        handle: "harbour",
+        displayName: "Harbour Studio",
+        verified: true,
+        entries: 3,
+        downloads: 480,
+      },
     ],
     rankedAt: now,
   };

@@ -121,12 +121,7 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
       <div className="mk-inner" data-width="form">
         <Steps now={now} />
         <h1 className="mk-display-sm">What are you publishing?</h1>
-        <div
-          className="mk-cards"
-          data-cols="2"
-          data-form="lockup"
-          style={{ marginTop: 32 }}
-        >
+        <div className="mk-cards" data-cols="2" data-form="lockup" style={{ marginTop: 32 }}>
           {choices.map((choice) => (
             <button
               key={choice.type}

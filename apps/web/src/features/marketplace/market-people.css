@@ -80,10 +80,9 @@
     margin-top: 4px;
   }
   .mk-profile-links a {
-    color: var(--mk-muted);
+    color: var(--ring-text);
   }
   .mk-profile-links a:hover {
-    color: var(--foreground);
     text-decoration: underline;
     text-underline-offset: 3px;
   }
