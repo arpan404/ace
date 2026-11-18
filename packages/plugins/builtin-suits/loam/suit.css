@@ -425,3 +425,62 @@
 [data-scheme="light"] [data-part="app"] {
   --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 88%, transparent);
 }
+
+/* ── Section heads, Spade and the Marketplace ──────────────────────────────────────────── */
+
+/* Every section's head in the pixel face, as the page's title is. */
+[data-part="section-title"] {
+  font-family: "Loam Pixel", var(--font-sans);
+  letter-spacing: 0.02em;
+}
+/* A sheet's search row is one sunk field: the input inside it isn't sunk again. */
+[data-part="search-field"] [data-part="input"],
+[data-part="search-field"] [data-part="input"]:focus,
+[data-part="command-palette"] [data-part="search-field"] {
+  box-shadow: none;
+}
+/* The composer's Access chip sits flat, as the model chip beside it does. */
+[data-part="composer-toolbar"] [data-part="select"] {
+  box-shadow: none;
+}
+
+/* Spade: square blocks with a bevel and a hard drop, like every raised thing here. */
+[data-part="spade-message"],
+[data-part="header-title"][data-variant="spade-pill"] {
+  border-radius: 0;
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+[data-part="card"]:is([data-variant="spade-question"], [data-variant="spade-request"]) {
+  border-radius: 0;
+  border: 2px solid var(--color-tint);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
+
+/*
+ * The Marketplace: an entry is a picture with its words under it, so the bevel goes on the
+ * picture, not round the words. The pick beside the hero is pressed in like the open row.
+ */
+[data-part="card"]:is(
+  [data-variant="market-entry"],
+  [data-variant="market-collection"],
+  [data-variant="market-publisher"]
+) {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-part="market-stage"] {
+  border-radius: 0;
+  box-shadow:
+    inset 0 0 0 2px var(--color-border),
+    var(--suit-bevel);
+}
+[data-part="list-row"][data-variant="market-pick"][data-state="selected"] {
+  background: var(--color-active);
+  box-shadow: var(--suit-sunk);
+}
+[data-part="market-try"] {
+  border-radius: 0;
+  border: 2px solid var(--color-border-strong);
+  box-shadow: var(--suit-bevel), var(--suit-drop);
+}
