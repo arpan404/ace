@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
+use spade_core::autonomy::Mode;
 use spade_core::grant::{self, Grant, Scope};
 use spade_sandbox::Runner;
 use spade_sandbox::egress::{EgressLog, Entry, NetworkPolicy, Proxy, SystemResolver};
@@ -248,6 +249,35 @@ impl Security {
     /// What holds for a bot: its own settings over the machine's.
     pub fn effective(&self, bot: &str) -> Effective {
         settings::effective(&self.bot(bot), &self.machine())
+    }
+
+    /// How the bot decides (ADR 0163, amendment 2): its own setting over its parent's or the
+    /// machine's, never freer than a bot above it.
+    pub fn autonomy(&self, bot: &str) -> Mode {
+        let mut chain: Vec<BotSecurity> = self
+            .ancestors(bot)
+            .iter()
+            .map(|above| self.bot(above))
+            .collect();
+        chain.reverse();
+        chain.push(self.bot(bot));
+        settings::autonomy(&chain, self.machine().autonomy)
+    }
+
+    /// Sets how the bot decides; `None` follows its parent's or the machine's. Turning Full
+    /// access on records that the person confirmed it once.
+    pub fn set_autonomy(
+        &self,
+        bot: &str,
+        mode: Option<Mode>,
+    ) -> Result<BotSecurity, SecurityError> {
+        self.change(bot, |current| {
+            current.autonomy = mode;
+            if mode == Some(Mode::FullAccess) {
+                current.full_access_confirmed = true;
+            }
+            Ok(())
+        })
     }
 
     /// Whether the bot runs its commands outside the sandbox.

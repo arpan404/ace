@@ -7,7 +7,7 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
-use spade_core::autonomy::{self, Class, Runs, Sensitive};
+use spade_core::autonomy::{self, Class, Mode, Runs, Sensitive};
 use spade_core::context;
 use spade_core::effect::{self, Place, Route};
 use spade_core::event::Verdict;
@@ -76,6 +76,8 @@ pub(super) async fn handle_calls(
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
         memory_suggests: summary_only,
     };
+    // How the bot decides (ADR 0163, amendment 2), read once for the step's calls.
+    let mode = engine.autonomy(id);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     // Calls approved by the reviewer with the files they run, by call id: the hash of those
     // files as it read them (ADR 0144).
@@ -292,7 +294,37 @@ pub(super) async fn handle_calls(
                         checkpointed: held && classed.runs == Runs::Host,
                         target: target.as_deref(),
                         drive,
+                        mode,
                     });
+                    let screening = |concern: bool| super::classify::Screening {
+                        call: &pending.call,
+                        name: &name,
+                        arguments: &arguments,
+                        classed: &classed,
+                        hints: engine.tools.get_for(id, &name).and_then(|t| t.hints()),
+                        reviewing: spade_classify::Reviewing {
+                            plain_command: classed.runs == Runs::Outside
+                                && classed.class == Class::Inside
+                                && !classed.credentials,
+                            tainted: !in_view.is_empty(),
+                            runs_files: !classed.shown.is_empty(),
+                            standing: autonomy::STANDING.contains(&name.as_str()),
+                            concern,
+                        },
+                    };
+                    // In Full access nothing is reviewed, but Spade's classifier may still raise a
+                    // command outside the sandbox or an app's tool it reads as a hard stop.
+                    let route = match route {
+                        Route::Run if mode == Mode::FullAccess && place != Place::Sandbox => {
+                            match engine.raise_only(id, reply, events, &screening(false)) {
+                                Ok(Screened::Ask(line)) => Route::Ask { line, ask: None },
+                                Ok(Screened::Stopped) => return Handled::Stopped,
+                                Ok(Screened::Run | Screened::Review) => Route::Run,
+                                Err(error) => return Handled::Failed(error.to_string()),
+                            }
+                        }
+                        route => route,
+                    };
                     let mut ask = None;
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;
@@ -348,22 +380,7 @@ pub(super) async fn handle_calls(
                             // Spade's classifier first (ADR 0172): it may settle a plain command
                             // as low-risk or raise a person-only effect; otherwise it abstains
                             // and the reviewer decides as before.
-                            let screening = super::classify::Screening {
-                                call: &pending.call,
-                                name: &name,
-                                arguments: &arguments,
-                                classed: &classed,
-                                hints: engine.tools.get_for(id, &name).and_then(|t| t.hints()),
-                                reviewing: spade_classify::Reviewing {
-                                    plain_command: classed.runs == Runs::Outside
-                                        && classed.class == Class::Inside
-                                        && !classed.credentials,
-                                    tainted: !in_view.is_empty(),
-                                    runs_files: !classed.shown.is_empty(),
-                                    standing: autonomy::STANDING.contains(&name.as_str()),
-                                    concern: concern.is_some(),
-                                },
-                            };
+                            let screening = screening(concern.is_some());
                             let screened = match engine.screen(id, reply, events, &screening) {
                                 Ok(screened) => screened,
                                 Err(error) => return Handled::Failed(error.to_string()),
@@ -428,7 +445,9 @@ pub(super) async fn handle_calls(
                     // The model review (ADR 0135) may turn a run into a question, never the
                     // other way round; a call the auto-review approved was reviewed already.
                     // A sandboxed call is the OS's to decide: no review of any kind (ADR 0171).
+                    // In Full access the person chose no reviewer (ADR 0163, amendment 2).
                     if rule_ran
+                        && mode == Mode::AutoReview
                         && place != Place::Sandbox
                         && review::reviewed(def.risk, decision)
                         && engine.review_on(id)
@@ -465,8 +484,13 @@ pub(super) async fn handle_calls(
                             // A driving step runs only where it was decided on.
                             if let Some(place) = acts_in {
                                 // Run by the reviewer's word alone, unless an Always allow of
-                                // the person's let it through.
-                                engine.decide_place(&key, place, !rule_ran);
+                                // the person's let it through; in Full access by no one's, so
+                                // held to its place as strictly.
+                                engine.decide_place(
+                                    &key,
+                                    place,
+                                    !rule_ran || mode == Mode::FullAccess,
+                                );
                             }
                             runnable.push((pending.call, name, arguments));
                         }

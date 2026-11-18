@@ -13,6 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, put};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use spade_core::autonomy::Mode;
 use spade_core::grant::{BY_PERSON, Scope};
 use spade_sandbox::egress::NetworkPolicy;
 
@@ -24,10 +25,12 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/security", get(machine))
         .route("/security/commands", put(machine_commands))
+        .route("/security/autonomy", put(machine_autonomy))
         .route("/security/network", put(machine_network))
         .route("/security/plugin-network", put(machine_plugin_network))
         .route("/agents/{id}/security", get(agent))
         .route("/agents/{id}/security/commands", put(commands))
+        .route("/agents/{id}/security/autonomy", put(autonomy))
         .route(
             "/agents/{id}/security/network",
             put(network).delete(inherit_network),
@@ -99,10 +102,13 @@ fn view(security: &Security, id: &str) -> Value {
         "contained": contained,
         "reason": reason,
         "commands": held.commands,
+        "autonomy": security.autonomy(id),
+        "full_access_confirmed": settings.full_access_confirmed,
         "network": held.network,
         "plugin_network": held.plugin_network,
         "own": {
             "commands": settings.commands.is_some(),
+            "autonomy": settings.autonomy.is_some(),
             "network": settings.network.is_some(),
             "plugin_network": settings.plugin_network.is_some(),
         },
@@ -153,6 +159,28 @@ async fn machine_commands(
     .await
 }
 
+#[derive(Deserialize)]
+struct MachineAutonomy {
+    autonomy: Mode,
+}
+
+/// How bots without their own setting decide (ADR 0163, amendment 2).
+async fn machine_autonomy(
+    State(state): State<AppState>,
+    Body(body): Body<MachineAutonomy>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(
+        move || match security.change_machine(|machine| machine.autonomy = body.autonomy) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
+    .await
+}
+
 async fn set_machine_network(state: AppState, which: Network, body: NetworkPolicy) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
@@ -193,6 +221,28 @@ async fn commands(
         return unavailable();
     };
     off_thread(move || match security.set_commands(&id, body.commands) {
+        Ok(_) => Json(view(&security, &id)).into_response(),
+        Err(error) => failed(error),
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct BotAutonomy {
+    /// `null` follows the bot above it, or the machine.
+    autonomy: Option<Mode>,
+}
+
+/// How one bot decides: the auto-review or Full access (ADR 0163, amendment 2).
+async fn autonomy(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<BotAutonomy>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || match security.set_autonomy(&id, body.autonomy) {
         Ok(_) => Json(view(&security, &id)).into_response(),
         Err(error) => failed(error),
     })

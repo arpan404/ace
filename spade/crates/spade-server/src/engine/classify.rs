@@ -171,16 +171,79 @@ impl Engine {
             return Ok(Screened::Review);
         };
         let Decision {
-            prediction,
-            screen,
-            hardening,
-        } = decide(
+            screen, hardening, ..
+        } = self.decided(id, s, model, &subject);
+        let (verdict, reason, screened) = match screen {
+            Screen::Abstain => return Ok(Screened::Review),
+            Screen::LowRisk => {
+                // Settled only with the form it runs in; recorded with the verdict and taken by
+                // the launch, which checks it again.
+                let Some(form) = hardening else {
+                    return Ok(Screened::Review);
+                };
+                let reason = settled(&form);
+                self.decisions.mark(&key, form);
+                (Verdict::Allow, reason, Screened::Run)
+            }
+            Screen::Person(effect) => {
+                let line = line(effect).to_owned();
+                (Verdict::Escalate, line.clone(), Screened::Ask(line))
+            }
+        };
+        self.store_screened(id, reply, s, model, verdict, reason, screened)
+    }
+
+    /// For a bot in Full access (ADR 0163, amendment 2), a call the gate let run: the classifier
+    /// may only raise it to the person, when it reads a payment, a send in their name, an access
+    /// change, a secret or a step in an app it can't place. It settles nothing and nothing goes
+    /// to the reviewer; a raise is stored as the call's verdict.
+    pub(super) fn raise_only(
+        &self,
+        id: &str,
+        reply: &str,
+        events: &[Event],
+        s: &Screening<'_>,
+    ) -> Result<Screened, spade_store::StoreError> {
+        if let Some((verdict, reason)) = review::stored(events, &s.call.id) {
+            return Ok(match verdict {
+                Verdict::Escalate => Screened::Ask(reason),
+                _ => Screened::Run,
+            });
+        }
+        if !self.classifier_on() {
+            return Ok(Screened::Run);
+        }
+        let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
+            return Ok(Screened::Run);
+        };
+        match self.decided(id, s, model, &subject).screen {
+            Screen::Person(effect) => {
+                let line = line(effect).to_owned();
+                let screened = Screened::Ask(line.clone());
+                self.store_screened(id, reply, s, model, Verdict::Escalate, line, screened)
+            }
+            Screen::LowRisk | Screen::Abstain => Ok(Screened::Run),
+        }
+    }
+
+    /// The model's decision on one call, logged (class and confidence, never the call).
+    fn decided(
+        &self,
+        id: &str,
+        s: &Screening<'_>,
+        model: &Model,
+        subject: &Subject<'_>,
+    ) -> Decision {
+        let decision = decide(
             model,
-            &subject,
+            subject,
             s.reviewing,
             s.classed.config_clean,
             s.classed.sandboxable,
         );
+        let Decision {
+            prediction, screen, ..
+        } = &decision;
         let (top, confidence) = prediction.top();
         self.decisions.append(&Logged {
             at: self.clock.now_ms(),
@@ -203,23 +266,21 @@ impl Engine {
             },
             model: model.id(),
         });
-        let (verdict, reason, screened) = match screen {
-            Screen::Abstain => return Ok(Screened::Review),
-            Screen::LowRisk => {
-                // Settled only with the form it runs in; recorded with the verdict and taken by
-                // the launch, which checks it again.
-                let Some(form) = hardening else {
-                    return Ok(Screened::Review);
-                };
-                let reason = settled(&form);
-                self.decisions.mark(&key, form);
-                (Verdict::Allow, reason, Screened::Run)
-            }
-            Screen::Person(effect) => {
-                let line = line(effect).to_owned();
-                (Verdict::Escalate, line.clone(), Screened::Ask(line))
-            }
-        };
+        decision
+    }
+
+    /// Stores what the classifier came to as the call's verdict; `Stopped` when the reply was.
+    #[allow(clippy::too_many_arguments)]
+    fn store_screened(
+        &self,
+        id: &str,
+        reply: &str,
+        s: &Screening<'_>,
+        model: &Model,
+        verdict: Verdict,
+        reason: String,
+        screened: Screened,
+    ) -> Result<Screened, spade_store::StoreError> {
         let event = Event::Known(spade_core::event::Known::CallReviewed {
             reply: reply.to_owned(),
             call_id: s.call.id.clone(),
