@@ -208,9 +208,11 @@ extension View {
 
 /// Probe hooks the feed calls; nothing outside probed fixture builds.
 enum TranscriptJumpHooks {
-    @MainActor static func begin(_ name: String, hidden: Bool = false) {
+    /// A page's run lasts longer than an opening's: it spans the fling and the page joining at
+    /// its rest.
+    @MainActor static func begin(_ name: String, hidden: Bool = false, span: Double = 2.5) {
         #if ACE_FIXTURE
-        if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name, hidden: hidden) }
+        if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name, hidden: hidden, span: span) }
         #endif
     }
     /// The feed is frozen over (`true`) or shown again.

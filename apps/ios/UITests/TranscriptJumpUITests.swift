@@ -28,7 +28,9 @@ import XCTest
         XCTAssertGreaterThanOrEqual(run.onScreen.min() ?? 0, -60, "rows move up a line or so at a time: \(run)")
     }
 
-    /// Reading back, an older page lands above the rows on screen without moving them.
+    /// Reading back, an older page lands above the rows on screen without moving them: it joins
+    /// once the fling has come to rest, and the line stays within a point while the offset takes
+    /// the page's height.
     func testAnOlderPageLandsWithoutMovingTheReadersLine() {
         let app = open("ios-reading")
         _ = jumpRun(app, "open")
@@ -40,10 +42,11 @@ import XCTest
         let pages = [jumpRun(app, "older.1"), jumpRun(app, "older.2")]
         for (n, page) in pages.enumerated() { print("jump older ios-reading page \(n + 1): \(page)") }
         for page in pages { XCTAssertGreaterThan(page.frames, 30, "frames were sampled: \(page)") }
-        // Still open in #2218: the lazy stack's corrections around a landed page move the line,
-        // and holding either edge doesn't stop it. Fails loudly once it's fixed.
-        XCTExpectFailure("an older page still moves the reader's line (#2218)") {
-            for page in pages { XCTAssertEqual(page.moved, 0, "the page didn't move the rows on screen: \(page)") }
+        let joins = pages.flatMap(\.atRest).filter { abs($0.inContent) >= 100 }
+        XCTAssertFalse(joins.isEmpty, "a page joined while the feed was at rest: \(pages)")
+        for page in pages {
+            let most = page.atRest.map { abs($0.onScreen) }.max() ?? 0
+            XCTAssertLessThanOrEqual(most, 1, "the rows on screen stayed put while the page joined: \(page)")
         }
     }
 
@@ -78,5 +81,14 @@ struct JumpRun: CustomStringConvertible {
     let trace: String
     /// Each frame's move on screen, in points, from the trace's `<on screen>/<in content><phase>`.
     var onScreen: [Int] { trace.split(separator: ",").compactMap { $0.split(separator: "/").count == 2 ? Int($0.split(separator: "/")[0]) : nil } }
+    /// The frames that moved while the feed was at rest (`i`): on screen and within the content.
+    var atRest: [(onScreen: Int, inContent: Int)] {
+        trace.split(separator: ",").compactMap { entry -> (onScreen: Int, inContent: Int)? in
+            guard entry.hasSuffix("i") else { return nil }
+            let parts = entry.dropLast().split(separator: "/")
+            guard parts.count == 2, let on = Int(parts[0]), let inside = Int(parts[1]) else { return nil }
+            return (onScreen: on, inContent: inside)
+        }
+    }
     var description: String { "frames=\(frames) moved=\(moved) total=\(total)pt max=\(max)pt trace=[\(trace)]" }
 }

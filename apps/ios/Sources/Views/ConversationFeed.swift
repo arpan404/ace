@@ -411,7 +411,7 @@ struct ConversationFeed: View {
             .onChange(of: reading.loading) { _, loading in
                 if loading, reading.operation == "older" {
                     intent.olderPage = true
-                    TranscriptJumpHooks.begin("older")
+                    TranscriptJumpHooks.begin("older", span: 4)
                 }
                 if !loading { pageIfNeeded(proxy) }
             }
