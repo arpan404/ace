@@ -93,23 +93,3 @@ extension ClientModel {
         return true
     }
 }
-
-/// A word that acts inside a row ("Check out", "Run checks", "Ours"): no chrome, but the whole
-/// 44-point height takes the tap, and it dims while pressed or unavailable.
-struct ForgeWordButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { WordLabel(configuration: configuration) }
-    private struct WordLabel: View {
-        let configuration: ButtonStyleConfiguration
-        @Environment(\.isEnabled) private var enabled
-        var body: some View {
-            configuration.label
-                .frame(minHeight: AceDesign.Size.tap)
-                .contentShape(Rectangle())
-                .opacity(!enabled ? AceDesign.Ink.dimmedOpacity : configuration.isPressed ? AceDesign.Ink.settledOpacity : 1)
-        }
-    }
-}
-
-extension ButtonStyle where Self == ForgeWordButtonStyle {
-    static var forgeWord: ForgeWordButtonStyle { ForgeWordButtonStyle() }
-}
