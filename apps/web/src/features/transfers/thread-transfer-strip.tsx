@@ -1,6 +1,10 @@
 import { useThreadMeta, useThreadTransfer, useTransferDismissal } from "@ace/client-react";
 import type { ThreadContinuedOn, Transfer } from "@ace/protocol";
-import { threadTransferState, type ThreadTransferState } from "@ace/ui-core/transfers";
+import {
+  continuedWords,
+  threadTransferState,
+  type ThreadTransferState,
+} from "@ace/ui-core/transfers";
 import type { ReactNode } from "react";
 import { useScopedMachine } from "@/lib/machines.ts";
 import { useOpenOnMachine } from "@/lib/open-on-machine.ts";
@@ -17,10 +21,10 @@ export type { ThreadTransferState } from "@ace/ui-core/transfers";
  */
 export function useThreadTransferState(threadId: string) {
   const transfer = useThreadTransfer(threadId);
-  const details = useThreadMeta(threadId)?.details;
+  const meta = useThreadMeta(threadId);
   const { dismissed, dismiss } = useTransferDismissal(transfer?.transferId);
   return {
-    state: threadTransferState(transfer, details, dismissed),
+    state: threadTransferState(transfer, meta?.details, dismissed, meta?.status),
     dismiss,
   };
 }
@@ -46,15 +50,8 @@ export function ThreadTransferStrip(props: {
         indicators={props.indicators}
       />
     );
-  return (
-    <ContinuedLine
-      words={
-        state.kind === "on" ? `Continued on ${state.on.name}` : `Continued from ${state.from.name}`
-      }
-      where={state.kind === "on" ? state.on : state.from}
-      indicators={props.indicators}
-    />
-  );
+  const { words, where } = continuedWords(state);
+  return <ContinuedLine words={words} where={where} indicators={props.indicators} />;
 }
 
 function RunningLine(props: {
@@ -93,7 +90,11 @@ function RunningLine(props: {
   return <TransferLine {...line} actions={actions} indicators={props.indicators} />;
 }
 
-function ContinuedLine(props: { words: string; where: ThreadContinuedOn; indicators: ReactNode }) {
+function ContinuedLine(props: {
+  words: string;
+  where: Pick<ThreadContinuedOn, "hostId" | "threadId">;
+  indicators: ReactNode;
+}) {
   const open = useOpenOnMachine()({ hostId: props.where.hostId, threadId: props.where.threadId });
   return (
     <TransferLine

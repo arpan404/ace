@@ -2,12 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { ProviderKind, type ThreadId } from "@ace/protocol";
-import {
-  finishedThread,
-  git,
-  transferMachines,
-  type Machines,
-} from "./transfer-test-support.ts";
+import { finishedThread, git, transferMachines, type Machines } from "./transfer-test-support.ts";
 
 /** What the target's provider was sent for one thread. */
 const sentTo = (m: Machines, threadId: ThreadId) =>
