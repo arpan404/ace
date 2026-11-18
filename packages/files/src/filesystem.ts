@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { constants } from "node:fs";
 import { lstat, open, rename, rm, type FileHandle } from "node:fs/promises";
@@ -21,28 +22,42 @@ export async function observed(
     const info = await lstat(target.path);
     const current = version(info);
     if (!info.isDirectory()) return current;
-    const digest = createHash("sha256").update(current);
-    const ignore = await GitIgnore.create(safe);
-    for await (const entry of walkWorkspace(safe, ignore, {
-      dir: safe.path(path),
-      depth: Number.MAX_SAFE_INTEGER,
-      includeIgnored: true,
-      exclude: isWorkspaceTransferTemporary,
-      entryLimit: 1_000_000,
-      ...(signal ? { signal } : {}),
-    })) {
-      if (isWorkspaceTransferTemporary(entry.path)) continue;
-      const metadata = await safe.metadata(entry.path);
-      digest.update(entry.path);
-      digest.update("\0");
-      digest.update(version(metadata.info));
-      digest.update("\0");
-    }
-    return `tree:${digest.digest("hex")}`;
+    return await treeVersion(safe, path, info, signal);
   } catch (error) {
     if (codeOf(error) === "ENOENT") return null;
     throw error;
   }
+}
+
+/**
+ * The `tree:` digest of a folder: its own version, then every entry below it as `path`, NUL,
+ * version, NUL. `files-io`'s folder versions are computed the same way, so a version from either
+ * side is accepted by the other.
+ */
+export async function treeVersion(
+  safe: SafeRoot,
+  path: string,
+  info: Stats,
+  signal?: AbortSignal,
+): Promise<string> {
+  const digest = createHash("sha256").update(version(info));
+  const ignore = await GitIgnore.create(safe);
+  for await (const entry of walkWorkspace(safe, ignore, {
+    dir: safe.path(path),
+    depth: Number.MAX_SAFE_INTEGER,
+    includeIgnored: true,
+    exclude: isWorkspaceTransferTemporary,
+    entryLimit: 1_000_000,
+    ...(signal ? { signal } : {}),
+  })) {
+    if (isWorkspaceTransferTemporary(entry.path)) continue;
+    const metadata = await safe.metadata(entry.path);
+    digest.update(entry.path);
+    digest.update("\0");
+    digest.update(version(metadata.info));
+    digest.update("\0");
+  }
+  return `tree:${digest.digest("hex")}`;
 }
 export async function checkedTarget(
   safe: SafeRoot,

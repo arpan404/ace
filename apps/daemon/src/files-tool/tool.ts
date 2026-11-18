@@ -4,6 +4,8 @@ import {
   FilesRequestError,
   nodeFilesHost,
   systemFilesClock,
+  type DescriptionReply,
+  type EntryReply,
   type EventPayload,
   type FilesClock,
   type FilesHost,
@@ -11,6 +13,8 @@ import {
   type FilesWatch,
   type IndexReply,
   type PageReply,
+  type ReadReply,
+  type VersionReply,
 } from "@ace/files-native";
 import type { FolderPage } from "@ace/protocol";
 import { existsSync } from "node:fs";
@@ -70,6 +74,62 @@ export type FilesToolClient = {
       signal?: AbortSignal | undefined;
     },
   ): Promise<PageReply>;
+  stat(root: number, path: string): Promise<EntryReply>;
+  describe(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<DescriptionReply>;
+  describeEntry(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<DescriptionReply>;
+  checkMutation(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<void>;
+  measure(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<{ bytes: number; shallow: boolean }>;
+  read(
+    root: number,
+    path: string,
+    options?: {
+      offset?: number | undefined;
+      length?: number | undefined;
+      maxSize?: number | undefined;
+      signal?: AbortSignal | undefined;
+    },
+  ): Promise<{ meta: ReadReply; bytes: Uint8Array }>;
+  write(
+    root: number,
+    path: string,
+    bytes: Uint8Array,
+    options?: { expected?: string | undefined; signal?: AbortSignal | undefined },
+  ): Promise<VersionReply>;
+  createFile(
+    root: number,
+    path: string,
+    bytes: Uint8Array,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<VersionReply>;
+  createDir(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<void>;
+  rename(
+    root: number,
+    from: string,
+    to: string,
+    overwrite?: boolean,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<void>;
+  remove(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<void>;
   indexQuery(root: number, query: string, limit: number): Promise<IndexReply>;
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch>;
 };
@@ -200,6 +260,18 @@ export class FilesTool {
     const client = this.#client;
     if (!client) throw aceFilesMissing();
     return client;
+  }
+
+  /**
+   * Run one task against a checkout's open root. The root is held for the task, so an idle sweep
+   * never closes it underneath; a machine without ace-files fails here with `FILES_RESTARTING`.
+   */
+  async run<T>(
+    path: string,
+    task: (client: FilesToolClient, root: number) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.client();
+    return this.#rootBook().use(path, (root) => task(client, root));
   }
 
   /** One folder of a checkout, paged, from ace-files. */

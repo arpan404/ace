@@ -1,0 +1,13 @@
+{
+  "json": {
+    "id": 10,
+    "result": {
+      "type": "measure",
+      "bytes": 1048576,
+      "shallow": false
+    },
+    "type": "response"
+  },
+  "text": "{\"type\":\"response\",\"id\":10,\"result\":{\"type\":\"measure\",\"bytes\":1048576,\"shallow\":false}}",
+  "frame": "58000000017b2274797065223a22726573706f6e7365222c226964223a31302c22726573756c74223a7b2274797065223a226d656173757265222c226279746573223a313034383537362c227368616c6c6f77223a66616c73657d7d"
+}

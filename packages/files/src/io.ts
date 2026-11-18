@@ -1,0 +1,116 @@
+import type { SafeRoot } from "@ace/workspace";
+
+/** What an entry is on disk, before any final link is followed. */
+export type EntryKind = "file" | "directory" | "symlink" | "other";
+
+/**
+ * One path's details, in the terms the daemon's guarded writes and its `stat` reply use.
+ *
+ * `version` is the daemon's version string: a file's identity and times, or a digest of a
+ * folder's whole tree, so a client holding an older one can be told what changed. `size` is the
+ * entry's own size, except that a link reports what its target holds, as `safe.metadata` does.
+ */
+export interface Description {
+  version: string;
+  /** A folder's own version, before its digest; absent for a file. */
+  ownVersion?: string | undefined;
+  /** True when a walk budget stopped a folder digest, so `version` is its own version. */
+  shallow: boolean;
+  size: number;
+  kind: EntryKind;
+  mode: number;
+}
+
+/** The bytes of a range, with the version they were read at. */
+export interface ReadBytes {
+  size: number;
+  version: string;
+  bytes: Buffer;
+}
+
+/** One entry a recursive walk found. */
+export interface WalkEntry {
+  /** Relative to the root, `/` separated. */
+  path: string;
+  /** What the entry is: a link is `symlink`, never what it points at. */
+  type: EntryKind;
+  size: number;
+  /** Milliseconds since the Unix epoch. */
+  mtime: number;
+  /** True when the checkout's gitignore rules match the path. */
+  ignored: boolean;
+}
+
+/**
+ * The filesystem work `FilesService` needs, in one place so the daemon can answer it from
+ * `ace-files` (ADR 0178) while tests and the daemon's own private registries use Node's I/O.
+ *
+ * Every call names the root it acts in. A port must refuse a path that leaves its root with
+ * `PATH_ESCAPE`, and must never act on a path string it resolved itself: the Rust port walks
+ * through handles, and the local one through `@ace/workspace`'s confined `SafeRoot`.
+ *
+ * Client paths carry the daemon's mutation policy, which every port applies before it acts: no
+ * `.git` or `.ace-upload-*` segment, and a mutation whose source or destination crosses a link is
+ * `PATH_ESCAPE`. The `internal` entries are the daemon's own bookkeeping and skip those rules.
+ */
+export interface FilesIo {
+  /** The path's version, size, kind and mode, or null when nothing is there. */
+  describe(root: string, path: string, options?: IoOptions): Promise<Description | null>;
+  /**
+   * The entry itself: its own version, never a folder's tree digest. This is the cheap guard a
+   * queued mutation re-checks, so a folder does not have to be walked again to know it moved.
+   */
+  shallow(root: string, path: string, options?: IoOptions): Promise<Description | null>;
+  /** The kind and size of a path, which a read asks before it opens bytes. */
+  metadata(root: string, path: string): Promise<{ kind: EntryKind; size: number } | null>;
+  /**
+   * Refuse a client mutation path the daemon protects: no `.git` or `.ace-upload-*` segment, and
+   * no link on the way or as the leaf. Every mutation method below checks its own paths; this is
+   * also the check a delete and a restore run before they hand a client path to `internal`.
+   */
+  checkMutation(root: string, path: string): Promise<void>;
+  /** One range of a file; a file that changes while being read is `CONFLICT`. */
+  read(
+    root: string,
+    path: string,
+    range: { offset: number; length: number; maxSize?: number | undefined },
+    options?: IoOptions,
+  ): Promise<ReadBytes>;
+  /** Stage `bytes` beside the path and publish them; `expected` null means create only. */
+  write(root: string, path: string, bytes: Buffer, expected: string | null): Promise<string>;
+  createDir(root: string, path: string): Promise<void>;
+  /** Move an entry, never replacing an existing destination. */
+  move(root: string, from: string, to: string): Promise<void>;
+  /** Delete a file or a folder and everything inside it. */
+  remove(root: string, path: string): Promise<void>;
+  /**
+   * Walk a file or a folder with `.git` and the daemon's own transfer temporaries left out. A link
+   * is reported as itself and never followed, so a walk never reaches outside the root.
+   */
+  walk(root: string, path: string, options?: IoOptions): AsyncGenerator<WalkEntry>;
+  /**
+   * The bytes of the files below a path, which is what a delete reserves in the trash. `shallow`
+   * means a walk budget stopped the count, so `bytes` is a lower bound.
+   */
+  measure(
+    root: string,
+    path: string,
+    options?: IoOptions,
+  ): Promise<{ bytes: number; shallow: boolean }>;
+  /**
+   * The daemon's own bookkeeping names, reached only by code it owns: a delete moves an entry to
+   * `.ace-upload-trash-<id>` and a restore or sweep moves or removes it again. A client request
+   * never reaches these, which is why they skip the reserved-name and link rules that protect it.
+   */
+  internal: {
+    move(root: string, from: string, to: string): Promise<void>;
+    remove(root: string, path: string): Promise<void>;
+  };
+}
+
+export interface IoOptions {
+  signal?: AbortSignal | undefined;
+}
+
+/** The local port's roots: one confined `SafeRoot` per folder it is asked about. */
+export type SafeRootSource = (root: string) => Promise<SafeRoot>;

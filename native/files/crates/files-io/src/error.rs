@@ -24,6 +24,9 @@ pub enum Error {
     LimitExceeded(String),
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
+    /// The caller's cancel flag went up before the walk finished.
+    #[error("aborted")]
+    Aborted,
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -37,6 +40,7 @@ impl Error {
             Error::Conflict { .. } => "CONFLICT",
             Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
             Error::InvalidArgument(_) => "INVALID_ARGUMENT",
+            Error::Aborted => "ABORTED",
             Error::Io(error) => io_code(error),
         }
     }

@@ -13,7 +13,7 @@ use std::sync::atomic::Ordering;
 #[cfg(feature = "test-hooks")]
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
-use files_index::{IndexChange, IndexOptions, PathIndex};
+use files_index::{IndexChange, PathIndex};
 use files_wire::IndexResult;
 
 use crate::convert;
@@ -183,7 +183,7 @@ impl RootEntry {
     fn build_index(self: &Arc<Self>) -> Result<(), Error> {
         #[cfg(feature = "test-hooks")]
         panic_index_on_purpose();
-        let index = PathIndex::build(&self.root, &IndexOptions::default(), &self.build)?;
+        let index = PathIndex::build(&self.root, &crate::hidden::index_options(), &self.build)?;
         #[cfg(feature = "test-hooks")]
         hold_publish();
         self.publish(index)
@@ -352,12 +352,15 @@ impl RootEntry {
             Err(error) => return Err(error),
         };
         let rebuilt = match served {
-            Some(index) => {
-                index.rebuilt_folder(&self.root, folder, &IndexOptions::default(), &self.build)?
-            }
+            Some(index) => index.rebuilt_folder(
+                &self.root,
+                folder,
+                &crate::hidden::index_options(),
+                &self.build,
+            )?,
             // Nothing is being served yet, or the first build failed: a rule edit is a good
             // reason to try the whole tree again.
-            None => PathIndex::build(&self.root, &IndexOptions::default(), &self.build)?,
+            None => PathIndex::build(&self.root, &crate::hidden::index_options(), &self.build)?,
         };
         #[cfg(feature = "test-hooks")]
         hold_publish();

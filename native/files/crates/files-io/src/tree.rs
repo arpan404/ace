@@ -18,20 +18,37 @@ use files_safe::Root;
 use sha2::{Digest, Sha256};
 
 use crate::Error;
+use crate::describe::Walks;
 use crate::version;
 
 /// The daemon fails a folder listing past this many names.
 const NAMES_PER_FOLDER: usize = 10_000;
-/// The daemon fails a tree past this many entries.
-const ENTRIES_PER_TREE: usize = 1_000_000;
+
+/// A folder's version and how much of its tree the digest covers.
+pub(crate) struct Tree {
+    /// The daemon's `tree:` digest, or the folder's own version when the walk stopped early.
+    pub(crate) version: String,
+    /// The folder's own version, before any digest.
+    pub(crate) own: String,
+    /// True when the walk stopped at its budget, so a deep change may go unseen.
+    pub(crate) shallow: bool,
+}
 
 /// The version of a folder: the daemon's `tree:` digest.
-pub(crate) fn version(root: &Root, relative: &str, dir: &Dir) -> Result<String, Error> {
+///
+/// The walk checks the caller's cancel flag before every entry and stops at the caller's budget.
+/// A stopped walk does not guess a partial digest: the folder's own version stands in, and
+/// `shallow` says so, because refusing to describe a huge folder like `node_modules` is worse than
+/// describing it by its own identity.
+pub(crate) fn version(
+    root: &Root,
+    relative: &str,
+    dir: &Dir,
+    walks: &Walks,
+) -> Result<Tree, Error> {
+    let own = version::version_of(own_handle(dir)?.as_ref(), &dir.dir_metadata()?)?;
     let mut digest = Sha256::new();
-    digest.update(version::version_of(
-        own_handle(dir)?.as_ref(),
-        &dir.dir_metadata()?,
-    )?);
+    digest.update(&own);
     let mut stack = Vec::new();
     if !temporary(relative) {
         stack.push(Folder {
@@ -58,10 +75,12 @@ pub(crate) fn version(root: &Root, relative: &str, dir: &Dir) -> Result<String, 
             continue;
         }
         visited += 1;
-        if visited > ENTRIES_PER_TREE {
-            return Err(Error::LimitExceeded(format!(
-                "{relative} has more than {ENTRIES_PER_TREE} entries"
-            )));
+        if walks.stopped(visited)? {
+            return Ok(Tree {
+                version: own.clone(),
+                own,
+                shallow: true,
+            });
         }
         let examined = examine(root, &stack[index].dir, &path, &name)?;
         let Some((entry_version, child)) = examined else {
@@ -80,7 +99,11 @@ pub(crate) fn version(root: &Root, relative: &str, dir: &Dir) -> Result<String, 
             });
         }
     }
-    Ok(format!("tree:{:x}", digest.finalize()))
+    Ok(Tree {
+        version: format!("tree:{:x}", digest.finalize()),
+        own,
+        shallow: false,
+    })
 }
 
 /// One folder waiting to be reported: the path its entries answer to, and their sorted names.

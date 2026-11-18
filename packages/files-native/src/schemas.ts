@@ -103,6 +103,19 @@ export const indexResultSchema = z.object({
   ready: z.boolean(),
 });
 
+/**
+ * One path's details: the version a guarded write compares (`tree:` plus a digest for a folder),
+ * the entry's own size, its kind and its permission bits.
+ */
+export const descriptionSchema = z.object({
+  version: z.string(),
+  ownVersion: z.string().optional(),
+  shallow: z.boolean(),
+  size: u64,
+  kind: fileKindSchema,
+  mode: u64,
+});
+
 /** What a `request` asks ace-files to do; `root` is the number `openRoot` handed out. */
 export const opSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("openRoot"), path: z.string() }),
@@ -116,6 +129,10 @@ export const opSchema = z.discriminatedUnion("op", [
     hide: z.array(z.string()),
   }),
   z.object({ op: z.literal("stat"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("describe"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("describeEntry"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("checkMutation"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("measure"), root: u64, path: z.string() }),
   z.object({
     op: z.literal("read"),
     root: u64,
@@ -153,6 +170,8 @@ export const replySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("subscription"), subscription: u64 }),
   z.object({ type: z.literal("page"), ...pageSchema.shape }),
   z.object({ type: z.literal("entry"), ...entrySchema.shape }),
+  z.object({ type: z.literal("description"), ...descriptionSchema.shape }),
+  z.object({ type: z.literal("measure"), bytes: u64, shallow: z.boolean() }),
   z.object({ type: z.literal("read"), ...readMetaSchema.shape }),
   z.object({ type: z.literal("version"), version: z.string() }),
   z.object({ type: z.literal("index"), ...indexResultSchema.shape }),
@@ -199,6 +218,7 @@ export const messageSchema = z.discriminatedUnion("type", [
 ]);
 
 export type Entry = z.infer<typeof entrySchema>;
+export type Description = z.infer<typeof descriptionSchema>;
 export type Page = z.infer<typeof pageSchema>;
 export type ReadMeta = z.infer<typeof readMetaSchema>;
 export type SearchQuery = z.infer<typeof searchQuerySchema>;

@@ -11,6 +11,7 @@ mod convert;
 mod dispatch;
 mod error;
 mod guard;
+mod hidden;
 mod io;
 mod ops;
 mod quick_open;

@@ -10,6 +10,7 @@ use cap_std::fs::{Dir, File, Metadata, MetadataExt};
 use files_safe::Root;
 
 use crate::Error;
+use crate::describe::Walks;
 use crate::number::js_number;
 
 /// The version of the entry at `path`, or `None` when there is nothing there.
@@ -22,17 +23,22 @@ pub fn stat_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
         Err(error) if error.code() == "NOT_FOUND" => return Ok(None),
         Err(error) => return Err(error),
     };
-    entry_version(root, &dir, &name, path)
+    Ok(entry_version(root, &dir, &name, path, &Walks::unbounded())?.map(|found| found.version))
 }
 
 /// The version of `name` in `dir`, or `None` when nothing is there. `path` is the caller's
 /// spelling, which names the entries a folder version digests and labels its errors.
+///
+/// A folder reports its own version beside the digest, so a caller that already holds the digest
+/// can re-check the folder without walking it again; `shallow` says a walk budget stopped the
+/// digest, in which case `version` is the folder's own version.
 pub(crate) fn entry_version(
     root: &Root,
     dir: &Dir,
     name: &str,
     path: &str,
-) -> Result<Option<String>, Error> {
+    walks: &Walks,
+) -> Result<Option<Versioned>, Error> {
     let metadata = match dir.symlink_metadata(name) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -40,12 +46,29 @@ pub(crate) fn entry_version(
     };
     if metadata.is_dir() {
         let folder = dir.open_dir(name)?;
-        return Ok(Some(crate::tree::version(root, path, &folder)?));
+        let tree = crate::tree::version(root, path, &folder, walks)?;
+        return Ok(Some(Versioned {
+            version: tree.version,
+            own: Some(tree.own),
+            shallow: tree.shallow,
+        }));
     }
-    Ok(Some(version_of(
-        entry_handle(dir, name, &metadata)?.as_ref(),
-        &metadata,
-    )?))
+    let own = version_of(entry_handle(dir, name, &metadata)?.as_ref(), &metadata)?;
+    Ok(Some(Versioned {
+        version: own.clone(),
+        own: None,
+        shallow: false,
+    }))
+}
+
+/// One entry's version and how much of it was actually read.
+pub(crate) struct Versioned {
+    /// The version a client stores: a file's identity and times, or a folder's tree digest.
+    pub(crate) version: String,
+    /// A folder's own version, before its digest; absent for a file.
+    pub(crate) own: Option<String>,
+    /// True when the folder digest stopped at a walk budget.
+    pub(crate) shallow: bool,
 }
 
 /// The version of `name` in `dir` from metadata the caller already read, with the handle Windows

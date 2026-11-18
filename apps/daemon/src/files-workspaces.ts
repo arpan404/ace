@@ -7,6 +7,8 @@ import type { ThreadId, WorkspaceId } from "@ace/protocol";
 import { ProjectStorage } from "./project-storage.ts";
 import { join } from "node:path";
 import { realpath } from "node:fs/promises";
+import { aceFilesIo } from "./files-tool/io.ts";
+import type { FilesNative } from "./files-tool/wiring.ts";
 import type { ServiceContext } from "./services/types.ts";
 
 type Context = Pick<ServiceContext, "store" | "config" | "options" | "now" | "id"> &
@@ -24,6 +26,7 @@ export class FilesWorkspaces {
   private services = new Map<string, Promise<FilesService>>();
   private context: Context;
   private projects: ProjectStorage;
+  private native: FilesNative | undefined;
   private closed = false;
   constructor(context: Context) {
     this.context = context;
@@ -35,6 +38,10 @@ export class FilesWorkspaces {
       now: context.now,
       id: context.id,
     });
+  }
+  /** The daemon's ace-files, once it exists: a checkout's reads and writes go through it. */
+  attachNative(native: FilesNative): void {
+    this.native = native;
   }
   root(threadId: ThreadId): string {
     const binding = this.context.store.executionWorkspace(threadId);
@@ -122,8 +129,11 @@ export class FilesWorkspaces {
     if (!workspaceId) return Promise.reject(new Error("Thread unavailable"));
     const key = createHash("sha256").update(root).digest("hex");
     const { config, options, now, id, store, log } = this.context;
+    const native = this.native;
     const service = FilesService.create({
       ...options.files,
+      // A checkout's reads and writes are ace-files'; without it they fail retryably.
+      ...(native ? { workspaceIo: aceFilesIo(native.tool) } : {}),
       workspace: root,
       dataDir: join(config.dataDir, "workspace-files", key),
       now,

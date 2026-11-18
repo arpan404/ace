@@ -77,6 +77,31 @@ pub struct ReadMeta {
     pub body: bool,
 }
 
+/// One path's details: what the daemon's `stat` and its guarded writes need in one answer.
+///
+/// `version` is the daemon's version string: a file's identity and times, or a digest of a
+/// folder's whole tree, so a client holding an older one can be told what changed. A folder also
+/// names its own version, before the digest, so a guarded write can be re-checked without walking
+/// the tree again; when a walk stops at its budget `shallow` says the digest was not taken and
+/// `version` is that own version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Description {
+    /// The version string, in the format stored drafts carry.
+    pub version: String,
+    /// A folder's own version, the entry itself rather than its tree; absent for a file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_version: Option<String>,
+    /// True when a walk budget stopped the folder digest, so `version` is the folder's own.
+    pub shallow: bool,
+    /// Size in bytes, as the entry itself reports it (a link's own length, not its target's).
+    pub size: u64,
+    /// What the path is, without following a final link.
+    pub kind: Kind,
+    /// Permission bits, `0o777` at most; what a save onto this path must carry over.
+    pub mode: u64,
+}
+
 /// How a search compares case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

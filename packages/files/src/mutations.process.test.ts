@@ -6,6 +6,10 @@ import { afterEach, expect, it } from "vitest";
 import type { FileOperation } from "@ace/protocol";
 import { encodeFileFrame } from "./index.ts";
 import { fixture, type Client } from "./test-support.ts";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { SafeRoot } from "@ace/workspace";
+import { createExclusiveRename } from "./exclusive-rename.ts";
+import { localFilesIo } from "./local-io.ts";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { decodeFileFrame } from "./index.ts";
@@ -498,4 +502,126 @@ it.runIf(windows)("Windows renames a file to a case-only variant of its own name
   expect((await readdir(folder)).toSorted()).toEqual(["Bar.txt", "bar.txt"]);
   expect(await readFile(join(folder, "Bar.txt"), "utf8")).toBe("one");
   expect(await readFile(join(folder, "bar.txt"), "utf8")).toBe("two");
+});
+
+/** A port that changes a path once, exactly when the queued apply re-checks it. */
+function racingIo(interject: (path: string) => Promise<void>) {
+  const base = localFilesIo((root) => SafeRoot.create(root));
+  const racing = {
+    armed: false,
+    target: "",
+  };
+  return {
+    racing,
+    io: {
+      ...base,
+      async shallow(root: string, path: string, options: Parameters<typeof base.shallow>[2]) {
+        if (racing.armed && path === racing.target) {
+          racing.armed = false;
+          await interject(path);
+        }
+        return base.shallow(root, path, options);
+      },
+    },
+  };
+}
+
+it("reports the version on disk when a change lands between prepare and apply", async () => {
+  const { io, racing } = racingIo(() => writeFile(join(f.root, "file"), "outside save"));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "file"), "original");
+  const before = await version(client, "file");
+  racing.target = "file";
+  racing.armed = true;
+  const reply = await client.request({ op: "write", path: "file", expected: before, text: "ours" });
+  const current = await version(client, "file");
+  expect(reply).toMatchObject({ type: "files.error", code: "CONFLICT", current });
+  expect(current).not.toBe(before);
+  expect(await readFile(join(f.root, "file"), "utf8")).toBe("outside save");
+});
+
+it("re-reads a folder's digest when its own entries change during prepare", async () => {
+  const { io, racing } = racingIo(async () => {
+    await writeFile(join(f.root, "dir", "arrived"), "new");
+  });
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await mkdir(join(f.root, "dir"));
+  await writeFile(join(f.root, "dir", "a"), "a");
+  const before = await version(client, "dir");
+  racing.target = "dir";
+  racing.armed = true;
+  const reply = await client.request({ op: "delete", path: "dir", expected: before });
+  const current = await version(client, "dir");
+  expect(reply).toMatchObject({ type: "files.error", code: "CONFLICT", current });
+  expect(current).not.toBe(before);
+  expect(await readdir(join(f.root, "dir"))).toEqual(["a", "arrived"]);
+});
+
+it("restores a pre-cutover trash entry only onto an absent, link-free destination", async () => {
+  const real = createExclusiveRename();
+  cleanup.push(() => real.close());
+  let squat = true;
+  const f = await setup({
+    exclusiveRename: {
+      async move(source, destination) {
+        // A file that appears after the queue admitted the restore is never replaced.
+        if (squat && source.includes("/trash/")) await writeFile(destination, "squatter");
+        squat = false;
+        await real.move(source, destination);
+      },
+      close: async () => {},
+    },
+  });
+  const id = "legacy-entry";
+  const bytes = Buffer.from("legacy\n");
+  await mkdir(join(f.home, "data", "trash"), { recursive: true });
+  await writeFile(join(f.home, "data", "trash", id), bytes);
+  const database = new DatabaseSync(join(f.home, "data", "files.sqlite"));
+  try {
+    database.prepare("INSERT INTO resources VALUES(?,?,?,?,?)").run(
+      id,
+      "trash",
+      Date.now() + 60_000,
+      bytes.length,
+      JSON.stringify({
+        kind: "trash",
+        id,
+        path: "legacy.md",
+        bytes: bytes.length,
+        version: "1:2:7:3:4",
+        expires: Date.now() + 60_000,
+      }),
+    );
+  } finally {
+    database.close();
+  }
+
+  const client = await f.connect();
+  // A link at the destination is the destination's own business, and never a restore target.
+  await symlink("elsewhere", join(f.root, "linked.md"));
+  expect(
+    await client.request({ op: "restore", trashId: id, path: "linked.md", expected: null }),
+  ).toMatchObject({ type: "files.error", code: "PATH_ESCAPE" });
+
+  const refused = await client.request({
+    op: "restore",
+    trashId: id,
+    path: "legacy.md",
+    expected: null,
+  });
+  expect(refused).toMatchObject({ type: "files.error", code: "CONFLICT" });
+  const squatter = await version(client, "legacy.md");
+  expect(refused).toMatchObject({ current: squatter });
+  expect(await readFile(join(f.root, "legacy.md"), "utf8")).toBe("squatter");
+  expect(await client.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [expect.objectContaining({ id, path: "legacy.md" })] },
+  });
+
+  await rm(join(f.root, "legacy.md"));
+  expect(
+    await client.request({ op: "restore", trashId: id, path: "legacy.md", expected: null }),
+  ).toMatchObject({ type: "files.result" });
+  expect(await readFile(join(f.root, "legacy.md"), "utf8")).toBe("legacy\n");
 });

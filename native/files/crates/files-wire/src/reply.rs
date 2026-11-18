@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::files::{Entry, IndexResult, Page, ReadMeta};
+use crate::files::{Description, Entry, IndexResult, Page, ReadMeta};
 
 /// What a successful request produced. The tag says which op it answers, so a client never has to
 /// guess from the shape.
@@ -12,7 +12,7 @@ use crate::files::{Entry, IndexResult, Page, ReadMeta};
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Reply {
     /// The op did its work and has nothing to return: `closeRoot`, `unwatch`, `createDir`,
-    /// `rename` and `remove`.
+    /// `rename`, `remove`, `setMode` and `publish`.
     Done,
     /// The number of an opened root.
     Root {
@@ -28,6 +28,15 @@ pub enum Reply {
     Page(Page),
     /// The description a `stat` found.
     Entry(Entry),
+    /// The details a `describe` found: version, size, kind and mode in one answer.
+    Description(Description),
+    /// The bytes a `measure` counted below a path.
+    Measure {
+        /// The sum of the sizes of the files the path holds.
+        bytes: u64,
+        /// True when a walk budget stopped the count, so `bytes` is a lower bound.
+        shallow: bool,
+    },
     /// The metadata of a `read`; the bytes arrive in a body frame when `body` is true.
     Read(ReadMeta),
     /// The version a `write` or `createFile` left behind.

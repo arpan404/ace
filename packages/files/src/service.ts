@@ -2,14 +2,17 @@ import { fileCapability } from "./access.ts";
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { SafeRoot, GitIgnore } from "@ace/workspace";
+import { SafeRoot } from "@ace/workspace";
 import { breadthFirstPaths } from "./breadth-list.ts";
+import { GitIgnore } from "@ace/workspace";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
 import { ArtifactRecord, Catalog, TrashRecord, UploadRecord } from "./catalog.ts";
 import { ArchivePreviews } from "./archive-previews.ts";
 import { FileRequestLifetime } from "./request-lifetime.ts";
-import { openDownload, openBorrowedDownload } from "./download.ts";
+import { openDownload } from "./download.ts";
 import { newId, observed } from "./filesystem.ts";
+import type { FilesIo } from "./io.ts";
+import { localFilesIo } from "./local-io.ts";
 import { Mutations } from "./mutations.ts";
 import { readPart } from "./read.ts";
 import { Uploads } from "./uploads.ts";
@@ -22,7 +25,9 @@ export class FilesService {
   private readonly mutations: Mutations;
   private readonly exclusive: ExclusiveRename;
   private readonly uploads: Uploads;
-  private readonly roots: Map<string, SafeRoot>;
+  private readonly safes: Map<string, SafeRoot>;
+  private readonly local: FilesIo;
+  private readonly workspaceIo: FilesIo;
   private readonly previews: ArchivePreviews;
   private readonly listeners = new Set<(change: WorkspaceFileChange) => void>();
   private readonly lifetime: FileRequestLifetime;
@@ -44,29 +49,38 @@ export class FilesService {
   private pending = 0;
   private tail: Promise<unknown> = Promise.resolve();
   private closed = false;
-  private constructor(safe: SafeRoot, options: FilesOptions, roots: Map<string, SafeRoot>) {
+  private constructor(
+    safe: SafeRoot,
+    options: FilesOptions,
+    safes: Map<string, SafeRoot>,
+    exclusive: ExclusiveRename,
+  ) {
     this.safe = safe;
     this.options = options;
+    this.safes = safes;
+    this.exclusive = exclusive;
     this.lifetime = new FileRequestLifetime(options.scheduleTimeout);
-    this.previews = new ArchivePreviews(safe, options, this.lifetime);
-    this.roots = roots;
+    this.local = localFilesIo((root) => this.safeRoot(root), exclusive);
+    this.workspaceIo = options.workspaceIo ?? this.local;
+    this.previews = new ArchivePreviews(this.workspaceIo, safe.root, options, this.lifetime);
     this.catalog = new Catalog(join(options.dataDir, "files.sqlite"));
-    this.exclusive = options.exclusiveRename ?? createExclusiveRename();
-    this.mutations = new Mutations(safe, this.catalog, options, this.exclusive);
-    this.uploads = new Uploads(safe, this.catalog, options, this.exclusive);
+    this.mutations = new Mutations(this.workspaceIo, safe, this.catalog, options, exclusive);
+    this.uploads = new Uploads(safe, this.catalog, options, exclusive);
   }
   static async create(options: FilesOptions): Promise<FilesService> {
     await mkdir(join(options.dataDir, "trash"), { recursive: true, mode: 0o700 });
-    const roots = new Map<string, SafeRoot>();
+    const safes = new Map<string, SafeRoot>();
     for (const root of options.artifactRoots ?? []) {
       const safe = await SafeRoot.create(root, options.workspaceRuntime);
-      roots.set(safe.root, safe);
+      safes.set(safe.root, safe);
     }
     const service = new FilesService(
       await SafeRoot.create(options.workspace, options.workspaceRuntime),
       options,
-      roots,
+      safes,
+      options.exclusiveRename ?? createExclusiveRename(),
     );
+    safes.set(service.safe.root, service.safe);
     try {
       await service.uploads.reconcile();
       return service;
@@ -74,6 +88,18 @@ export class FilesService {
       await service.close();
       throw error;
     }
+  }
+  /** The port a root's I/O goes through: ace-files for the checkout, the local one elsewhere. */
+  private ioFor(root: string): FilesIo {
+    return root === this.safe.root ? this.workspaceIo : this.local;
+  }
+  /** A confined root handle, made on first use and shared by every caller of the same folder. */
+  private async safeRoot(root: string): Promise<SafeRoot> {
+    const known = this.safes.get(root);
+    if (known) return known;
+    const safe = await SafeRoot.create(root, this.options.workspaceRuntime);
+    this.safes.set(safe.root, safe);
+    return safe;
   }
   authorize(device: string, capability: "files.read" | "files.write"): void {
     if (this.closed) throw new FileError("CLOSED", "File service closed");
@@ -185,14 +211,18 @@ export class FilesService {
       guard();
       return listing;
     }
-    if (operation.op === "read") return readPart(this.safe, operation);
+    if (operation.op === "read") return readPart(this.workspaceIo, this.safe.root, operation);
     if (operation.op === "stat") {
-      const current = await this.lifetime.walk((signal) =>
-        observed(this.safe, operation.path, signal),
+      const description = await this.lifetime.walk((signal) =>
+        this.workspaceIo.describe(this.safe.root, operation.path, { signal }),
       );
-      if (current === null) return { path: operation.path, version: null };
-      const { info, type } = await this.safe.metadata(operation.path);
-      return { path: operation.path, version: current, size: info.size, type };
+      if (description === null) return { path: operation.path, version: null };
+      return {
+        path: operation.path,
+        version: description.version,
+        size: description.size,
+        type: description.kind,
+      };
     }
     if (operation.op === "artifact.support") {
       if (!this.options.exportSupport)
@@ -310,17 +340,13 @@ export class FilesService {
     });
   }
   download(device: string, input: unknown): Promise<Download> {
-    return this.prepareDownload(device, input, openDownload);
+    return this.prepareDownload(device, input);
   }
   /** Bytes remain valid until the next read; transports must await writes before advancing. */
   downloadForTransport(device: string, input: unknown): Promise<Download> {
-    return this.prepareDownload(device, input, openBorrowedDownload);
+    return this.prepareDownload(device, input);
   }
-  private async prepareDownload(
-    device: string,
-    input: unknown,
-    openFile: typeof openDownload,
-  ): Promise<Download> {
+  private async prepareDownload(device: string, input: unknown): Promise<Download> {
     this.authorize(device, "files.read");
     const operation = FileOperation.parse(input);
     const release = this.reserve();
@@ -328,8 +354,9 @@ export class FilesService {
       let download: Download;
       switch (operation.op) {
         case "download":
-          download = await openFile(
-            this.safe,
+          download = await openDownload(
+            this.workspaceIo,
+            this.safe.root,
             operation.path,
             operation.offset,
             operation.validator,
@@ -337,9 +364,15 @@ export class FilesService {
           break;
         case "artifact.download": {
           const record = ArtifactRecord.parse(this.catalog.get(operation.artifactId));
-          const root = this.roots.get(record.root);
+          const root = this.safes.get(record.root);
           if (!root) throw new FileError("FORBIDDEN", "Artifact root is no longer configured");
-          download = await openFile(root, record.path, operation.offset, operation.validator);
+          download = await openDownload(
+            this.ioFor(root.root),
+            root.root,
+            record.path,
+            operation.offset,
+            operation.validator,
+          );
           break;
         }
         case "archive.download": {
@@ -387,7 +420,7 @@ export class FilesService {
   }): Promise<string> {
     return this.serial(async () => {
       input = { ...input, root: await realpath(input.root) };
-      const root = this.roots.get(input.root);
+      const root = this.safes.get(input.root);
       if (!root) throw new FileError("FORBIDDEN", "Unknown artifact root");
       const identifier =
         input.id === undefined ? newId(this.options.id) : ArtifactRecord.shape.id.parse(input.id);
@@ -407,14 +440,16 @@ export class FilesService {
       }
       if (!replacing && this.catalog.total("artifact").count >= 1024)
         throw new FileError("QUOTA", "Artifact registry is full");
-      const { handle, info } = await root.file(input.path);
-      await handle.close();
+      const description = await this.local.describe(root.root, input.path);
+      if (description === null) throw new FileError("NOT_FOUND", "Artifact file not found");
+      if (description.kind !== "file")
+        throw new FileError("NOT_FILE", "Artifact must be a regular file");
       const record = ArtifactRecord.parse({
         ...input,
         id: identifier,
         kind: "artifact",
         expires: Number.MAX_SAFE_INTEGER,
-        bytes: info.size,
+        bytes: description.size,
       });
       if (replacing) this.catalog.replaceArtifact(record);
       else this.catalog.put(record);

@@ -203,15 +203,19 @@ test.each(["archive.preview", "delete"] as const)(
     await writeFile(join(f.root, "dir", "file"), "bytes");
     const expected = await version(f, "dir");
     const original = filesystem.realpath;
+    // The checkout sits under a folder macOS reaches through a link, so the stop names the
+    // resolved folder, never the spelling the test made it with.
+    const stopped = join(await original(f.root), "dir");
     runtime.filesystem = {
       ...filesystem,
       async realpath(path) {
-        if (path === join(f.root, "dir") && !blocked) {
+        const resolved = await original(path);
+        if (resolved === stopped && !blocked) {
           blocked = true;
           entered.resolve();
           await gate.promise;
         }
-        return original(path);
+        return resolved;
       },
     };
     // SafeRoot captured its filesystem object, so intercept the same I/O object.
@@ -285,7 +289,10 @@ test("directory deletion rechecks agent edits after a failed queued write", asyn
   expect(await readFile(join(f.root, "dir", "file"), "utf8")).toBe("agent edit");
 });
 
-test("directory deletion refuses a descendant edit made while its preflight finishes", async () => {
+test("directory deletion carries a descendant edit into recently-deleted", async () => {
+  // The queued delete re-checks the folder's own version, never its whole tree, so an edit made
+  // while the preflight finishes does not stop it (ADR 0178's trade-off: the rename to trash is
+  // atomic, so the edit travels with the folder and a restore brings it back).
   let edit = false;
   let path = "";
   const f = await setup({
@@ -303,9 +310,15 @@ test("directory deletion refuses a descendant edit made while its preflight fini
   await writeFile(path, "before");
   const expected = await version(f, "dir");
   edit = true;
-  await expect(
-    f.service.request("writer", { op: "delete", path: "dir", expected }),
-  ).rejects.toMatchObject({ code: "CONFLICT" });
+  const deleted = z
+    .object({ trashId: z.string() })
+    .parse(await f.service.request("writer", { op: "delete", path: "dir", expected }));
+  await f.service.request("writer", {
+    op: "restore",
+    trashId: deleted.trashId,
+    path: "dir",
+    expected: null,
+  });
   expect(await readFile(path, "utf8")).toBe("provider edit");
 });
 
