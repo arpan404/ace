@@ -25,8 +25,8 @@ export interface LegalDocument {
   sections: { heading: string; body: LegalBlock[] }[];
 }
 
-const updated = "3 November 2026";
-const updatedIso = "2026-11-03";
+const updated = "17 November 2026";
+const updatedIso = "2026-11-17";
 
 export const privacyPolicy: LegalDocument = {
   path: "/privacy-policy/",
@@ -92,6 +92,22 @@ export const privacyPolicy: LegalDocument = {
       ],
     },
     {
+      heading: "The iPhone and iPad app",
+      body: [
+        "ace for iPhone and iPad asks iOS for these permissions. Each is optional, and the app tells you why when it asks.",
+        {
+          list: [
+            "Camera: to scan the pairing code ace shows on your computer, and to take a photo to attach to a message. Photos go only to your own machine, through the encrypted connection.",
+            "Microphone and speech recognition: to dictate a message. Where your device supports it, the app asks iOS to recognise speech on the device. Otherwise Apple's speech recognition may process the audio on Apple's servers, under Apple's privacy policy. ace never receives the audio.",
+            "Face ID: to lock the app. iOS checks your face or passcode; ace never sees biometric data.",
+            "Local network: to reach your own machines on your network.",
+            "Notifications: see the section above.",
+          ],
+        },
+        "The app has no analytics or crash-reporting SDKs, and no advertising or tracking.",
+      ],
+    },
+    {
       heading: "Notifications on iPhone and iPad",
       body: [
         "If you turn on notifications in ace for iPhone or iPad, your machines send alerts through ace's push gateway to Apple's push notification service. Each alert is encrypted on your machine so that only your phone can read it. The gateway sees your phone's push token, the sending machine's public key and IP address, and the time, size and urgency of each alert. It has no database, and it logs only counts and status codes.",
@@ -149,7 +165,8 @@ export const privacyPolicy: LegalDocument = {
       heading: "Your choices",
       body: [
         "You can use ace without an account. You can change your name in Settings, and sign a machine out in its Settings or with `ace logout`. Signing out ends that session at once; a removed device loses access to your machines within five minutes.",
-        `To see the data we hold about you, correct it, remove machines from your account, or delete your account, email ${contact.email} from the address on your account. We delete your account, its machines and sessions from our database, and your user from WorkOS, within 30 days. Depending on where you live, you may have further rights under laws such as the GDPR or CCPA; write to us and we will honour them.`,
+        "In ace for iPhone and iPad you can delete your account yourself: open Profile and choose Delete account. It deletes your account, its sessions and its machine list right away, and your user at WorkOS.",
+        `To see the data we hold about you, correct it, remove machines from your account, or delete your account by email, write to ${contact.email} from the address on your account. We delete your account, its machines and sessions from our database, and your user from WorkOS, within 30 days. Depending on where you live, you may have further rights under laws such as the GDPR or CCPA; write to us and we will honour them.`,
       ],
     },
     {
@@ -231,7 +248,7 @@ export const termsOfService: LegalDocument = {
     {
       heading: "Ending your use",
       body: [
-        "You can stop using the services and ask us to delete your account at any time (see the privacy policy). We may suspend or close an account that breaks these terms or puts the services or other people at risk, and, where we reasonably can, we will tell you why.",
+        "You can stop using the services and ask us to delete your account at any time: in ace for iPhone and iPad under Profile, or by email (see the privacy policy). We may suspend or close an account that breaks these terms or puts the services or other people at risk, and, where we reasonably can, we will tell you why.",
       ],
     },
     {
