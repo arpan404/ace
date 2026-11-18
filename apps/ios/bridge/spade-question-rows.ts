@@ -31,6 +31,8 @@ export interface SpadeQuestionRow {
   /** `choices`: the most it takes, for "2 of 3 picked". */
   most: number | null;
   unit: string | null;
+  /** `number`: it may be below zero, so its keypad needs a minus sign. */
+  signed: boolean;
   /** `date`: the time is asked too. */
   time: boolean;
 }
@@ -70,6 +72,7 @@ const questionRow = (question: SpadeQuestion): SpadeQuestionRow => ({
   other: (question.kind === "choice" || question.kind === "choices") && question.other,
   most: question.kind === "choices" ? mostPicks(question) : null,
   unit: question.kind === "number" ? (question.unit ?? null) : null,
+  signed: question.kind === "number" && (question.min === undefined || question.min < 0),
   time: question.kind === "date" && question.time,
 });
 

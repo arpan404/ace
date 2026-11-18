@@ -368,6 +368,17 @@ test("a malformed pick count still reaches the phone as a whole count it can rea
   expect(card()?.questions.map((question) => question.most)).toEqual([2, 3]);
 });
 
+test("a number that may be below zero asks for a keypad with a minus sign", async () => {
+  const { card } = await asked([
+    { prompt: "How cold?", kind: "number", min: -20, max: -1 },
+    { prompt: "Any number?", kind: "number" },
+    { prompt: "How many nights?", kind: "number", min: 1 },
+    { prompt: "From zero?", kind: "number", min: 0 },
+  ]);
+
+  expect(card()?.questions.map((question) => question.signed)).toEqual([true, true, false, false]);
+});
+
 test("Answer later folds the card and the top bar counts it; Never mind then settles it as dismissed", async () => {
   const { card, reply, posted, patches } = await asked([{ prompt: "Which colour?" }]);
 

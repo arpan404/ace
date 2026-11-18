@@ -19,6 +19,8 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         /// `choices`: the most it takes, for "2 of 3 picked".
         let most: Int?
         let unit: String?
+        /// `number`: it may be below zero, so its keypad needs a minus sign.
+        let signed: Bool
         /// `date`: the time is asked too.
         let time: Bool
     }

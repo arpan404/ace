@@ -36,7 +36,7 @@ import Testing
 
     @Test func aNumberTypedOnADecimalCommaKeypadIsSentWithAPoint() {
         let nights = SpadeQuestionCard.Question(prompt: "How many nights?", kind: "number", placeholder: nil, options: [],
-                                                other: false, most: nil, unit: "nights", time: false)
+                                                other: false, most: nil, unit: "nights", signed: false, time: false)
         let german = Locale(identifier: "de_DE")
         #expect(SpadeQuestionCard.Draft.field("1,5").payload(for: nights, in: german)["text"] as? String == "1.5")
         #expect(SpadeQuestionCard.Draft.field("1.5").payload(for: nights, in: Locale(identifier: "en_US"))["text"] as? String == "1.5")
