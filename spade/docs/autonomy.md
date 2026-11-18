@@ -9,6 +9,12 @@ engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.
 
 ## How a bot decides: the auto-review, or Full access
 
+A plugin server is **sealed** when the sandbox holds it, its run has no network and its entry
+injects no environment of its own (`Tool::sealed`). Only a sealed server's tools are the
+sandbox's to decide; every other connector or plugin tool is decided as on the host, sandboxed or
+not, in both modes: the sandbox holds files, not what a server does with a token over the network
+(ADR 0171, amendment 4).
+
 Every bot is on the auto-review (ADR 0163) unless the person puts it in Full access (ADR 0163,
 amendment 2; below). Where a call goes is decided by what it does, its
 effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md),
@@ -33,9 +39,11 @@ as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as
 `effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
 unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
 access change, a request to leave the sandbox, and a tool that declares nothing outside the
-sandbox (once, as on the auto-review); a tool the person declined stays declined. An app's tool
-that writes goes to the reviewer under untrusted content or while Spade's classifier is off
-(`Call::remote`, `Call::classifier`). Everything else runs with no reviewer and no request.
+sandbox or able to reach the network (once, as on the auto-review); a tool the person declined
+stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
+reviewer under untrusted content or while Spade's classifier is off (`Call::remote`,
+`Call::classifier`); only a plugin server sealed offline with no environment of its own is exempt
+(`Tool::sealed`). A stamp's nonce is claimed in Spade's store, so it stays used across restarts. Everything else runs with no reviewer and no request.
 Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
 the ADR 0135 review is skipped. The sandbox is unchanged.
 
@@ -84,9 +92,10 @@ In order, first match wins:
 | `drive` in a sensitive place, or one Spade can't name                             | the person (`ask: drive`), even when allowed always                                   |
 | `drive` elsewhere                                                                 | runs on Always allow; otherwise the reviewer, told where it acts (below)              |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
+| a connector's or plugin's tool that can reach the network, in the sandbox         | decided as on the host, below (ADR 0171, amendment 4)                                 |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
 | it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
-| in a sandbox that holds files and network                                         | runs                                                                                  |
+| in a sandbox that holds files and network (a plugin's only when sealed)           | runs                                                                                  |
 | in the sandbox, but its checkpoint couldn't be taken                              | the reviewer, told so                                                                 |
 | a command asking to run outside (`outside_sandbox: true`)                         | the person (`ask: outside_sandbox`)                                                   |
 | a routine set up under untrusted content                                          | the reviewer, with that concern                                                       |

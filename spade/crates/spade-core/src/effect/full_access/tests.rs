@@ -447,18 +447,13 @@ fn in_full_access_an_app_write_goes_to_the_reviewer_when_the_classifier_is_off_o
     // Too long to review whole: the person.
     let long = Call { fits: false, ..off };
     assert!(matches!(route(long), Route::Ask { .. }));
-    // An app's read, and an app's server held in the sandbox, run as before.
+    // An app's read runs as before.
     let read = Call {
         tainted: true,
         classifier: false,
         ..app_tool("mail__list", Some(Effect::Read))
     };
     assert_eq!(route(read), Route::Run);
-    let sandboxed = Call {
-        place: Place::Sandbox,
-        ..both
-    };
-    assert_eq!(route(sandboxed), Route::Run);
     // Spade's and ace's own writes aren't an app's: they keep running.
     let own = Call {
         tainted: true,
@@ -466,6 +461,46 @@ fn in_full_access_an_app_write_goes_to_the_reviewer_when_the_classifier_is_off_o
         ..full("bot_message", Some(Effect::Network))
     };
     assert_eq!(route(own), Route::Run);
+}
+
+#[test]
+fn in_full_access_a_sandbox_that_holds_an_app_tools_files_doesnt_hold_its_sends() {
+    // A plugin's server in the sandbox, with an API token and its network on: still remote.
+    let contained = |effect| Call {
+        place: Place::Sandbox,
+        ..app_tool("mailer__send_email", effect)
+    };
+    assert_eq!(
+        route(contained(None)),
+        Route::Ask {
+            line: UNDECLARED.to_owned(),
+            ask: Some(Ask::Undeclared)
+        }
+    );
+    let off = Call {
+        classifier: false,
+        ..contained(Some(Effect::Network))
+    };
+    assert_eq!(route(off), Route::Review(Some(NO_CLASSIFIER.to_owned())));
+    let tainted = Call {
+        tainted: true,
+        ..contained(Some(Effect::Network))
+    };
+    assert_eq!(
+        route(tainted),
+        Route::Review(Some(TAINTED_OUTWARD.to_owned()))
+    );
+    // Only a server sealed offline with no credentials of its own runs its tools as the sandbox
+    // decides.
+    for effect in [None, Some(Effect::Network)] {
+        let sealed = Call {
+            remote: false,
+            tainted: true,
+            classifier: false,
+            ..contained(effect)
+        };
+        assert_eq!(route(sealed), Route::Run, "{effect:?}");
+    }
 }
 
 #[test]

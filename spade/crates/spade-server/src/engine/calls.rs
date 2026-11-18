@@ -278,6 +278,12 @@ pub(super) async fn handle_calls(
                     let acts_in = driven
                         .as_ref()
                         .and_then(|step| step.place.as_ref().ok().cloned());
+                    // A connector's or plugin's tool that can reach anyone: its server says what
+                    // it is, and only one sealed offline with no credentials can't.
+                    let remote = engine
+                        .tools
+                        .get_for(id, &name)
+                        .is_some_and(|tool| tool.hints().is_some() && !tool.sealed());
                     let route = effect::route(effect::Call {
                         tool: &name,
                         rule,
@@ -291,7 +297,7 @@ pub(super) async fn handle_calls(
                         // The sandbox's deny-list holds a sandboxed call; anything else that
                         // names a credential place, or a script it runs that reads one, is
                         // refused on every level.
-                        credentials: place != Place::Sandbox
+                        credentials: (place != Place::Sandbox || remote)
                             && (classed.credentials || autonomy::reaches_credentials(&arguments)),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments, &classed.shown),
@@ -300,11 +306,7 @@ pub(super) async fn handle_calls(
                         target: target.as_deref(),
                         drive,
                         mode,
-                        // A connector's or plugin's tool: its server says what it is.
-                        remote: engine
-                            .tools
-                            .get_for(id, &name)
-                            .is_some_and(|tool| tool.hints().is_some()),
+                        remote,
                         classifier: engine.classifier_ready(),
                     });
                     let screening = |concern: bool| super::classify::Screening {
@@ -326,7 +328,9 @@ pub(super) async fn handle_calls(
                     // In Full access nothing is reviewed, but Spade's classifier may still raise a
                     // command outside the sandbox or an app's tool it reads as a hard stop.
                     let route = match route {
-                        Route::Run if mode == Mode::FullAccess && place != Place::Sandbox => {
+                        Route::Run
+                            if mode == Mode::FullAccess && (place != Place::Sandbox || remote) =>
+                        {
                             match engine.raise_only(id, reply, events, &screening(false)) {
                                 Ok(Screened::Ask(line)) => Route::Ask { line, ask: None },
                                 Ok(Screened::Stopped) => return Handled::Stopped,
@@ -459,7 +463,7 @@ pub(super) async fn handle_calls(
                     // In Full access the person chose no reviewer (ADR 0163, amendment 2).
                     if rule_ran
                         && mode == Mode::AutoReview
-                        && place != Place::Sandbox
+                        && (place != Place::Sandbox || remote)
                         && review::reviewed(def.risk, decision)
                         && engine.review_on(id)
                     {

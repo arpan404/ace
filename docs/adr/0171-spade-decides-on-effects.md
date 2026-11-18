@@ -307,6 +307,44 @@ the API, in `spade-server/tests/effects.rs` (a click in TextEdit is reviewed, ty
 asks, allowing TextEdit stops the asking, and a step whose page changed after its review doesn't
 run).
 
+## Amendment 4: the sandbox holds files, not authenticated remote effects (2026-11-18)
+
+Decided by the owner (2026-11-18), after a security review of Full access found it and named the
+same hole on the auto-review. Decision 1 and amendment 1 let a plugin MCP call whose server runs in
+a working sandbox run with no classifier and no reviewer, and a tool there that declares nothing
+run without the first-call ask: the OS boundary was to decide. But a plugin's server starts with
+the environment its entry configures (an API token, say) and, under the default plugin network
+policy, reaches public hosts. Holding its files doesn't hold what it does with that token: it can
+send, post or pay as the person, and nothing looked.
+
+- **An app's tool that can reach the network is decided as on the host, sandboxed or not.** A
+  connector's or plugin's tool whose server isn't sealed (`Call::remote`, from `Tool::hints` and
+  `Tool::sealed`) is routed as if it ran on the host, in every mode: one that declares nothing
+  asks the person on its first call (their answer is kept, as before); one declared as writing
+  (anything not read-only) goes to the reviewer, and Spade's classifier may raise it to the person
+  as usual; one declared read-only runs. The person's Always allow and a `tool` grant still apply
+  as on the host, and sends, payments, access changes and secrets keep their rules. Its arguments
+  are checked for credential places like any call outside the sandbox.
+- **Sealed is contained, offline and without credentials of its own.** A plugin server is sealed
+  when the sandbox holds it (`contained`), its run has no network (`Confined::online` false: the
+  bot's plugin network policy is off, or no proxy listens), and its entry injects no environment
+  of its own (where tokens go). Only a sealed server's tools keep decision 1's rule: the sandbox
+  decides, with no classifier and no reviewer. Connectors are never sealed: they are remote.
+- **Full access** ([ADR 0163](0163-spade-auto-review-only.md), amendment 2) applies the same
+  rule, then its own: the classifier required for an app's write, the reviewer under untrusted
+  content.
+- **What changes for the person.** A plugin whose server holds a token or reaches the network now
+  has its writes reviewed and its undeclared tools asked about once, as a connector's are. To
+  have a plugin's tools run unreviewed in the sandbox, turn its network off for the bot and give
+  it no token.
+
+Tested in `spade_core::effect` (on the auto-review a sandboxed app tool that can reach the network
+never runs unreviewed; a sealed plugin server's tools keep the sandbox's decision),
+`spade_core::effect::full_access` (the same in Full access), and through the API in
+`spade-server/tests/sandboxed_plugin_tools.rs` (a contained stdio server with an injected token
+and its network on asks on an undeclared tool's first call and has its declared write reviewed,
+in both modes; one sealed offline with no token runs, in both modes).
+
 ## Note: Full access (2026-11-18)
 
 This ADR's routes are the auto-review's. [ADR 0163](0163-spade-auto-review-only.md) amendment 2

@@ -1022,3 +1022,68 @@ fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered
     here.extend([asked("b"), answered("b", false)]);
     assert_eq!(remembered(since_arrival(&here), key), Some(true));
 }
+
+/// A connector's or plugin's tool, run in the sandbox, that can reach the network.
+fn contained_app_tool(effect: Option<Effect>) -> Call<'static> {
+    Call {
+        place: Place::Sandbox,
+        remote: true,
+        ..call("mailer__send_email", effect)
+    }
+}
+
+#[test]
+fn on_the_auto_review_a_sandboxed_app_tool_that_can_reach_the_network_never_runs_unreviewed() {
+    // It declares nothing: the person decides once, as on the host.
+    assert_eq!(
+        route(contained_app_tool(None)),
+        Route::Ask {
+            line: UNDECLARED.to_owned(),
+            ask: Some(Ask::Undeclared)
+        }
+    );
+    // Declared to write: the reviewer, with or without untrusted content in view.
+    assert_eq!(
+        route(contained_app_tool(Some(Effect::Network))),
+        reviewed(None)
+    );
+    let tainted = Call {
+        tainted: true,
+        ..contained_app_tool(Some(Effect::Network))
+    };
+    assert_eq!(route(tainted), reviewed(Some(TAINTED_OUTWARD)));
+    // A checkpoint that couldn't be taken changes nothing about that.
+    let unprotected = Call {
+        place: Place::Unprotected,
+        ..contained_app_tool(Some(Effect::Network))
+    };
+    assert_eq!(route(unprotected), reviewed(None));
+    // Declared read-only: it runs.
+    assert_eq!(route(contained_app_tool(Some(Effect::Read))), Route::Run);
+    // The person's say still counts: their Always allow, or a remembered "yes".
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        ..contained_app_tool(Some(Effect::Network))
+    };
+    assert_eq!(route(always), Route::Run);
+    let remembered = Call {
+        remembered: Some(true),
+        ..contained_app_tool(None)
+    };
+    assert_eq!(route(remembered), Route::Run);
+    // Sends and payments stay the person's, as everywhere.
+    assert_eq!(route(contained_app_tool(Some(Effect::Pay))), asks(SPENDS));
+}
+
+#[test]
+fn on_the_auto_review_a_sealed_plugin_servers_tools_keep_the_sandboxs_decision() {
+    for effect in [None, Some(Effect::Network), Some(Effect::Publish)] {
+        let sealed = Call {
+            remote: false,
+            tainted: true,
+            ..contained_app_tool(effect)
+        };
+        assert_eq!(route(sealed), Route::Run, "{effect:?}");
+    }
+}

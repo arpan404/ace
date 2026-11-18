@@ -4,11 +4,11 @@
 //! from the app, a paired device or a fresh sign-in, and stamps it with
 //! `x-ace-person: v1.<ms>.<nonce>.<hex HMAC-SHA256>` keyed with a secret only the daemon and Spade
 //! read (`<ACE_HOME>/spade-person.key`, written by the daemon, never the token), over what the
-//! change is for, so a stamp for one bot and value can't be replayed for another or twice.
+//! change is for, so a stamp for one bot and value can't be replayed for another or twice. Each
+//! stamp's nonce is claimed in Spade's store before the change is made, so a restart doesn't
+//! forget it.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -94,19 +94,18 @@ pub fn check(
     Ok(nonce.to_owned())
 }
 
-/// Reads the shared key and remembers the stamps it has taken, so each counts once.
+/// Reads the shared key and takes each stamp once, through `claim` (Spade's store).
 pub struct Attestor {
     key: Option<PathBuf>,
-    seen: Mutex<HashMap<String, i64>>,
 }
+
+/// Where a taken stamp's nonce is kept, in Spade's settings, until it is too old to count.
+pub const CLAIMED: &str = "person_stamp:";
 
 impl Attestor {
     /// `key`: where the daemon writes the shared key; `None` takes no stamp at all.
     pub fn new(key: Option<PathBuf>) -> Self {
-        Self {
-            key,
-            seen: Mutex::default(),
-        }
+        Self { key }
     }
 
     /// The key, read now (the daemon may write it after Spade starts): hex, at least 32 bytes.
@@ -122,22 +121,33 @@ impl Attestor {
             .collect()
     }
 
-    /// Whether `stamp` is the person's say on this change; a good stamp is used up.
-    pub fn person(&self, stamp: Option<&str>, target: &str, value: &str, now_ms: i64) -> bool {
+    /// Whether `stamp` is the person's say on this change. A good stamp is used up by `claim`
+    /// (its nonce, now), which answers `false` for one taken before, in this run or an earlier
+    /// one, or when it can't record it.
+    pub fn person(
+        &self,
+        stamp: Option<&str>,
+        target: &str,
+        value: &str,
+        now_ms: i64,
+        claim: &dyn Fn(&str, i64) -> bool,
+    ) -> bool {
         let (Some(stamp), Some(key)) = (stamp, self.key()) else {
             return false;
         };
         let Ok(nonce) = check(&key, stamp, target, value, now_ms) else {
             return false;
         };
-        let mut seen = self.seen.lock().unwrap_or_else(|p| p.into_inner());
-        seen.retain(|_, at| now_ms - *at <= 2 * WINDOW_MS);
-        if seen.contains_key(&nonce) {
-            return false;
-        }
-        seen.insert(nonce, now_ms);
-        true
+        claim(&nonce, now_ms)
     }
+}
+
+/// Claims `nonce` in `store`, dropping claims too old to matter: a stamp is good for
+/// [`WINDOW_MS`] either side of Spade's clock.
+pub fn claim_in(store: &spade_store::Store, nonce: &str, now_ms: i64) -> bool {
+    store
+        .claim_once(CLAIMED, nonce, now_ms, now_ms - 2 * WINDOW_MS)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -204,21 +214,60 @@ mod tests {
     }
 
     #[test]
-    fn a_stamp_is_used_once_and_needs_the_key_file() {
+    fn a_stamp_is_used_once_even_after_a_restart_and_needs_the_key_file() {
         let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
         let path = dir.path().join(KEY_FILE);
         let hex: String = KEY.iter().map(|b| format!("{b:02x}")).collect();
         let stamp = sign(KEY, "a_1", "full_access", 5_000, NONCE);
+        let database = dir.path().join("spade.sqlite");
+        let store = spade_store::Store::open(&database).unwrap_or_else(|_| std::process::abort());
+        let claim = |nonce: &str, now: i64| claim_in(&store, nonce, now);
         let without = Attestor::new(Some(path.clone()));
-        assert!(!without.person(Some(&stamp), "a_1", "full_access", 5_000));
+        assert!(!without.person(Some(&stamp), "a_1", "full_access", 5_000, &claim));
         std::fs::write(&path, hex).unwrap_or_else(|_| std::process::abort());
-        let attestor = Attestor::new(Some(path));
-        assert!(!attestor.person(None, "a_1", "full_access", 5_000));
-        assert!(attestor.person(Some(&stamp), "a_1", "full_access", 5_000));
+        let attestor = Attestor::new(Some(path.clone()));
+        assert!(!attestor.person(None, "a_1", "full_access", 5_000, &claim));
+        assert!(attestor.person(Some(&stamp), "a_1", "full_access", 5_000, &claim));
         assert!(
-            !attestor.person(Some(&stamp), "a_1", "full_access", 5_001),
+            !attestor.person(Some(&stamp), "a_1", "full_access", 5_001, &claim),
             "replayed"
         );
-        assert!(!Attestor::new(None).person(Some(&stamp), "a_1", "full_access", 5_000));
+        // Spade restarted: a new attestor over the same database still refuses it.
+        drop(store);
+        let reopened =
+            spade_store::Store::open(&database).unwrap_or_else(|_| std::process::abort());
+        let claim = |nonce: &str, now: i64| claim_in(&reopened, nonce, now);
+        let restarted = Attestor::new(Some(path));
+        assert!(
+            !restarted.person(Some(&stamp), "a_1", "full_access", 5_002, &claim),
+            "replayed after a restart"
+        );
+        // A claim long expired is dropped, and nothing else in the settings is.
+        reopened
+            .set_setting("security.machine", Some("{}"))
+            .unwrap_or_else(|_| std::process::abort());
+        let fresh = sign(
+            KEY,
+            "a_1",
+            "full_access",
+            400_000,
+            "ffeeddccbbaa99887766554433221100",
+        );
+        assert!(restarted.person(Some(&fresh), "a_1", "full_access", 400_000, &claim));
+        assert_eq!(
+            reopened
+                .claim_once(CLAIMED, NONCE, 400_000, 400_000 - 2 * WINDOW_MS)
+                .ok(),
+            Some(true),
+            "the old claim was pruned"
+        );
+        assert!(
+            reopened
+                .setting("security.machine")
+                .ok()
+                .flatten()
+                .is_some()
+        );
+        assert!(!Attestor::new(None).person(Some(&stamp), "a_1", "full_access", 5_000, &claim));
     }
 }

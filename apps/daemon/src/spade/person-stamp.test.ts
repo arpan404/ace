@@ -65,7 +65,6 @@ test("the stamp is the one Spade checks, keyed with the shared key", () => {
 });
 
 test("accepting a bot moving here is the person's, stamped for that move and that bot only", () => {
-  const json = (value: unknown) => Buffer.from(JSON.stringify(value));
   const accept = "/v1/moves/mv_0190ab/accept";
   expect(personOnlyRoute("PUT", accept)).toBe("move:mv_0190ab");
   expect(personOnlyWrite("PUT", accept, json({ bot: "a_1" }))).toEqual({

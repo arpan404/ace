@@ -303,8 +303,9 @@ pub struct Call<'a> {
     pub drive: Drive<'a>,
     /// How the bot decides (ADR 0163, amendment 2).
     pub mode: Mode,
-    /// A connector's or plugin's MCP tool: it runs on a server outside Spade, often with the
-    /// person's sign-in.
+    /// A connector's or plugin's MCP tool that can reach the network: it acts on a server, often
+    /// with the person's sign-in or a token, whether or not a sandbox holds its files. False for
+    /// one sealed in the sandbox with no network and no credentials of its own.
     pub remote: bool,
     /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
     /// raised to the person.
@@ -360,6 +361,18 @@ impl Route {
 const FILE_WRITES: &[&str] = &["workspace_write", "workspace_edit"];
 
 pub fn route(call: Call<'_>) -> Route {
+    // The sandbox holds files, not what an app's tool does on its server with the person's
+    // sign-in or a token (ADR 0171, amendment 4): one that can reach the network is decided as if
+    // it ran on the host, in every mode. Only a plugin server sealed offline with no credentials
+    // of its own (`remote` false) keeps the sandbox's decision.
+    let call = if call.remote && matches!(call.place, Place::Sandbox | Place::Unprotected) {
+        Call {
+            place: Place::Host,
+            ..call
+        }
+    } else {
+        call
+    };
     // What the person allowed always, as the rule gate saw it (taint still holds it).
     let allowed = call.always && call.rule == Decision::Run;
     // Secrets and the person-only effects come first, wherever the call runs and whatever else

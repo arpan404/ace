@@ -149,12 +149,14 @@ impl Confine for Security {
         #[cfg(not(windows))]
         let hold: Box<dyn std::any::Any + Send + Sync> = Box::new(ticket);
 
+        let online = watch.is_some();
         Ok(Confinement::Contained(Box::new(Confined {
             launch,
             env,
             path_first,
             hold,
             watch,
+            online,
         })))
     }
 
@@ -248,6 +250,7 @@ impl Confine for Security {
                 hold: Box::new(()),
                 // No network, so nothing goes through the proxy to watch.
                 watch: None,
+                online: false,
             })
         }
     }
