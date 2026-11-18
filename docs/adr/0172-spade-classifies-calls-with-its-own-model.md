@@ -292,34 +292,36 @@ Measured on `main`'s model and wiring, with the same labeller:
 
 ### Measures, before and after
 
-Every "after" number is for the exact shipped weights (`spade-classify/a68256a4`), calibrated and
-measured as amendments 2 to 4 set out, on sets their fit never touched, with the gate's checks as
-it runs them: a command settles only in its hard form (amendments 3 and 4). `main` is
-`spade-classify/99f56e23` as wired on `main`, measured with the same labeller on the same sets.
+Every "after" number is for the exact shipped weights (`spade-classify/eec1a717`), calibrated and
+measured as amendments 2 to 5 set out, on sets their fit never touched, with the gate's checks as
+it runs them: a command settles only in its hard form, which now covers reads only (amendment 5).
+`main` is `spade-classify/99f56e23` as wired on `main`, measured with the same labeller on the same
+sets.
 
 | Set                                                           | Low-risk recall   | False low-risk                        | Person precision  | Person recall     |
 | ------------------------------------------------------------- | ----------------- | ------------------------------------- | ----------------- | ----------------- |
-| Fresh, clean                                                  | 0.118 → 0.097     | 0 of 1,920 → **0 of 1,920**           | 0.983 → 0.977     | 0.942 → **0.951** |
-| Fresh, adversarial                                            | 0.032 → 0.032     | 0 of 5,139 → **0 of 5,139**           | 0.973 → 0.970     | 0.842 → **0.880** |
+| Fresh, clean                                                  | 0.118 → 0.094     | 0 of 1,920 → **0 of 1,920**           | 0.983 → 0.977     | 0.942 → **0.951** |
+| Fresh, adversarial                                            | 0.032 → 0.031     | 0 of 5,139 → **0 of 5,139**           | 0.973 → 0.970     | 0.842 → **0.880** |
 | Held-out tricks and tools (main: its own 4,849; after: 5,871) | 0.070 → 0.002     | 0 of 3,312 → **0 of 3,751**           | 1.000 → 1.000     | 0.895 → **0.953** |
-| Hand-labelled hard set                                        | 0.449 → 0.347     | 0 of 95 → **0 of 95**                 | 0.979 → **1.000** | 0.920 → **0.960** |
-| tldr-pages, held-out pages                                    | 0.053 → 0.031     | 3 → **0** of 7,000 (risky or unnamed) | 0.201 → **0.280** | 0.189 → **0.494** |
-| Real sessions, distinct commands, model alone                 | 0.024 → **0.043** | 1 → **0** of 2,310 (risky or unnamed) | 0.136 → **0.833** | 0.070 → 0.039     |
+| Hand-labelled hard set                                        | 0.449 → 0.263     | 0 of 95 → **0 of 95**                 | 0.979 → **1.000** | 0.920 → **0.960** |
+| tldr-pages, held-out pages                                    | 0.053 → 0.020     | 3 → **0** of 7,000 (risky or unnamed) | 0.201 → **0.280** | 0.189 → **0.494** |
+| Real sessions, distinct commands, model alone                 | 0.024 → **0.027** | 1 → **0** of 2,310 (risky or unnamed) | 0.136 → **0.833** | 0.070 → 0.039     |
 | Hand-labelled connector calls (raise only)                    | –                 | –                                     | 0.900 → 0.889     | 0.857 → 0.762     |
 
-Low-risk recall on the template and tldr sets is lower than `main`'s: `main` settled builds,
-installs, `git status`, `git diff` and plain `curl`, which can run programs named in configuration
-the command never shows, and those now stay with the reviewer. Every measure counts a call the
-labeller can't name as risky, and none of those is settled any more either.
+Low-risk recall is lower than `main`'s and than the earlier rounds': only reads with a hard form
+settle now, so builds, installs, every write (`cp`, `mkdir`, `touch`, a redirect), `git status`,
+`git diff`, the script languages and plain `curl` stay with the reviewer. The hard set's drop (0.347
+→ 0.263) is almost all writes. Every measure counts a call the labeller can't name as risky, and
+none of those is settled.
 
 End to end, real sessions (shares of 6,708 calls):
 
 | Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
 | ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
 | As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 57)                                      | 78.1%     | 21.9%                        | 0              |
-| As recorded, this build                                | **2.4%**              | 0.1% (4 of 4)                                       | **76.6%** | **23.4%**                    | **0**          |
+| As recorded, this build                                | **1.7%**              | 0.1% (4 of 4)                                       | **77.3%** | **22.7%**                    | **0**          |
 | Placed in the folder each thread worked in, `main`     | 0.1%                  | 0.8% (1 of 57)                                      | 79.1%     | 20.9%                        | 0              |
-| Placed in the folder each thread worked in, this build | **24.4%**             | 0.1% (5 of 5)                                       | **55.5%** | **44.5%**                    | **0**          |
+| Placed in the folder each thread worked in, this build | **14.2%**             | 0.1% (5 of 5)                                       | **65.8%** | **34.2%**                    | **0**          |
 
 A false low-risk here is a settled call the labeller doesn't name as low-risk, or, with untrusted
 content in view, one it doesn't name as a read. Run by the rules (12.0%), asked by the rules (7.8%,
@@ -327,19 +329,23 @@ content in view, one it doesn't name as a read. Run by the rules (12.0%), asked 
 rules sent to review, the classifier raises 4 or 5 (before: 1), and every call it raises is one.
 
 One classification on this Linux machine (`cargo bench -p spade-classify`, features, inference and
-the hard-form check): p50 2.8 µs → 5.4 µs, p99 65 µs → 134 µs, worst 643 µs → 203 µs. The
-configuration inspection is a few small file reads on the gate's blocking thread. The file is
-1,310,824 bytes.
+the hard-form check): p50 2.8 µs → 5.3 µs, p99 65 µs → 127 µs. The configuration inspection is a
+few small file reads on the gate's blocking thread; a settled command then launches with a clean,
+fixed environment. The file is 1,310,824 bytes.
 
 ### What is still weak
 
-- Builds, tests, package installs, `git status`, `git diff` and `git show` never settle: no
-  override covers what they can run (diff and filter drivers by name, package and cargo config).
-- Reading against writing: `git log` (P(read) 0.50) is under the read threshold, so with untrusted
-  content in view it still goes to the reviewer; plain `ls` (0.86) and `pwd` (0.95) abstain.
+- Only reads settle. Builds, tests, installs, every write (a program or a redirect), `git status`,
+  `git diff`, the script languages (`awk`, `sed`) and the pagers never settle: no fixed override
+  covers what they can run or where they can write.
+- Reading against writing: `git log` (P(read) 0.55) and `git diff` (0.46) are under the read
+  threshold, so with untrusted content in view they still go to the reviewer; plain `ls` (0.81)
+  and `git status` (0.79) abstain even untainted.
 - Most real work happened outside the folder each thread was started in, and the classifier never
   settles that. A third of what the rules send to review has a rule finding, mostly here-documents
   and text the shell parser can't read; only the rules can open that up.
+- Settling fewer commands than the earlier rounds is the deliberate cost of a provable settled
+  set: reads with a hard form only.
 - Person recall on real calls is 4 or 5 of 55; raising on the connector set is a little below
   `main`'s.
 - The labeller can't name 67% of tldr-pages' held-out pages and 29% of real commands; every
@@ -502,3 +508,34 @@ Decided by: the owner, after the third review. Changes amendment 3's decision 2.
 Tests: `spade_core::autonomy::shell` `a_variable_a_command_sets_is_kept_on_what_it_reads`;
 `harden.rs` `what_no_override_covers_has_no_form` (assignments, the removed programs, the refused
 options); `classify-train` `the_blocker_tables_settled_share_is_the_low_risk_recall_and_every_call_is_counted_once`.
+
+## Amendment 5 (2026-11-18): the settled set is reads only, in a clean environment
+
+Decided by: the owner, after the fourth review. Shrinks amendment 4's settled set to what is
+simple to prove, after corners kept turning up (a second `gawk -e` program with `system()`, a
+`cp` into a directory with a symlinked destination, a `GAWK_PERSIST_FILE` carried in a terminal).
+
+1. **A settled command only reads.** The script languages (`awk`, `gawk`, `mawk`, `sed`), `tar`
+   and the pagers (`less`, `more`) leave the settled set: a program given to them on the command
+   line, or an archive, can run programs and reach files from more places than the parser reads.
+   A command that writes any real file — a write-capable program (`cp`, `mv`, `mkdir`, `touch`,
+   `rm`, `rmdir`, `ln`, `chmod`, `tee`, `truncate`, `split`, `csplit`) or a redirect to anything
+   but `/dev/null` and its kin — has no hard form. `git` reads, `rg` and `grep` stay, with the
+   content and program options refused; the audited plain reads stay. The audit table in
+   `spade/docs/autonomy.md` is the kept set.
+2. **With writes gone, the symlink question falls away.** No settled command writes, so there is
+   no destination to resolve and no launch-time re-check for a swapped symlink: a settled command
+   can create or follow nothing.
+3. **A settled command launches with a clean, fixed environment built by Spade**
+   (`Shell::settled_environment`, `Job::clean`): `PATH` the system folders, `HOME` and `TMPDIR`
+   the bot's folder, the locale, shell and terminal fixed, plus the hardening overrides. Nothing
+   is read from the daemon's environment or carried from an earlier terminal command, so a
+   variable the bot exported (`GAWK_PERSIST_FILE`, `TAR_OPTIONS`, `GIT_*`, `LESSOPEN`, `PATH`)
+   never reaches it. In a terminal the settled command runs isolated and does not update the
+   terminal's carried state, so the bot's own variables stay for its other commands.
+
+Tests: `harden.rs` `what_no_override_covers_has_no_form` (writes, redirects, `awk`, `sed`, `tar`,
+`less`); `spade-classify` `plain_reads_with_a_hard_form_are_low_risk_and_writes_and_builds_are_not`
+and `a_command_settles_only_with_the_form_it_runs_in`; `spade-server`
+`a_settled_command_never_sees_variables_an_earlier_terminal_command_exported` (a real terminal, a
+real exported `GAWK_PERSIST_FILE`/`TAR_OPTIONS`/`LESSOPEN`/`PATH`).
