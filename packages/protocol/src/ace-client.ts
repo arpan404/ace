@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReleaseVersion } from "./release.ts";
 
 /**
  * Which ace app is calling ace cloud or the market, and at which version (ADR 0189). The
@@ -26,13 +27,20 @@ export type AceClientApp = z.infer<typeof AceClientApp>;
 /** A build that isn't a release: run from a checkout, or a local build. */
 export const ACE_CLIENT_DEVELOPMENT = "development";
 
-/** The whole value. Longer or differently shaped values are unknown clients. */
+/**
+ * The version part: `development`, or a version the release comparator reads (`ReleaseVersion`,
+ * at most 80 characters), so a gate never meets one it can't compare.
+ */
+export const AceClientVersion = z.union([z.literal(ACE_CLIENT_DEVELOPMENT), ReleaseVersion]);
+export type AceClientVersion = z.infer<typeof AceClientVersion>;
+
+/**
+ * The whole value: printable ASCII only (no spaces, line breaks or control characters), a known
+ * app, and an `AceClientVersion`. Anything else is an unknown client.
+ */
 export const AceClient = z
   .string()
   .max(96)
-  .regex(
-    new RegExp(
-      `^(?:${AceClientApp.options.join("|")})/(?:${ACE_CLIENT_DEVELOPMENT}|\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[a-z0-9.]+)?)$`,
-    ),
-  );
+  .regex(new RegExp(`^(?:${AceClientApp.options.join("|")})/[\\x21-\\x7e]+$`))
+  .refine((value) => AceClientVersion.safeParse(value.slice(value.indexOf("/") + 1)).success);
 export type AceClient = z.infer<typeof AceClient>;

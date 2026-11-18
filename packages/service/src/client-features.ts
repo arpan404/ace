@@ -4,6 +4,7 @@ import {
   ACE_CLIENT_PARAM,
   AceClient,
   AceClientApp,
+  AceClientVersion,
 } from "@ace/protocol/ace-client";
 import { isNewer } from "./version.ts";
 
@@ -31,11 +32,12 @@ export function parseClient(value: string | null | undefined): ClientIdentity {
   if (!parsed.success) return unknownClient;
   const slash = parsed.data.indexOf("/");
   const app = AceClientApp.safeParse(parsed.data.slice(0, slash));
-  if (!app.success) return unknownClient;
-  const version = parsed.data.slice(slash + 1);
-  return version === ACE_CLIENT_DEVELOPMENT
+  // The schema the comparator parses with: a version it can't read never reaches it.
+  const version = AceClientVersion.safeParse(parsed.data.slice(slash + 1));
+  if (!app.success || !version.success) return unknownClient;
+  return version.data === ACE_CLIENT_DEVELOPMENT
     ? { kind: "development", app: app.data }
-    : { kind: "release", app: app.data, version };
+    : { kind: "release", app: app.data, version: version.data };
 }
 
 /**

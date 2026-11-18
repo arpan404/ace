@@ -61,6 +61,30 @@ const request = (url: string, headers: Record<string, string> = {}) => ({
   headers: new Headers(headers),
 });
 
+describe("a version the comparator can't read", () => {
+  const longer = `desktop/1.2.3-${"a".repeat(75)}`;
+
+  it.each([
+    [longer, longer],
+    ["a trailing newline in the header", "desktop/0.0.24\n"],
+    ["a trailing newline in development", "desktop/development\n"],
+    ["a control character", "desktop/0.0.24\u0000"],
+  ])("leaves the feature off without throwing: %s", (_label, value) => {
+    expect(parseClient(value)).toEqual({ kind: "unknown" });
+    expect(() => supports(value, "shared")).not.toThrow();
+    expect(supports(value, "shared")).toBe(false);
+  });
+
+  it("leaves it off for a garbled query parameter too", () => {
+    for (const param of ["desktop%2Fdevelopment%0A", `desktop%2F1.2.3-${"a".repeat(75)}`]) {
+      const client = clientOf(request(`https://cloud.test/v1/account/session?ace-client=${param}`));
+      expect(client).toEqual({ kind: "unknown" });
+      expect(() => featureGate(table, client).supports("shared")).not.toThrow();
+      expect(featureGate(table, client).supports("shared")).toBe(false);
+    }
+  });
+});
+
 describe("reading the caller", () => {
   it("reads the ace-client header", () => {
     expect(
