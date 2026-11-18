@@ -15,12 +15,19 @@ Connect.
 One-time setup (**Owner**):
 
 - [ ] Create the app in App Store Connect with bundle id `app.ace.ios`.
-- [ ] Create an App Store Connect API key (Users and Access › Integrations) with the **Admin**
-      role. Automatic signing uses it to create the distribution certificate and the profiles
-      for the app and its three extensions (`app.ace.ios.activity`, `.share`, `.notifications`)
-      and the `group.app.ace.ios` app group.
-- [ ] In GitHub, create an environment named `app-store` (Settings › Environments; add yourself
-      as a required reviewer if each upload should wait for approval), with these secrets:
+- [ ] In the Apple Developer account, register the four App IDs (`app.ace.ios`,
+      `app.ace.ios.activity`, `app.ace.ios.share`, `app.ace.ios.notifications`). Add the
+      `group.app.ace.ios` app group to all four, and turn on Push Notifications for
+      `app.ace.ios`. Register at least one iPhone as a device: the archive signs for
+      development first, which needs a device on the team.
+- [ ] Create an App Store Connect **Team Key** (Users and Access › Integrations › Team Keys)
+      with the **Admin** role. Automatic signing uses it to create the distribution
+      certificate and the profiles. The key can act for the whole team, so keep it only in the
+      protected environment below.
+- [ ] In GitHub, create an environment named `app-store` (Settings › Environments). Add
+      yourself as a required reviewer, so every upload waits for your approval, and limit its
+      deployment branches and tags to `ios-v*` tags and `main`. Add a tag ruleset so only you
+      can create `ios-v*` tags. Then add these secrets to the environment:
   - `ACE_IOS_TEAM_ID`: the Apple Developer team id.
   - `APPLE_API_KEY_P8`: the whole `AuthKey_<id>.p8` file's text.
   - `APPLE_API_KEY_ID`: the key id.
@@ -32,9 +39,10 @@ Each release:
    (`release.yml`), not from `ios-v*`.
 2. Push a tag such as `ios-v1.0.0`, which sets the version to 1.0.0, or run the `iOS release`
    workflow by hand with an optional version and build number.
-3. The build number defaults to the UTC time (`YYYYMMDDHHmm`), so builds from CI and from a Mac
-   never collide and always increase.
-4. In App Store Connect, answer export compliance for the build if asked, add it to TestFlight
+3. The build number defaults to the UTC time as `YYYYMMDD.HHmmss`, so each build is higher
+   than the last, from CI or a Mac. Two builds clash only if they start in the same second.
+4. Approve the upload job when GitHub asks.
+5. In App Store Connect, answer export compliance for the build if asked, add it to TestFlight
    groups or to a version, and submit.
 
 From a Mac, without CI: set `ACE_IOS_TEAM_ID`, `APPLE_API_KEY` (the `.p8` file's path),

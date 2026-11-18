@@ -14,11 +14,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version, like 1.0.0; empty uses MARKETING_VERSION in apps/ios/project.yml
+        description: Version as 1.0.0; empty uses MARKETING_VERSION in apps/ios/project.yml
         type: string
         required: false
       build_number:
-        description: Build number; empty uses the UTC time (YYYYMMDDHHmm)
+        description: Build number; empty uses the UTC time (YYYYMMDD.HHmmss)
         type: string
         required: false
       skip_tests:
@@ -42,7 +42,8 @@ jobs:
     if: ${{ !cancelled() && (needs.tests.result == 'success' || (needs.tests.result == 'skipped' && inputs.skip_tests)) }}
     runs-on: macos-latest
     timeout-minutes: 60
-    # Repository settings › Environments › app-store can require an approval before upload.
+    # The app-store environment holds the signing key: it requires an approval and only
+    # deploys from `ios-v*` tags and main (docs/releasing-ios-app-store.md).
     environment: app-store
     concurrency:
       group: ios-release
