@@ -86,7 +86,7 @@ async function connect(fake = daemon()) {
   await until(() => owner.state === "ready");
   const lease = owner.thread(thread);
   await until(() => lease.store.thread !== undefined && lease.store.order.length > 0);
-  const files = new CheckoutFiles(owner, async () => ["docs/runbook.md"]);
+  const files = new CheckoutFiles(owner, async () => ({ paths: ["docs/runbook.md"], ready: true }));
   const ask = (operation: unknown, scope: unknown = { threadId: thread }) =>
     files.request(
       NativeFilesRequest.parse({ type: "native.files", scope, operation }),

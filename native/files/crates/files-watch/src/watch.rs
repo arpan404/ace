@@ -6,9 +6,9 @@
 //! inside itself: the drop would wait for the thread that is running it. Dropping the handle
 //! from any other thread stops the OS watch and joins the worker.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -19,6 +19,12 @@ use notify::event::{EventKind, Flag};
 
 use crate::adopt::{self, Adopted};
 use crate::backend::{self, Backend, Native, POLL_INTERVAL};
+
+/// How long to wait before the first retry of a polling watcher that could not start.
+const POLL_RETRY_START: Duration = Duration::from_millis(250);
+
+/// The longest pause between polling retries.
+const POLL_RETRY_MAX: Duration = Duration::from_secs(5);
 use crate::batch::{Batch, ChangeKind};
 use crate::coalesce::Coalescer;
 use crate::error::Error;
@@ -105,9 +111,11 @@ impl Watcher {
         let stop = Arc::new(AtomicBool::new(false));
         let overflow = Arc::new(AtomicBool::new(false));
         let polling = Arc::new(AtomicBool::new(false));
+        let failure = Arc::new(Mutex::new(None));
         let events = Events {
             sender: control.clone(),
             overflow: Arc::clone(&overflow),
+            failure: Arc::clone(&failure),
         };
         let backend = match Native::start(&root, &excluder, events.clone()) {
             Ok(native) => Backend::Native(native),
@@ -132,6 +140,7 @@ impl Watcher {
             stop: Arc::clone(&stop),
             overflow,
             polling: Arc::clone(&polling),
+            failure,
             warning: None,
         };
         let running = std::thread::spawn(move || worker.run());
@@ -168,6 +177,10 @@ impl Drop for Watcher {
 /// Commands for the worker thread.
 enum Command {
     Event(notify::Result<Event>),
+    /// The operating-system watch stopped for good. The worker falls back to polling and asks
+    /// for a root rescan, so the tree is still tracked and the client hears what it missed.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Failed(String),
     Stop,
 }
 
@@ -176,6 +189,10 @@ enum Command {
 pub(crate) struct Events {
     sender: SyncSender<Command>,
     overflow: Arc<AtomicBool>,
+    /// The last fatal backend failure, kept apart from the bounded queue: a full queue is
+    /// exactly when the failure is most likely, and it must not be dropped with an event.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    failure: Arc<Mutex<Option<String>>>,
 }
 
 impl notify::EventHandler for Events {
@@ -197,10 +214,12 @@ impl Events {
         self.offer(Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)));
     }
 
-    /// The OS watch stopped working, with the reason the worker reports as a warning.
+    /// The OS watch stopped for good, with the reason the worker reports as a warning.
     #[cfg(windows)]
     pub(crate) fn failed(&self, message: &str) {
-        self.offer(Err(notify::Error::generic(message)));
+        *self.failure.lock().unwrap_or_else(PoisonError::into_inner) = Some(message.to_owned());
+        // The command wakes a worker blocked on an empty queue; the slot covers a full one.
+        self.enqueue(Command::Failed(message.to_owned()));
     }
 
     fn offer(&self, event: notify::Result<Event>) {
@@ -211,7 +230,11 @@ impl Events {
         {
             return;
         }
-        match self.sender.try_send(Command::Event(event)) {
+        self.enqueue(Command::Event(event));
+    }
+
+    fn enqueue(&self, command: Command) {
+        match self.sender.try_send(command) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => self.overflow.store(true, Ordering::Release),
             Err(TrySendError::Disconnected(_)) => {}
@@ -231,6 +254,7 @@ struct Worker {
     stop: Arc<AtomicBool>,
     overflow: Arc<AtomicBool>,
     polling: Arc<AtomicBool>,
+    failure: Arc<Mutex<Option<String>>>,
     warning: Option<String>,
 }
 
@@ -245,10 +269,31 @@ impl Worker {
             if self.stop.load(Ordering::Acquire) {
                 break;
             }
+            let failed = self
+                .failure
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            if let Some(message) = failed {
+                self.backend_failed(message);
+                continue;
+            }
             if self.overflow.swap(false, Ordering::AcqRel) {
                 coalescer.overflow(None, Instant::now());
             }
-            let received = match coalescer.wait(Instant::now()) {
+            let now = Instant::now();
+            let wait = coalescer.wait(now);
+            // A queued event is always ready, so receiving first would let a burst that never
+            // stops hold `recv_timeout(0)` open forever and the window would never close. The
+            // deadline is checked before the queue is touched.
+            if wait == Some(Duration::ZERO) {
+                let look = |path: &str| translate::look(&self.root, path);
+                if let Some(batch) = coalescer.settle(now, &look) {
+                    self.deliver(batch);
+                }
+                continue;
+            }
+            let received = match wait {
                 Some(remaining) => self.commands.recv_timeout(remaining),
                 None => self
                     .commands
@@ -282,6 +327,7 @@ impl Worker {
                 Ok(Command::Event(Err(error))) => {
                     self.warn(format!("file watching degraded: {error}"));
                 }
+                Ok(Command::Failed(message)) => self.backend_failed(message),
                 Err(RecvTimeoutError::Timeout) => {
                     let look = |path: &str| translate::look(&self.root, path);
                     if let Some(batch) = coalescer.settle(Instant::now(), &look) {
@@ -318,19 +364,66 @@ impl Worker {
         }
     }
 
-    /// The kernel's watch budget ran out: carry on with the poller rather than lose the tree.
+    /// The native watch is gone. Poll from here on, and walk the tree once so the client learns
+    /// what changed while nothing was watching.
+    ///
+    /// A fatal failure reaches the worker twice: once in the failure slot, which survives a full
+    /// event queue, and once as the command that wakes it. Whichever comes first does the work;
+    /// the backend check makes the other a no-op, so one failure starts one poller and one
+    /// rescan.
+    fn backend_failed(&mut self, message: String) {
+        if matches!(self.backend, Backend::Polling(_)) {
+            return;
+        }
+        self.switch_to_polling(&Error::Unsupported(message));
+        if matches!(self.backend, Backend::Polling(_)) {
+            // The poller is watching before the walk is asked for, so changes that happen while
+            // the walk runs are reported too.
+            self.deliver(Batch::Rescan { dir: None });
+        }
+    }
+
+    /// The kernel's watch budget ran out, or the native watch died: carry on with the poller
+    /// rather than lose the tree. A poller that cannot start is retried with a backoff, because
+    /// a root that is briefly unreadable should not end the watch for good.
     fn switch_to_polling(&mut self, error: &Error) {
-        match backend::poll(&self.root, self.events.clone()) {
-            Ok(polling) => {
-                let previous = std::mem::replace(&mut self.backend, Backend::Polling(polling));
-                previous.stop();
-                self.polling.store(true, Ordering::Release);
-                self.warn(format!(
-                    "native file watching stopped ({error}); polling every {} s",
-                    POLL_INTERVAL.as_secs()
-                ));
+        let mut backoff = POLL_RETRY_START;
+        loop {
+            match backend::poll(&self.root, self.events.clone()) {
+                Ok(polling) => {
+                    let previous = std::mem::replace(&mut self.backend, Backend::Polling(polling));
+                    previous.stop();
+                    self.polling.store(true, Ordering::Release);
+                    self.warn(format!(
+                        "native file watching stopped ({error}); polling every {} s",
+                        POLL_INTERVAL.as_secs()
+                    ));
+                    return;
+                }
+                Err(failure) => {
+                    self.warn(format!("file watching stopped: {failure}"));
+                    if !self.pause(backoff) {
+                        return;
+                    }
+                    backoff = backoff.saturating_mul(2).min(POLL_RETRY_MAX);
+                }
             }
-            Err(error) => self.warn(format!("file watching stopped: {error}")),
+        }
+    }
+
+    /// Sleeps for `wait`, checking for a stop every hundred milliseconds. False when the watcher
+    /// must stop instead.
+    fn pause(&self, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
+        loop {
+            if self.stop.load(Ordering::Acquire) {
+                return false;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return true;
+            }
+            std::thread::sleep(left.min(Duration::from_millis(100)));
         }
     }
 
@@ -350,5 +443,81 @@ impl Worker {
             (self.sink)(Batch::Warning(message.clone()));
             self.warning = Some(message);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex, PoisonError};
+    use std::time::{Duration, Instant};
+
+    use files_safe::Root;
+
+    use super::{Batch, Command, Mode, WatchOptions, Watcher};
+
+    #[test]
+    fn a_failed_backend_switches_to_polling_and_asks_for_a_rescan() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"x").unwrap();
+        let root = Root::open(dir.path()).unwrap();
+        let batches = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&batches);
+        let watcher = Watcher::start(
+            root,
+            WatchOptions::default(),
+            Box::new(move |batch| {
+                recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(batch);
+            }),
+        )
+        .unwrap();
+
+        watcher
+            .control
+            .try_send(Command::Failed("the watch stopped".to_owned()))
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let seen = batches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if watcher.mode() == Mode::Polling
+                && seen
+                    .iter()
+                    .any(|batch| matches!(batch, Batch::Rescan { dir: None }))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "a failed watch must poll and rescan, got mode {:?} and {seen:?}",
+                watcher.mode()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        // The slot and the command are two copies of one failure, and a repeated command is a
+        // duplicate: each must leave the single poller and its one rescan alone.
+        watcher
+            .control
+            .try_send(Command::Failed("the watch stopped".to_owned()))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let seen = batches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let rescans = seen
+            .iter()
+            .filter(|batch| matches!(batch, Batch::Rescan { dir: None }))
+            .count();
+        assert_eq!(
+            rescans, 1,
+            "one fatal error starts one poller and one rescan, saw {seen:?}"
+        );
     }
 }

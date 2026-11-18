@@ -7,6 +7,9 @@ import { rowOfColumn, rowOffset } from "./wrap.ts";
 /*
  * Bringing a caret into view: where a position sits in the text column, and the scroll that puts
  * it there. Wrapped lines have no right edge to reach, so only the vertical scroll happens then.
+ *
+ * A position on a hard break has two boxes, one on each row; the caller says which one it asked
+ * for, because the caret's stored side is one render behind the move that just happened.
  */
 
 /** The caret's box in the text column, in pixels from the content's top-left corner. */
@@ -50,14 +53,15 @@ export function useReveal(options: {
 } {
   const { doc, layout, scroller, gutter, cell, wrap, before, viewport, onScroll } = options;
   const box = useCallback(
-    (position: Position) => caretBox(doc, layout, position, gutter, cell, before),
+    (position: Position, side = before): { left: number; top: number } =>
+      caretBox(doc, layout, position, gutter, cell, side),
     [doc, layout, gutter, cell, before],
   );
   const reveal = useCallback(
-    (position: Position) => {
+    (position: Position, side = before) => {
       const element = scroller.current;
       if (!element) return;
-      const caret = box(position);
+      const caret = box(position, side);
       const heightNow = element.clientHeight || viewport.height;
       let top = element.scrollTop;
       if (caret.top < top) top = caret.top;
@@ -75,7 +79,7 @@ export function useReveal(options: {
       // Read back what the browser allowed: a scroll past either end clamps.
       onScroll({ top: element.scrollTop, left: element.scrollLeft });
     },
-    [box, scroller, gutter, wrap, viewport.height, viewport.width, onScroll],
+    [box, scroller, gutter, wrap, before, viewport.height, viewport.width, onScroll],
   );
   return { caretBox: box, reveal };
 }

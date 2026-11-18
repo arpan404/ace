@@ -60,12 +60,9 @@ pub fn deliver(
     let payload = match batch {
         Batch::Changes(changes) => {
             invalidate(entry, &changes);
+            // Ordinary edits are replayed onto the walk's index when it publishes, so they do
+            // not need a walk of their own; only a lost-event rescan or a rule change does.
             entry.apply_changes(&index_changes(&changes));
-            // A walk running over a folder this batch touched may have passed it before the
-            // batch landed, so it runs once more when it publishes.
-            for change in &changes {
-                entry.note_touch(folder_of(change), change.directory);
-            }
             // An ignore-rule edit changes which paths belong in the index without changing those
             // files, so the folders it governs are walked again in the background.
             for folder in crate::rules::changed(entry.root(), &changes) {
@@ -110,18 +107,6 @@ pub fn deliver(
             "ace-files: cannot list the watches of root {}: {error}",
             entry.id()
         ),
-    }
-}
-
-/// The folder a change touched: the path itself when it is a folder, its parent otherwise.
-fn folder_of(change: &Change) -> &str {
-    if change.directory {
-        &change.path
-    } else {
-        match change.path.rsplit_once('/') {
-            Some((parent, _)) => parent,
-            None => "",
-        }
     }
 }
 

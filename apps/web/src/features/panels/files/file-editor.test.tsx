@@ -60,6 +60,16 @@ async function versionOf(app: ReturnType<typeof harness>) {
   return stat.value.version;
 }
 
+test("the toolbar's wrap button stays available while the file is open in the editor", async () => {
+  const { panel } = await openEditor();
+
+  const wrap = within(panel).getByRole("button", { name: "Wrap lines" });
+  expect((wrap as HTMLButtonElement).disabled).toBe(false);
+  await userEvent.click(wrap);
+
+  await within(panel).findByRole("button", { name: "Don't wrap lines" });
+});
+
 test("saving an edit writes it, and a file changed elsewhere asks before it is replaced", async () => {
   const { app, panel, box } = await openEditor();
 

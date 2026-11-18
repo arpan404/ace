@@ -27,4 +27,4 @@ pub use mutate::{Committed, create_dir, remove, rename, trash, untrash};
 pub use policy::refuse_reserved;
 pub use read::{Read, ReadRange, read};
 pub use version::stat_version;
-pub use write::{create_file, write};
+pub use write::{SaveWarning, Saved, create_file, write};

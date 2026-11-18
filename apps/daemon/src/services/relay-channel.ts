@@ -7,7 +7,6 @@ import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import { chunkFilesChannel, attachFilesRelay, type FilesService } from "@ace/files";
 import { filesScope } from "../files-scope.ts";
 import { relayFiles } from "../files-tool/relay-files.ts";
-import { quickOpenResult } from "../files-tool/quick-open.ts";
 import {
   BrowserClientMessage,
   AgentId,
@@ -303,19 +302,6 @@ export function attachRelayService(
             },
           });
           return;
-        }
-        // Quick open from ace-files' index once it can answer; otherwise the existing index.
-        if (op.op === "mention.complete") {
-          const quick = await quickOpenResult(options.store, options.filesNative?.tool, {
-            requestId: message.requestId,
-            threadId: op.threadId,
-            query: op.query,
-            limit: op.limit,
-          });
-          if (quick) {
-            await channel.send(quick);
-            return;
-          }
         }
         await channel.send(await options.context.handle(device, message, access));
         return;

@@ -6,6 +6,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useSt
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
+import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { EditorFindBar } from "./find-bar.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
@@ -23,7 +24,7 @@ import { useEditorFind } from "./use-editor-find.ts";
 import { editorWindow } from "./row-window.ts";
 import { ScrollAnchor } from "./use-anchor.ts";
 import { useVisibleLines } from "./use-visible-lines.ts";
-import { useWrap } from "./use-wrap.ts";
+import { useWrap, type WrapEdits } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
@@ -42,11 +43,15 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   "use no memo";
   const readOnly = props.readOnly ?? false;
   const wrap = props.wrap ?? false;
+  /** The wrap index hears each edit as the document applies it, before React renders it. */
+  const appliedRef = useRef<WrapEdits | undefined>(undefined);
   const state = useEditorDocument({
     text: props.text,
     path: props.path,
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
+    onBeforeEdit: () => appliedRef.current?.before(),
+    onApplied: (batch) => appliedRef.current?.after(batch),
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
     ...(props.onTextDispose ? { onTextDispose: props.onTextDispose } : {}),
     ...(props.commitAfter === undefined ? {} : { commitAfter: props.commitAfter }),
@@ -58,8 +63,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
-  /** The primary caret stays at the end of the row before a hard break, as VS Code keeps it. */
-  const [before, setBefore] = useState(false);
+  /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
+  const [affinity, setAffinity] = useState<Affinity>(noAffinity);
   const [paint, setPaint] = useState(0);
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
@@ -79,8 +84,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     doc,
     wrap,
     columns,
-    version: state.version,
-    takeChanges: state.takeChanges,
+    appliedRef,
     visible,
     anchor,
   });
@@ -142,7 +146,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     gutter,
     cell,
     wrap,
-    before,
+    before: isBefore(affinity, state.primary),
     viewport,
     onScroll: setScroll,
   });
@@ -165,7 +169,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: state.version,
     find: props.find,
     select: (range) => {
-      setBefore(false);
+      setAffinity(noAffinity);
       state.select([{ anchor: range.start, head: range.end }]);
     },
     reveal: (position) => {
@@ -181,8 +185,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     path: props.path,
     rows: Math.max(1, Math.floor(height / lineHeight)),
     layout,
-    before,
-    onBefore: setBefore,
+    affinity,
+    onBefore: setAffinity,
     onFind: finder.openFind,
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
@@ -222,7 +226,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     element: host,
     focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
-    onBefore: setBefore,
+    onBefore: setAffinity,
   });
 
   useImperativeHandle(ref, () => ({
@@ -231,7 +235,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: () => state.doc?.version() ?? 0,
     selections: () => state.doc?.selections() ?? [],
     setSelections: (selections: readonly Selection[]) => {
-      setBefore(false);
+      setAffinity(noAffinity);
       state.select(selections);
     },
   }));
@@ -292,11 +296,17 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               const long = text.length > longLine;
               const lineTokens = tokens[offset];
               const lineMatches = activeQuery ? byLine.get(line) : undefined;
-              return lineRows.map((row, at) => {
+              // A line can be a megabyte long: only the rows inside the window are built, and a
+              // row outside it is never sliced, coloured or given a find match.
+              const from = Math.max(0, firstRow - startRow);
+              const to = Math.min(lineRows.length, lastRow - startRow);
+              const drawn = [];
+              for (let at = from; at < to; at++) {
+                const row = lineRows[at];
+                if (!row) continue;
                 const index = startRow + at;
-                if (index < firstRow || index >= lastRow) return null;
                 const end = Math.min(row.end, text.length);
-                return (
+                drawn.push(
                   <EditorLine
                     key={`${line}:${at}`}
                     line={line}
@@ -319,9 +329,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                     query={activeQuery}
                     long={long}
                     clip={!wrap}
-                  />
+                  />,
                 );
-              });
+              }
+              return drawn;
             })}
             <CaretLayers
               selections={state.selections}
@@ -329,9 +340,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               layout={layout}
               firstLine={first}
               lastLine={last - 1}
+              firstRow={firstRow}
+              lastRow={lastRow}
               gutter={gutter}
               cell={cell}
-              before={before}
+              affinity={affinity}
               primary={state.primary}
               composing={
                 input.composingText === undefined ? undefined : { text: input.composingText }

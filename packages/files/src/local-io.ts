@@ -133,6 +133,29 @@ export function localFilesIo(
         throw error;
       }
     },
+    async paths(root, dir, limit, options = {}) {
+      const safe = await safeRoot(root);
+      const ignore = await GitIgnore.create(safe);
+      const paths: string[] = [];
+      const pending: string[] = [dir];
+      while (pending.length) {
+        const folder = pending.shift();
+        if (folder === undefined) break;
+        for await (const entry of walkWorkspace(safe, ignore, {
+          dir: folder,
+          depth: 1,
+          includeIgnored: false,
+          entryLimit: 1_000_000,
+          ...(options.signal ? { signal: options.signal } : {}),
+        })) {
+          if (entry.type !== "file" && entry.type !== "directory") continue;
+          if (paths.length >= limit) return { paths, truncated: true };
+          paths.push(entry.type === "directory" ? `${entry.path}/` : entry.path);
+          if (entry.type === "directory") pending.push(entry.path);
+        }
+      }
+      return { paths, truncated: false };
+    },
     async read(root, path, range): Promise<ReadBytes> {
       const safe = await safeRoot(root);
       if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");

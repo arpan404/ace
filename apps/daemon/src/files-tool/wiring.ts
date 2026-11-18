@@ -9,7 +9,7 @@ export type FilesNative = { tool: FilesTool; folders: FolderWatch };
 /**
  * The daemon's one ace-files (ADR 0178). Nothing starts here: the process comes up on the first
  * listing, quick open or watch that needs it, and the two books stay cheap until then. A machine
- * without the binary still gets its Files panel through the TypeScript path.
+ * without the binary answers those requests with a retryable error; there is no second path.
  */
 export function startFilesNative(context: ServiceContext): FilesNative {
   const tool = new FilesTool({

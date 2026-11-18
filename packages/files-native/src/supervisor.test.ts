@@ -353,6 +353,23 @@ describe("FilesProcess", () => {
     await until(() => fakeMessages(h).some((message) => message.type === "cancel"));
   });
 
+  it("names the op a stale ace-files does not know, and logs it once", async () => {
+    const logged: string[] = [];
+    const h = registered("unsupported", {
+      log: (level, message) => logged.push(`${level}: ${message}`),
+    });
+    await h.files.start();
+    const root = await h.files.openRoot("/repo");
+    for (const op of ["describe", "stat"] as const)
+      await expect(h.files.request({ op, root, path: "src/main.ts" })).rejects.toMatchObject({
+        code: "UNSUPPORTED",
+        message: expect.stringContaining(
+          `ace-files at /fake/ace-files doesn't know op ${op}; it is older than this daemon`,
+        ),
+      });
+    expect(logged.filter((line) => line.includes("doesn't know op"))).toHaveLength(1);
+  });
+
   it("queues frames under stdin backpressure and refuses body writes with BUSY", async () => {
     const { host, child } = fakeFilesHost();
     const files = new FilesProcess({

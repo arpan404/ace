@@ -16,6 +16,14 @@ use crate::batch::{Batch, Change};
 use crate::observed::{Observed, parent};
 use crate::translate::{Notice, Presence};
 
+/// How many `max_wait` periods a burst may run before a checkpoint rescan, so a writer that
+/// never stops cannot keep the tree stale forever.
+const CHECKPOINT_PERIODS: u32 = 5;
+
+/// The shortest interval between checkpoint rescans, whatever `max_wait` is: each one starts a
+/// walk of the tree, and a short window must not turn a settling burst into a walk storm.
+const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
+
 /// Collects events into windows and turns them into batches.
 pub(crate) struct Coalescer {
     debounce: Duration,
@@ -29,6 +37,9 @@ pub(crate) struct Coalescer {
     /// The rescan waits for the burst to go quiet. A walk started while files are still landing
     /// would miss the rest, and the changes arriving meanwhile are covered by the same rescan.
     scope: Option<Vec<String>>,
+    /// When the pending rescan last reached the caller: the burst began, or a checkpoint was
+    /// sent. The next checkpoint is due `CHECKPOINT_PERIODS` windows after it.
+    sent: Option<Instant>,
     first: Option<Instant>,
     last: Option<Instant>,
     /// Whether anything arrived since the last settle, which is how a rescan tells a new
@@ -44,6 +55,7 @@ impl Coalescer {
             max_batch,
             paths: BTreeMap::new(),
             scope: None,
+            sent: None,
             first: None,
             last: None,
             activity: false,
@@ -85,7 +97,7 @@ impl Coalescer {
             folder = parent(folder);
         }
         if self.paths.len() > self.max_batch {
-            self.begin_from_paths();
+            self.begin_from_paths(now);
         }
     }
 
@@ -117,11 +129,12 @@ impl Coalescer {
         }
         self.paths.clear();
         self.scope = Some(scope);
+        self.sent.get_or_insert(now);
     }
 
     /// The window holds more paths than a batch may carry: it closes with a rescan of the
     /// deepest folder that holds them all.
-    fn begin_from_paths(&mut self) {
+    fn begin_from_paths(&mut self, now: Instant) {
         let mut scope: Option<Vec<String>> = None;
         for (path, observed) in &self.paths {
             let folder = observed.scope(path);
@@ -133,6 +146,7 @@ impl Coalescer {
         let scope = scope.unwrap_or_default();
         self.paths.clear();
         self.scope = Some(scope);
+        self.sent = Some(now);
     }
 
     /// A change arrived while the window is rescanning: the rescan now has to cover it too.
@@ -140,6 +154,12 @@ impl Coalescer {
         if let Some(scope) = &mut self.scope {
             narrow(scope, folder_of(change));
         }
+    }
+
+    /// How long a burst may stay dirty before a checkpoint rescan: five windows, but never
+    /// sooner than the independent checkpoint interval.
+    fn checkpoint(&self) -> Duration {
+        CHECKPOINT_INTERVAL.max(self.max_wait.saturating_mul(CHECKPOINT_PERIODS))
     }
 
     /// Whether the window will close with a rescan. Everything that arrives until then is
@@ -169,16 +189,27 @@ impl Coalescer {
     ) -> Option<Batch> {
         let activity = std::mem::take(&mut self.activity);
         if let Some(scope) = self.scope.clone() {
-            self.first = None;
-            self.last = None;
             if activity {
-                // Still landing. Wait for quiet, or the walk would read a folder that is not
-                // finished and the changes after it would be lost.
+                // Still landing. Keep the true last-event time, so the quiet deadline is
+                // measured from the last change; only the max_wait clock restarts, or the
+                // worker would spin on a deadline that is already past.
                 self.first = Some(now);
-                self.last = Some(now);
-                return None;
+                let sent = self.sent.unwrap_or(now);
+                if now.saturating_duration_since(sent) < self.checkpoint() {
+                    return None;
+                }
+                // The burst has run long enough that a client must hear something before it
+                // ends: report what the tree is now, and cover everything after it with the
+                // final rescan (or another checkpoint).
+                self.sent = Some(now);
+                return Some(Batch::Rescan {
+                    dir: (!scope.is_empty()).then(|| scope.join("/")),
+                });
             }
             self.scope = None;
+            self.sent = None;
+            self.first = None;
+            self.last = None;
             return Some(Batch::Rescan {
                 dir: (!scope.is_empty()).then(|| scope.join("/")),
             });
@@ -358,6 +389,58 @@ mod tests {
             coalescer.settle(start + Duration::from_secs(3), &exists),
             None,
             "one rescan covers the whole burst"
+        );
+    }
+
+    #[test]
+    fn a_burst_that_never_quiets_still_gets_checkpoint_rescans() {
+        let mut coalescer = Coalescer::new(DEBOUNCE, MAX_WAIT, 2);
+        let start = Instant::now();
+        let mut rescans = Vec::new();
+        let mut step = 0u64;
+        loop {
+            let now = start + Duration::from_millis(step * 10);
+            if now.saturating_duration_since(start) > Duration::from_secs(25) {
+                break;
+            }
+            // A writer that never pauses: one event every ten milliseconds, so the queue is
+            // never empty when a max_wait boundary comes around. Two checkpoint intervals fit
+            // in the simulated quarter minute.
+            coalescer.push(
+                notice(&format!("burst/file{step}"), ChangeKind::Created),
+                now,
+            );
+            if coalescer.wait(now) == Some(Duration::ZERO)
+                && let Some(batch) = coalescer.settle(now, &exists)
+            {
+                rescans.push(batch);
+            }
+            step += 1;
+        }
+        assert!(
+            rescans.len() >= 2,
+            "a dirty burst reports checkpoints before it quiets: {rescans:?}"
+        );
+        assert!(
+            rescans.iter().all(|batch| matches!(
+                batch,
+                Batch::Rescan { dir: Some(dir) } if dir == "burst"
+            )),
+            "every checkpoint names the burst folder: {rescans:?}"
+        );
+
+        // The final rescan still follows once the writer stops.
+        let quiet = start + Duration::from_secs(20);
+        assert_eq!(
+            coalescer.settle(quiet, &exists),
+            Some(Batch::Rescan {
+                dir: Some("burst".to_owned())
+            })
+        );
+        assert_eq!(
+            coalescer.settle(quiet + Duration::from_secs(1), &exists),
+            None,
+            "the burst is over"
         );
     }
 

@@ -58,7 +58,7 @@ export type ProjectSearch = (
   workspaceId: string,
   query: string,
   limit: number,
-) => Promise<string[]>;
+) => Promise<{ paths: string[]; ready: boolean }>;
 
 /** A scope's recent files, newest first (`CheckoutMemory.recent`). */
 export type RecentFiles = (scope: FilesScope) => Promise<readonly string[]>;
@@ -243,9 +243,12 @@ export class CheckoutFiles {
 
   async #search(scope: Scope, query: string, signal: AbortSignal) {
     let paths: string[];
-    if ("workspaceId" in scope)
-      paths = await this.#projectSearch(scope.workspaceId, query, searchLimit);
-    else {
+    let ready = true;
+    if ("workspaceId" in scope) {
+      const found = await this.#projectSearch(scope.workspaceId, query, searchLimit);
+      paths = found.paths;
+      ready = found.ready;
+    } else {
       const reply = await this.#owner
         .request(
           {
@@ -266,8 +269,13 @@ export class CheckoutFiles {
       if (reply.result.kind !== "completion")
         throw new CheckoutError("protocol", "Couldn't read the reply. Try again.");
       paths = reply.result.paths;
+      ready = reply.result.ready;
     }
-    return { query, rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)) };
+    return {
+      query,
+      rows: searchRows(query, paths.filter(isCheckoutPath).slice(0, searchLimit)),
+      ready,
+    };
   }
 
   /**
@@ -276,11 +284,12 @@ export class CheckoutFiles {
    */
   async #quick(scope: Scope, text: string, signal: AbortSignal) {
     const { query, line } = parseQuickOpen(text);
-    const [found, recent, changed] = await Promise.all([
-      query ? this.#search(scope, query, signal).then((result) => result.rows) : [],
+    const [search, recent, changed] = await Promise.all([
+      query ? this.#search(scope, query, signal) : undefined,
       query ? [] : this.#recent(scope),
       query || !("threadId" in scope) ? [] : this.#changed(scope.threadId, signal),
     ]);
+    const found = search?.rows ?? [];
     const paths = found.map((row) => row.path);
     const rows = quickOpenRows(query, paths, recent, changed, "Changed in this checkout");
     const named = new Map(found.map((row) => [row.path, row]));
@@ -288,6 +297,7 @@ export class CheckoutFiles {
       text,
       query,
       ...(line ? { line } : {}),
+      ready: search?.ready ?? true,
       rows: rows.map(({ path, group }) =>
         Object.assign({}, named.get(path) ?? searchRows("", [path])[0], { group }),
       ),

@@ -70,17 +70,6 @@ impl Walk {
             }
         }
     }
-
-    /// Whether a change in `folder` can make this walk's result stale: the folder it walks or one
-    /// below it, or, for a folder that changed itself, a folder above it that may have moved it.
-    fn touches(&self, folder: &str, directory: bool) -> bool {
-        match self {
-            Walk::Tree => true,
-            Walk::Folder(walk) => {
-                folder == walk || under(folder, walk) || (directory && under(walk, folder))
-            }
-        }
-    }
 }
 
 /// Whether `path` sits inside `folder`, with the root as the empty folder.
@@ -116,12 +105,33 @@ pub(crate) struct IndexBook {
 /// folded into "walk the tree again", which costs one more walk instead of unbounded memory.
 const PENDING_LIMIT: usize = 50_000;
 
+/// How many pending changes one publish replays before it swaps the index in. A busy watcher can
+/// keep the queue nonempty forever; past this point the rest belongs to the next generation and
+/// is applied to the index that is now served, so publishing never waits for quiet.
+#[cfg(not(test))]
+const REPLAY_LIMIT: usize = 20_000;
+#[cfg(test)]
+const REPLAY_LIMIT: usize = 4;
+
 /// Test-only: `ACE_FILES_PANIC_INDEX` makes every build panic, so a test can prove a stopped
 /// worker becomes an error instead of a root that reports "not ready" forever.
 #[cfg(feature = "test-hooks")]
 fn panic_index_on_purpose() {
     if std::env::var_os("ACE_FILES_PANIC_INDEX").is_some() {
         panic!("test hook: the index build panics");
+    }
+}
+
+/// Test-only: `ACE_FILES_PANIC_INDEX_ONCE` fails the first walk that starts after the first
+/// published index, after its hold, so a test can put a batch in flight before the failure.
+#[cfg(feature = "test-hooks")]
+fn panic_after_hold_on_purpose() {
+    static ONCE: AtomicBool = AtomicBool::new(false);
+    if std::env::var_os("ACE_FILES_PANIC_INDEX_ONCE").is_some()
+        && PUBLISHED.load(Ordering::Relaxed) > 0
+        && !ONCE.swap(true, Ordering::Relaxed)
+    {
+        panic!("test hook: the next index build panics once");
     }
 }
 
@@ -186,6 +196,8 @@ impl RootEntry {
         let index = PathIndex::build(&self.root, &crate::hidden::index_options(), &self.build)?;
         #[cfg(feature = "test-hooks")]
         hold_publish();
+        #[cfg(feature = "test-hooks")]
+        panic_after_hold_on_purpose();
         self.publish(index)
     }
 
@@ -195,40 +207,67 @@ impl RootEntry {
     /// the index being served or joins `pending`; the changes themselves are applied with no index
     /// lock held, and the old index keeps answering every query until the swap.
     fn publish(self: &Arc<Self>, mut index: PathIndex) -> Result<(), Error> {
-        loop {
-            let changes = {
+        let mut replayed = 0usize;
+        let again = loop {
+            // Take the queue under the lock; anything over the replay budget is carried.
+            let (pending, carry) = {
                 let mut book = guard::lock(&self.book)?;
-                if book.pending.is_empty() {
-                    let swapped = match guard::write(&self.index) {
-                        Ok(mut slot) => {
-                            *slot = Some(Arc::new(index));
-                            true
-                        }
-                        Err(_) => false,
-                    };
-                    book.building = false;
-                    book.walking = None;
-                    book.failure = None;
-                    let again = std::mem::take(&mut book.again);
-                    drop(book);
-                    if !swapped {
-                        return Err(Error::System(std::io::Error::other(
-                            "the index lock was poisoned",
-                        )));
-                    }
-                    #[cfg(feature = "test-hooks")]
-                    note_publish();
-                    #[cfg(feature = "test-hooks")]
-                    rebuild_on_purpose(self);
-                    if let Some(walk) = again {
-                        self.start_walk(walk);
-                    }
-                    return Ok(());
-                }
-                std::mem::take(&mut book.pending)
+                let mut pending = std::mem::take(&mut book.pending);
+                let budget = REPLAY_LIMIT.saturating_sub(replayed);
+                let carry = if pending.len() > budget {
+                    pending.split_off(budget)
+                } else {
+                    Vec::new()
+                };
+                (pending, carry)
             };
-            index.apply(&self.root, &changes);
+            let spent = !carry.is_empty();
+            let idle = !spent && pending.is_empty();
+            if !pending.is_empty() {
+                replayed += pending.len();
+                index.apply(&self.root, &pending);
+            }
+            if !spent && !idle {
+                // The budget covered this round; look again for edits that arrived meanwhile.
+                continue;
+            }
+            // One locked transition from here: take every edit that arrived while the round
+            // applied, append it after the carried ones so batch order is kept, install them
+            // in the walk's index, and swap it in. No newer edit can commit and no walk can
+            // snapshot until all of that has happened.
+            let mut book = guard::lock(&self.book)?;
+            let mut install = carry;
+            install.extend(std::mem::take(&mut book.pending));
+            if !install.is_empty() {
+                index.apply(&self.root, &install);
+            }
+            let swapped = match guard::write(&self.index) {
+                Ok(mut slot) => {
+                    *slot = Some(Arc::new(index));
+                    true
+                }
+                Err(_) => false,
+            };
+            book.building = false;
+            book.walking = None;
+            book.failure = None;
+            let again = std::mem::take(&mut book.again);
+            drop(book);
+            if !swapped {
+                return Err(Error::System(std::io::Error::other(
+                    "the index lock was poisoned",
+                )));
+            }
+            break again;
+        };
+        #[cfg(feature = "test-hooks")]
+        note_publish();
+        #[cfg(feature = "test-hooks")]
+        rebuild_on_purpose(self);
+        if let Some(walk) = again {
+            self.start_walk(walk);
         }
+        Ok(())
     }
 
     /// Record what a build did: a build the close stopped says nothing, any other failure and a
@@ -238,25 +277,41 @@ impl RootEntry {
         if built.is_ok() {
             return;
         }
-        let changes = match guard::lock(&self.book) {
+        let (folded, again) = match guard::lock(&self.book) {
             Ok(mut book) => {
                 book.building = false;
                 book.walking = None;
-                // A failed walk is reported, not retried forever; a queued one would only run
-                // into the same failure.
-                book.again = None;
                 if let Err(error) = &built
                     && error.code() != "ABORTED"
                 {
                     eprintln!("ace-files: index for root {}: {error}", self.id);
                     book.failure = Some(error.failure().message);
                 }
-                std::mem::take(&mut book.pending)
+                // The edits that waited for this walk are older than anything a watcher can
+                // deliver now. Fold them while the book lock still holds, so a newer batch
+                // cannot commit first, and keep the queue order.
+                let changes = std::mem::take(&mut book.pending);
+                let folded = if changes.is_empty() {
+                    true
+                } else {
+                    self.fold_served(&changes)
+                };
+                (folded, std::mem::take(&mut book.again))
             }
             Err(_) => return,
         };
-        if !changes.is_empty() {
-            self.apply_changes(&changes);
+        if !folded {
+            eprintln!(
+                "ace-files: cannot update the index of root {}; rebuilding it",
+                self.id
+            );
+            self.start_index();
+            return;
+        }
+        if let Some(walk) = again {
+            // This walk was asked for by a batch, not by the failure, so the failure says
+            // nothing about it. `start_walk` refuses once the root is closing.
+            self.start_walk(walk);
         }
     }
 
@@ -307,28 +362,6 @@ impl RootEntry {
         self.start_walk(Walk::Folder(folder));
     }
 
-    /// Record that a batch touched `folder` (the folder a changed path sits in, or a folder that
-    /// changed itself, which `directory` says). A walk running over it is one generation behind
-    /// and runs again when it publishes.
-    pub fn note_touch(self: &Arc<Self>, folder: &str, directory: bool) {
-        let Ok(mut book) = guard::lock(&self.book) else {
-            return;
-        };
-        if !book.building {
-            return;
-        }
-        let Some(walking) = book.walking.clone() else {
-            return;
-        };
-        if !walking.touches(folder, directory) {
-            return;
-        }
-        book.again = Some(match book.again.take() {
-            Some(queued) => queued.merge(walking),
-            None => walking,
-        });
-    }
-
     /// Rebuild one folder after an ignore-rule file changed inside it.
     ///
     /// Editing a `.gitignore`, the repository's `info/exclude` or the user's global excludes file
@@ -364,6 +397,8 @@ impl RootEntry {
         };
         #[cfg(feature = "test-hooks")]
         hold_publish();
+        #[cfg(feature = "test-hooks")]
+        panic_after_hold_on_purpose();
         self.publish(rebuilt)
     }
 
@@ -389,25 +424,7 @@ impl RootEntry {
             book.pending.extend_from_slice(changes);
             return;
         }
-        let index = match guard::read(&self.index) {
-            Ok(slot) => match slot.as_ref() {
-                Some(index) => Arc::clone(index),
-                None => return,
-            },
-            Err(_) => return,
-        };
-        let prepared = index.prepare(&self.root, changes);
-        drop(index);
-        let committed = match guard::write(&self.index) {
-            Ok(mut slot) => match slot.as_mut().and_then(Arc::get_mut) {
-                Some(index) => {
-                    index.commit(prepared);
-                    true
-                }
-                None => false,
-            },
-            Err(_) => false,
-        };
+        let committed = self.fold_served(changes);
         drop(book);
         if !committed {
             // Something still holds the index, so this batch has nowhere to land: walk the tree
@@ -417,6 +434,30 @@ impl RootEntry {
                 self.id
             );
             self.start_index();
+        }
+    }
+
+    /// Fold changes into the served index. The caller holds the book lock, which is what keeps
+    /// an older batch from being overtaken by a newer one.
+    fn fold_served(&self, changes: &[IndexChange]) -> bool {
+        let index = match guard::read(&self.index) {
+            Ok(slot) => match slot.as_ref() {
+                Some(index) => Arc::clone(index),
+                None => return true,
+            },
+            Err(_) => return true,
+        };
+        let prepared = index.prepare(&self.root, changes);
+        drop(index);
+        match guard::write(&self.index) {
+            Ok(mut slot) => match slot.as_mut().and_then(Arc::get_mut) {
+                Some(index) => {
+                    index.commit(prepared);
+                    true
+                }
+                None => false,
+            },
+            Err(_) => false,
         }
     }
 }
@@ -454,4 +495,192 @@ fn rebuild_on_purpose(entry: &Arc<RootEntry>) {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
         entry.rescan_index();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use files_index::{IndexChange, PathIndex};
+    use tokio::runtime::Handle;
+
+    use super::{REPLAY_LIMIT, Walk};
+    use crate::error::Error;
+    use crate::roots::Roots;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_publish_carries_the_edits_it_did_not_replay() {
+        let checkout = tempfile::tempdir().unwrap();
+        let count = REPLAY_LIMIT + 3;
+        let changes: Vec<IndexChange> = (0..count)
+            .map(|index| {
+                let path = format!("late{index}.txt");
+                std::fs::write(checkout.path().join(&path), "x").unwrap();
+                IndexChange {
+                    path,
+                    deleted: false,
+                    directory: false,
+                }
+            })
+            .collect();
+        let roots = Roots::new(Handle::current());
+        let entry = roots.open(checkout.path()).unwrap();
+        {
+            let mut book = entry.book.lock().unwrap();
+            book.building = true;
+            book.walking = Some(Walk::Tree);
+            book.pending = changes;
+        }
+        *entry.index.write().unwrap() = Some(Arc::new(PathIndex::from_paths(Vec::<String>::new())));
+
+        // The walk's result knows nothing about the edits that arrived while it walked. The
+        // publish replays what fits its budget and carries the rest onto the served index.
+        let built = PathIndex::from_paths(Vec::<String>::new());
+        entry.publish(built).unwrap();
+
+        let index = entry.index_query("late", 100).unwrap();
+        assert!(index.ready);
+        assert_eq!(
+            index.total, count as u64,
+            "an edit past the replay budget lands on the new index"
+        );
+        entry.close();
+    }
+
+    fn new_files(count: usize) -> Vec<IndexChange> {
+        (0..count)
+            .map(|index| IndexChange {
+                path: format!("late{index}.txt"),
+                deleted: false,
+                directory: false,
+            })
+            .collect()
+    }
+
+    fn create(path: &str) -> IndexChange {
+        IndexChange {
+            path: path.to_owned(),
+            deleted: false,
+            directory: false,
+        }
+    }
+
+    fn delete(path: &str) -> IndexChange {
+        IndexChange {
+            path: path.to_owned(),
+            deleted: true,
+            directory: false,
+        }
+    }
+
+    fn wait_until(wanted: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !wanted() {
+            assert!(
+                Instant::now() < deadline,
+                "the background index work never reached the expected state"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_create_and_delete_that_spans_the_replay_budget_leaves_nothing() {
+        let checkout = tempfile::tempdir().unwrap();
+        let roots = Roots::new(Handle::current());
+        let entry = roots.open(checkout.path()).unwrap();
+        let mut changes = vec![create("x.txt")];
+        changes.extend(new_files(REPLAY_LIMIT - 1));
+        changes.push(delete("x.txt"));
+        {
+            let mut book = entry.book.lock().unwrap();
+            book.building = true;
+            book.walking = Some(Walk::Tree);
+            book.pending = changes;
+        }
+        entry
+            .publish(PathIndex::from_paths(Vec::<String>::new()))
+            .unwrap();
+
+        let index = entry.index_query("x", 10).unwrap();
+        assert!(
+            index.hits.iter().all(|hit| hit.path != "x.txt"),
+            "a create and its later delete keep batch order: {:?}",
+            index.hits
+        );
+        entry.close();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_newer_edit_never_overtakes_the_edits_a_publish_carries() {
+        let checkout = tempfile::tempdir().unwrap();
+        std::fs::write(checkout.path().join("x.txt"), "x").unwrap();
+        let roots = Roots::new(Handle::current());
+        let entry = roots.open(checkout.path()).unwrap();
+        let mut changes = new_files(REPLAY_LIMIT);
+        changes.push(delete("x.txt"));
+        {
+            let mut book = entry.book.lock().unwrap();
+            book.building = true;
+            book.walking = Some(Walk::Tree);
+            book.pending = changes;
+        }
+        let built = PathIndex::from_paths(["x.txt".to_owned()]);
+        let publishing = {
+            let entry = Arc::clone(&entry);
+            std::thread::spawn(move || entry.publish(built))
+        };
+
+        // A ready index means the swap is in place, so this create is newer than everything the
+        // publish replayed or carried.
+        wait_until(|| entry.index_query("late", 1).unwrap().ready);
+        entry.apply_changes(&[create("x.txt")]);
+        publishing.join().unwrap().unwrap();
+
+        let index = entry.index_query("x", 10).unwrap();
+        assert!(
+            index.hits.iter().any(|hit| hit.path == "x.txt"),
+            "the newer create must win over the carried delete: {:?}",
+            index.hits
+        );
+        entry.close();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recovered_edit_is_folded_before_a_newer_one() {
+        let checkout = tempfile::tempdir().unwrap();
+        std::fs::write(checkout.path().join("x.txt"), "x").unwrap();
+        let roots = Roots::new(Handle::current());
+        let entry = roots.open(checkout.path()).unwrap();
+        *entry.index.write().unwrap() = Some(Arc::new(PathIndex::from_paths(["x.txt".to_owned()])));
+        {
+            let mut book = entry.book.lock().unwrap();
+            book.building = true;
+            book.walking = Some(Walk::Tree);
+            book.pending = vec![delete("x.txt")];
+        }
+        let failing = {
+            let entry = Arc::clone(&entry);
+            std::thread::spawn(move || {
+                entry.finish_index(Err(Error::System(std::io::Error::other("the walk failed"))));
+            })
+        };
+
+        // The failed walk hands its recovered edit to the served index before it lets go of the
+        // book, so an edit that arrives now is applied after it.
+        wait_until(|| !entry.book.lock().unwrap().building);
+        entry.apply_changes(&[create("x.txt")]);
+        failing.join().unwrap();
+
+        let index = entry.index_query("x", 10).unwrap();
+        assert!(
+            index.hits.iter().any(|hit| hit.path == "x.txt"),
+            "the newer create must win over the recovered delete: {:?}",
+            index.hits
+        );
+        entry.close();
+    }
 }

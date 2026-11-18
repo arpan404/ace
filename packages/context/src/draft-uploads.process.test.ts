@@ -218,3 +218,46 @@ test("removing a ready draft attachment works for its own device and not for ano
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("an unadopted draft completes over ace-files in its project folder", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-draft-complete-"));
+  const asked: string[] = [];
+  let sequence = 0;
+  const service = await ContextService.open({
+    root: join(root, "context"),
+    now: () => 1000,
+    id: () => `id-${++sequence}`,
+    authorize: () => true,
+    workspaceRoot: () => root,
+    workspace: () => root,
+    complete: async (workspace) => {
+      asked.push(workspace);
+      return { paths: ["src/main.ts"], ready: true };
+    },
+  });
+  try {
+    const draft = (
+      await service.handle("phone", {
+        type: "context.request",
+        requestId: "draft",
+        operation: { op: "draft.create", workspaceId: WorkspaceId.parse("workspace") },
+      })
+    ).result;
+    if (draft.kind !== "draft") throw new Error("Expected draft");
+    const reply = await service.handle("phone", {
+      type: "context.request",
+      requestId: "complete",
+      operation: {
+        op: "draft.mention.complete",
+        draftId: draft.draftId,
+        query: "main",
+        limit: 8,
+      },
+    });
+    expect(reply.result).toEqual({ kind: "completion", paths: ["src/main.ts"], ready: true });
+    expect(asked).toEqual([root]);
+  } finally {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

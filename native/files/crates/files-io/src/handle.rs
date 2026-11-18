@@ -72,6 +72,33 @@ impl Staged {
     pub(crate) fn release(&mut self) -> String {
         self.name.take().unwrap_or_default()
     }
+
+    /// Removes the staging name after the copy was published, retrying once so a transient
+    /// sharing violation does not leave the name behind.
+    ///
+    /// A name that still cannot be removed is left for a later cleanup; the caller reports it
+    /// as a warning, because the file itself was already published.
+    pub(crate) fn cleanup(&mut self) -> Option<crate::SaveWarning> {
+        let name = self.name.take()?;
+        match remove_staging(&self.dir, &name) {
+            Ok(()) => None,
+            Err(error) => Some(crate::SaveWarning::NotCleanedUp(format!("{name}: {error}"))),
+        }
+    }
+}
+
+/// Removes one staging name, treating one that is already gone as done and retrying a real
+/// failure once.
+fn remove_staging(dir: &Dir, name: &str) -> Result<(), std::io::Error> {
+    match dir.remove_file(name) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(first) => match dir.remove_file(name) {
+            Ok(()) => Ok(()),
+            Err(second) if second.kind() == ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(first),
+        },
+    }
 }
 
 impl Drop for Staged {
@@ -174,18 +201,42 @@ pub(crate) fn replace(dir: &Dir, from: &str, to: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Makes the folder's own entries durable, so a rename that returned is not lost in a crash.
+/// A folder descriptor that can be synced once a change to its entries is published.
+///
+/// The descriptor is opened before the change: opening it needs read permission the folder may
+/// not have, and a save must not discover that after it has already replaced the file.
+pub(crate) struct Syncable {
+    #[cfg(unix)]
+    file: cap_std::fs::File,
+}
+
+/// Opens the folder in a form that `fsync` accepts, before the change that must be durable.
 #[cfg(unix)]
-pub(crate) fn sync(dir: &Dir) -> Result<(), Error> {
+pub(crate) fn syncable(dir: &Dir) -> Result<Syncable, Error> {
     // cap-std holds a folder as an `O_PATH` descriptor on Linux, which `fsync` rejects with
     // `EBADF`; reopening it for reading gives a descriptor that can be synced everywhere.
-    dir.open(".")?.sync_all()?;
-    Ok(())
+    Ok(Syncable {
+        file: dir.open(".")?,
+    })
 }
 
 #[cfg(not(unix))]
-pub(crate) fn sync(_dir: &Dir) -> Result<(), Error> {
-    Ok(())
+pub(crate) fn syncable(_dir: &Dir) -> Result<Syncable, Error> {
+    Ok(Syncable {})
+}
+
+impl Syncable {
+    /// Makes the folder's own entries durable, so a rename that returned is not lost in a crash.
+    pub(crate) fn sync(self) -> Result<(), Error> {
+        #[cfg(unix)]
+        self.file.sync_all()?;
+        Ok(())
+    }
+}
+
+/// Makes the folder's own entries durable after a change that is already published.
+pub(crate) fn sync(dir: &Dir) -> Result<(), Error> {
+    syncable(dir)?.sync()
 }
 
 /// The folder holding `path` and the stored name of the entry itself, with a final symlink

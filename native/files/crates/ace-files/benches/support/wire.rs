@@ -4,19 +4,23 @@
 //!
 //! The integration tests' client (`tests/common`) is built for assertions with 20 s deadlines.
 //! A bench measures a million-file checkout that can take minutes and reads the process's memory,
-//! so it owns its own small client: the reader timestamps a frame when it decodes it, every wait
-//! has an absolute deadline (the request's, or the phase's when that is sooner), and a write to a
-//! stdin the binary stopped reading fails instead of blocking forever.
+//! so it owns its own small client:
 //!
-//! A broken stream surfaces at once: a read error or a frame that does not decode ends the reader
-//! with that error, a closed stdout is reported as a disconnect, and a body frame is refused
-//! because no request in this bench asks for one.
+//! - one absolute deadline covers a request's write and its reply, and a frame the reader decoded
+//!   after that deadline is refused;
+//! - the reader timestamps a frame the moment `poll` returns it, and a read error, a frame that
+//!   does not decode, a closed stdout and an unexpected body frame all fail the run at once;
+//! - the reader's queue and the bench's own queue of skipped messages are bounded, so a watcher
+//!   that talks faster than the bench is slowed rather than growing the bench;
+//! - a write the binary never takes leaves the client in a terminal state instead of trying again,
+//!   and shutdown kills and then waits a bounded time.
 
 use std::collections::VecDeque;
+use std::fmt;
 use std::io::Write as _;
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::time::{Duration, Instant};
 
 use files_wire::{Decoder, EventPayload, Frame, Message, Op, PROTOCOL, Reply, encode};
@@ -24,11 +28,50 @@ use files_wire::{Decoder, EventPayload, Frame, Message, Op, PROTOCOL, Reply, enc
 /// How long one request may wait for its reply, unless the phase it runs in ends sooner.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Frames the reader may queue ahead of the bench before it slows the binary's stdout.
+const BACKLOG: usize = 1024;
+
+/// Messages the bench may keep aside while waiting for another one before it is out of step.
+const PENDING: usize = 10_000;
+
 /// How long the binary gets to exit once its stdin closes.
 const GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(10);
 
 /// How long the binary gets to exit after a kill.
 const KILLED_SHUTDOWN: Duration = Duration::from_secs(5);
+
+/// A failed wire operation: what to show, and whether a deadline caused it.
+#[derive(Debug, Clone)]
+pub struct WireError {
+    message: String,
+    /// True when a deadline passed rather than the stream breaking.
+    pub timed_out: bool,
+}
+
+impl WireError {
+    /// A failure that is not a deadline: the stream broke or the binary said something wrong.
+    pub fn failed(message: String) -> WireError {
+        WireError {
+            message,
+            timed_out: false,
+        }
+    }
+
+    fn timed_out(message: String) -> WireError {
+        WireError {
+            message,
+            timed_out: true,
+        }
+    }
+}
+
+impl fmt::Display for WireError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for WireError {}
 
 /// One decoded frame and the moment the reader decoded it.
 struct Arrival {
@@ -38,11 +81,13 @@ struct Arrival {
 
 /// What one wait for the wire produced.
 enum Received {
-    /// A frame, with the moment the reader decoded it.
+    /// A frame decoded at or before the wait's cutoff.
     Frame(Instant, Frame),
+    /// A frame the reader decoded after the cutoff, so it is too late to count.
+    Late,
     /// The reader could not decode the stream, or could not read it.
-    Failed(String),
-    /// The wait's deadline passed with no frame.
+    Failed(WireError),
+    /// No frame before the cutoff.
     TimedOut,
     /// The binary closed its stdout.
     Closed,
@@ -66,27 +111,31 @@ pub struct Wire {
     pending: VecDeque<(Instant, Message)>,
     last_id: u64,
     phase: Option<Phase>,
+    /// Set when the stream or the stdin can no longer be trusted; every later call reports it.
+    dead: Option<WireError>,
 }
 
 impl Wire {
     /// Spawn the binary with its stdio piped, a thread decoding its stdout and a thread writing
     /// its stdin.
-    pub fn start(binary: &Path) -> Result<Wire, String> {
+    pub fn start(binary: &Path) -> Result<Wire, WireError> {
         let mut child = Command::new(binary)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|error| format!("cannot start {}: {error}", binary.display()))?;
+            .map_err(|error| {
+                WireError::failed(format!("cannot start {}: {error}", binary.display()))
+            })?;
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| "the binary has no stdin pipe".to_owned())?;
+            .ok_or_else(|| WireError::failed("the binary has no stdin pipe".to_owned()))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| "the binary has no stdout pipe".to_owned())?;
-        let (sender, arrivals) = mpsc::channel();
+            .ok_or_else(|| WireError::failed("the binary has no stdout pipe".to_owned()))?;
+        let (sender, arrivals) = mpsc::sync_channel(BACKLOG);
         std::thread::spawn(move || read_frames(stdout, sender));
         let (outbox, queued) = mpsc::channel();
         let (written, results) = mpsc::channel();
@@ -99,6 +148,7 @@ impl Wire {
             pending: VecDeque::new(),
             last_id: 0,
             phase: None,
+            dead: None,
         })
     }
 
@@ -117,53 +167,55 @@ impl Wire {
     }
 
     /// Say `hello` and check the answer.
-    pub fn hello(&mut self) -> Result<(), String> {
-        let deadline = self.deadline()?;
-        self.send(&Message::Hello {
-            protocol: 1,
-            version: None,
-        })?;
+    pub fn hello(&mut self) -> Result<(), WireError> {
+        self.alive()?;
+        let deadline = self.cutoff()?;
+        self.send(
+            &Message::Hello {
+                protocol: 1,
+                version: None,
+            },
+            deadline,
+        )?;
         match self.incoming(deadline)?.1 {
             Message::Hello { protocol, .. } if protocol == PROTOCOL => Ok(()),
-            other => Err(format!("hello answered {other:?}")),
+            other => Err(self.fail(format!("hello answered {other:?}"))),
         }
     }
 
-    /// Send one request and hand back its id.
-    pub fn request(&mut self, op: Op) -> Result<u64, String> {
-        self.last_id += 1;
-        let id = self.last_id;
-        self.send(&Message::Request { id, op })?;
-        Ok(id)
+    /// One request and its reply under one deadline: the write and the wait share it.
+    pub fn ask(&mut self, op: Op) -> Result<Reply, WireError> {
+        let deadline = self.cutoff()?;
+        self.ask_before(op, deadline)
     }
 
-    /// The reply to one request, with a failed request reported as an error string.
-    pub fn answer(&mut self, id: u64) -> Result<Reply, String> {
-        let deadline = self.deadline()?;
-        match self.take_matching(deadline, |message| match message {
-            Message::Response { id: got, .. } | Message::Error { id: got, .. } => *got == id,
-            _ => false,
-        })? {
-            Message::Response { result, .. } => Ok(result),
-            Message::Error { code, message, .. } => Err(format!("{code}: {message}")),
-            other => Err(format!("expected a reply to {id}, got {other:?}")),
+    /// One request and its reply, never running past `deadline`, which also refuses a frame the
+    /// reader decoded after it.
+    pub fn ask_until(&mut self, op: Op, deadline: Instant) -> Result<Reply, WireError> {
+        let deadline = deadline.min(self.cutoff()?);
+        if deadline <= Instant::now() {
+            return Err(WireError::timed_out(
+                "no time left in the deadline to ask".to_owned(),
+            ));
         }
+        self.ask_before(op, deadline)
     }
 
     /// The next event of one subscription, if one arrives within `window`, with the moment the
-    /// reader decoded it.
+    /// reader decoded it. A frame decoded after the cutoff does not count.
     pub fn try_event(
         &mut self,
         subscription: u64,
         window: Duration,
-    ) -> Result<Option<(Instant, EventPayload)>, String> {
+    ) -> Result<Option<(Instant, EventPayload)>, WireError> {
+        self.alive()?;
         if let Some(position) = self.pending.iter().position(|(_, message)| {
             matches!(message, Message::Event { subscription: got, .. } if *got == subscription)
         }) && let Some((at, Message::Event { payload, .. })) = self.pending.remove(position)
         {
             return Ok(Some((at, payload)));
         }
-        let deadline = self.deadline()?.min(Instant::now() + window);
+        let deadline = self.cutoff()?.min(Instant::now() + window);
         loop {
             match self.receive(deadline) {
                 Received::Frame(
@@ -173,17 +225,24 @@ impl Wire {
                         payload,
                     }),
                 ) if got == subscription => return Ok(Some((at, payload))),
-                Received::Frame(at, Frame::Message(other)) => self.pending.push_back((at, other)),
-                Received::Frame(_, Frame::Body { id, .. }) => {
-                    return Err(unexpected_body(id));
+                Received::Frame(at, Frame::Message(other)) => {
+                    if self.pending.len() >= PENDING {
+                        return Err(self.fail(format!(
+                            "the bench kept {PENDING} messages aside and is out of step with the binary"
+                        )));
+                    }
+                    self.pending.push_back((at, other));
                 }
+                Received::Frame(_, Frame::Body { id, .. }) => {
+                    return Err(self.fail(unexpected_body(id)));
+                }
+                Received::Late | Received::TimedOut => return Ok(None),
                 Received::Failed(error) => return Err(error),
-                Received::TimedOut => return Ok(None),
                 Received::Closed => {
-                    return Err(
+                    return Err(self.fail(
                         "the binary closed its stdout while the bench waited for an event"
                             .to_owned(),
-                    );
+                    ));
                 }
             }
         }
@@ -193,6 +252,11 @@ impl Wire {
     /// not, and waiting a bounded time again after the kill.
     pub fn stop(&mut self) {
         self.outbox.take();
+        // A timed-out or broken write may leave the writer thread blocked, so stdin may never
+        // close on its own: kill at once instead of waiting out the graceful window.
+        if self.dead.is_some() {
+            let _ = self.child.kill();
+        }
         if self.wait_until(Instant::now() + GRACEFUL_SHUTDOWN) {
             return;
         }
@@ -205,8 +269,39 @@ impl Wire {
         }
     }
 
+    /// One request and its reply before one absolute deadline.
+    fn ask_before(&mut self, op: Op, deadline: Instant) -> Result<Reply, WireError> {
+        self.alive()?;
+        self.last_id += 1;
+        let id = self.last_id;
+        self.send(&Message::Request { id, op }, deadline)?;
+        match self.take_matching(deadline, |message| match message {
+            Message::Response { id: got, .. } | Message::Error { id: got, .. } => *got == id,
+            _ => false,
+        })? {
+            Message::Response { result, .. } => Ok(result),
+            Message::Error { code, message, .. } => Err(self.fail(format!("{code}: {message}"))),
+            other => Err(self.fail(format!("expected a reply to {id}, got {other:?}"))),
+        }
+    }
+
+    /// Refuse every call once the stream has broken.
+    fn alive(&self) -> Result<(), WireError> {
+        match &self.dead {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
+    /// Remember that the stream can no longer be trusted, and hand the error back.
+    fn fail(&mut self, message: String) -> WireError {
+        let error = WireError::failed(message);
+        self.dead.get_or_insert_with(|| error.clone());
+        error
+    }
+
     /// The earlier of the request's budget and the phase's, refused once it has passed.
-    fn deadline(&self) -> Result<Instant, String> {
+    fn cutoff(&self) -> Result<Instant, WireError> {
         let now = Instant::now();
         let deadline = match &self.phase {
             Some(phase) => (now + REQUEST_TIMEOUT).min(phase.deadline),
@@ -215,11 +310,17 @@ impl Wire {
         if deadline > now {
             return Ok(deadline);
         }
-        Err(match &self.phase {
-            Some(phase) if phase.deadline <= now => {
-                format!("the {} phase is past its deadline", phase.name)
-            }
-            _ => format!("the request's {REQUEST_TIMEOUT:?} budget is spent"),
+        Err(self.timeout())
+    }
+
+    /// What to say when the deadline passed with no frame.
+    fn timeout(&self) -> WireError {
+        WireError::timed_out(match &self.phase {
+            Some(phase) => format!(
+                "no frame from the binary before the {} phase's deadline",
+                phase.name
+            ),
+            None => format!("no frame from the binary within {REQUEST_TIMEOUT:?}"),
         })
     }
 
@@ -229,7 +330,7 @@ impl Wire {
         &mut self,
         deadline: Instant,
         mut wanted: impl FnMut(&Message) -> bool,
-    ) -> Result<Message, String> {
+    ) -> Result<Message, WireError> {
         if let Some(position) = self.pending.iter().position(|(_, message)| wanted(message))
             && let Some((_, message)) = self.pending.remove(position)
         {
@@ -240,74 +341,77 @@ impl Wire {
             if wanted(&message) {
                 return Ok(message);
             }
+            if self.pending.len() >= PENDING {
+                return Err(self.fail(format!(
+                    "the bench kept {PENDING} messages aside and is out of step with the binary"
+                )));
+            }
             self.pending.push_back((at, message));
         }
     }
 
-    /// The next message, with the moment it was decoded.
-    fn incoming(&mut self, deadline: Instant) -> Result<(Instant, Message), String> {
+    /// The next message decoded at or before `deadline`, with the moment it was decoded.
+    fn incoming(&mut self, deadline: Instant) -> Result<(Instant, Message), WireError> {
         match self.receive(deadline) {
             Received::Frame(at, Frame::Message(message)) => Ok((at, message)),
-            Received::Frame(_, Frame::Body { id, .. }) => Err(unexpected_body(id)),
+            Received::Frame(_, Frame::Body { id, .. }) => Err(self.fail(unexpected_body(id))),
+            Received::Late => Err(WireError::timed_out(
+                "the binary's frame was decoded after the deadline".to_owned(),
+            )),
             Received::Failed(error) => Err(error),
-            Received::TimedOut => Err(self.no_frame()),
-            Received::Closed => Err(closed()),
+            Received::TimedOut => Err(self.timeout()),
+            Received::Closed => Err(self.fail(closed())),
         }
     }
 
-    /// Wait for one frame or for the deadline.
+    /// Wait for one frame, or for the cutoff.
     fn receive(&mut self, deadline: Instant) -> Received {
         let wait = deadline.saturating_duration_since(Instant::now());
         match self.arrivals.recv_timeout(wait) {
             Ok(Arrival {
+                frame: Err(error), ..
+            }) => Received::Failed(WireError::failed(error)),
+            Ok(Arrival {
                 at,
                 frame: Ok(frame),
-            }) => Received::Frame(at, frame),
-            Ok(Arrival {
-                frame: Err(error), ..
-            }) => Received::Failed(error),
+            }) if at <= deadline => Received::Frame(at, frame),
+            Ok(Arrival { .. }) => Received::Late,
             Err(RecvTimeoutError::Timeout) => Received::TimedOut,
             Err(RecvTimeoutError::Disconnected) => Received::Closed,
         }
     }
 
-    /// What to say when the deadline passed with no frame.
-    fn no_frame(&self) -> String {
-        match &self.phase {
-            Some(phase) => format!(
-                "no frame from the binary before the {} phase's deadline",
-                phase.name
-            ),
-            None => format!("no frame from the binary within {REQUEST_TIMEOUT:?}"),
-        }
-    }
-
     /// Write one frame and wait, bounded, for the binary to take it.
-    fn send(&mut self, message: &Message) -> Result<(), String> {
-        let frame = encode(message).map_err(|error| format!("cannot encode a message: {error}"))?;
-        let deadline = self.deadline()?;
-        let outbox = self
-            .outbox
-            .as_ref()
-            .ok_or_else(|| "the client's stdin is closed".to_owned())?;
-        outbox
-            .send(frame)
-            .map_err(|_| "the writer stopped before the request was written".to_owned())?;
+    fn send(&mut self, message: &Message, deadline: Instant) -> Result<(), WireError> {
+        self.alive()?;
+        let frame = encode(message)
+            .map_err(|error| self.fail(format!("cannot encode a message: {error}")))?;
+        let outbox = match self.outbox.as_ref() {
+            Some(outbox) => outbox,
+            None => return Err(self.fail("the client's stdin is closed".to_owned())),
+        };
+        outbox.send(frame).map_err(|_| {
+            self.fail("the writer stopped before the request was written".to_owned())
+        })?;
         match self
             .written
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
         {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(format!("cannot write to the binary: {error}")),
-            Err(RecvTimeoutError::Timeout) => Err(format!(
-                "the binary did not read its stdin before the deadline{}",
-                self.phase
-                    .as_ref()
-                    .map(|phase| format!(" of the {} phase", phase.name))
-                    .unwrap_or_default()
-            )),
+            Ok(Err(error)) => Err(self.fail(format!("cannot write to the binary: {error}"))),
+            Err(RecvTimeoutError::Timeout) => {
+                let detail = match &self.phase {
+                    Some(phase) => format!(" of the {} phase", phase.name),
+                    None => String::new(),
+                };
+                let error = WireError::timed_out(format!(
+                    "the binary stopped reading its stdin before the deadline{detail}"
+                ));
+                self.dead.get_or_insert_with(|| error.clone());
+                Err(error)
+            }
             Err(RecvTimeoutError::Disconnected) => {
-                Err("the writer stopped before the request was written".to_owned())
+                Err(self.fail("the writer stopped before the request was written".to_owned()))
             }
         }
     }
@@ -343,7 +447,7 @@ fn unexpected_body(id: u64) -> String {
 }
 
 /// Read the binary's stdout until it closes, decoding and timestamping each frame.
-fn read_frames(mut stdout: impl std::io::Read, sender: Sender<Arrival>) {
+fn read_frames(mut stdout: impl std::io::Read, sender: SyncSender<Arrival>) {
     let mut decoder = Decoder::new();
     let mut chunk = [0u8; 256 * 1024];
     loop {
@@ -352,9 +456,9 @@ fn read_frames(mut stdout: impl std::io::Read, sender: Sender<Arrival>) {
             Ok(read) => {
                 decoder.push(&chunk[..read]);
                 loop {
-                    let at = Instant::now();
                     match decoder.poll() {
                         Ok(Some(frame)) => {
+                            let at = Instant::now();
                             if sender
                                 .send(Arrival {
                                     at,
@@ -368,7 +472,7 @@ fn read_frames(mut stdout: impl std::io::Read, sender: Sender<Arrival>) {
                         Ok(None) => break,
                         Err(error) => {
                             let _ = sender.send(Arrival {
-                                at,
+                                at: Instant::now(),
                                 frame: Err(format!("the binary's stdout did not decode: {error}")),
                             });
                             return;

@@ -258,7 +258,15 @@ export const ContextResult = z.object({
       entries: z.array(ResolvedMention),
       diagnostics: z.array(ContextDiagnostic),
     }),
-    z.object({ kind: z.literal("completion"), paths: z.array(z.string()).max(50) }),
+    z.object({
+      kind: z.literal("completion"),
+      paths: z.array(z.string()).max(50),
+      /**
+       * False while ace-files is still building the checkout's path index: the client keeps its
+       * loading state and asks again. Absent from older daemons, which always answered.
+       */
+      ready: z.boolean().default(true),
+    }),
     z.object({ kind: z.literal("ok") }),
   ]),
 });

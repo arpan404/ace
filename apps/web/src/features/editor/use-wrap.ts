@@ -10,29 +10,42 @@ import type { EditBatch } from "./use-editor.ts";
  * measured first after a width change, and the rest of a re-wrap spread over idle slices so a
  * resize never blocks on a fifty-thousand-line file.
  *
+ * An edit reaches the index through the sink this hook installs, synchronously, before React
+ * renders the document the edit produced: no render may measure the new text through rows that
+ * still describe the old one.
+ *
  * Every operation that changes row counts can move the text under a still scroll position, so
- * the view's top line is remembered just before it and put back with the new counts, in a layout
- * effect, before the next paint.
+ * the view's top is remembered just before it and put back with the new counts, in a layout
+ * effect, once the new height is committed.
  */
 
 /** Lines measured in one idle slice. */
 const slice = 2_000;
+
+/** What the wrap index needs to hear about an edit, around the moment the document changes. */
+export interface WrapEdits {
+  /** The view's top, read while the rows still describe the text before the edit. */
+  before(): void;
+  /** The edit's spans, applied before React renders the text it produced. */
+  after(batch: EditBatch): void;
+}
+
+/** Installed by {@link useWrap}, called by the document around every edit it applies. */
+export type WrapSink = RefObject<WrapEdits | undefined>;
 
 export function useWrap(options: {
   doc: EditorDocument | undefined;
   wrap: boolean;
   /** Cells that fit in the text column, indent excluded. */
   columns: number;
-  /** Changes on every applied edit. */
-  version: number;
-  /** Takes the edits since the last call, one batch each. */
-  takeChanges(): readonly EditBatch[];
+  /** The document hands its edits here, synchronously, as it applies them. */
+  appliedRef: WrapSink;
   /** The line range on screen, preferred when a width change re-wraps. */
   visible: RefObject<{ first: number; last: number }>;
-  /** The view's top line, read before a re-wrap and written back after it. */
+  /** The view's top, read before a re-wrap and written back after it. */
   anchor: ScrollAnchor;
 }): WrapIndex | undefined {
-  const { doc, wrap, columns, version, takeChanges, visible, anchor } = options;
+  const { doc, wrap, columns, appliedRef, visible, anchor } = options;
   const index = useMemo(() => (doc ? new WrapIndex(doc) : undefined), [doc]);
   const [revision, setRevision] = useState(0);
   const remember = () => {
@@ -50,24 +63,34 @@ export function useWrap(options: {
     }
   }
 
+  // Every applied edit lands in the index before anything reads a row: the spans are applied,
+  // the lines they touched are invalidated, and only then does React render the new document.
+  useLayoutEffect(() => {
+    if (!index) {
+      appliedRef.current = undefined;
+      return;
+    }
+    appliedRef.current = {
+      before: remember,
+      after: (batch) => {
+        anchor.mapThrough(batch.spans);
+        index.apply([batch]);
+        // oxlint-disable-next-line react-compiler/set-state-in-effect -- the index is an external store; a slice of rows changed under React.
+        setRevision((value) => value + 1);
+      },
+    };
+    return () => {
+      appliedRef.current = undefined;
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the sink closes over the index, the anchor and the remembered top.
+  }, [index, appliedRef, anchor]);
+
   // Whatever a width change left queued is measured in idle slices, one render per slice.
   useLayoutEffect(() => {
     if (!index || index.pending() === 0) return;
     // oxlint-disable-next-line react/set-state-in-effect, react-compiler/set-state-in-effect -- the index is an external store; a queued slice changes the rows drawn under React.
     setRevision((value) => value + 1);
   }, [index, wrap, columns, visible]);
-
-  // An edit re-measures only the lines its spans touched, in each batch's own coordinates.
-  useLayoutEffect(() => {
-    if (!index || !doc) return;
-    const batches = takeChanges();
-    if (batches.length === 0) return;
-    remember();
-    index.apply(batches);
-    // oxlint-disable-next-line react/set-state-in-effect, react-compiler/set-state-in-effect -- an edit changes the document's rows, an external store.
-    setRevision((value) => value + 1);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- version is the edit's identity; the batches are taken from it.
-  }, [index, doc, version, takeChanges]);
 
   // The rest of a whole-file re-wrap, one slice per idle period.
   useEffect(() => {
@@ -80,7 +103,7 @@ export function useWrap(options: {
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- revision re-runs this after each slice of the same re-wrap.
   }, [index, columns, revision]);
 
-  // The counts cannot move the text under the reader: the remembered line goes back on top.
+  // The counts cannot move the text under the reader: the remembered text goes back on top.
   useLayoutEffect(() => {
     if (index) anchor.restore(index);
   });

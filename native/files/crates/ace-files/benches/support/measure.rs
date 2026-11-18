@@ -3,12 +3,12 @@
 //! The measurements, in the order a person opens a checkout.
 //!
 //! Readiness is polled with a query that matches nothing, so it reads the index's counters instead
-//! of scanning its paths, and the number is labelled as the first poll that saw the index ready.
-//! Every step runs inside a wire phase with an absolute deadline, so a stuck binary fails here
-//! instead of hanging the run.
+//! of scanning its paths. Polling starts right after the root opens, before the first listing, so
+//! the readiness number does not wait on listing work, and it is labelled as the first poll that
+//! saw the index ready. Every step runs inside a wire phase with an absolute deadline, so a stuck
+//! binary fails here instead of hanging the run.
 
 use std::error::Error;
-use std::fs;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -16,10 +16,11 @@ use files_wire::{Case, EventPayload, IndexResult, Op, Page, Reply, SearchQuery};
 
 use crate::Options;
 use crate::report::Report;
+use crate::scratch::Scratch;
 use crate::tree::Tree;
 use crate::units::{megabytes, millis, percentile, thousands};
 use crate::watch;
-use crate::wire::Wire;
+use crate::wire::{Wire, WireError};
 
 /// Entries one page asks for: the Files panel's first page.
 const PAGE: u64 = 500;
@@ -72,28 +73,31 @@ pub fn measure(
     report: &mut Report,
 ) -> Result<(), Box<dyn Error>> {
     let shape = &tree.shape;
-    // The watcher and burst phases write into `bench/`, which is this bench's own folder. Clearing
-    // it first keeps a reused tree's index at the generated paths and makes every run's burst
-    // creates rather than overwrites.
-    match fs::remove_dir_all(tree.root.join("bench")) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
+    // The watcher and burst write only into this run's scratch folder, which its drop removes.
+    let scratch = Scratch::create(&tree.root)?;
 
     wire.begin_phase("open and list", STEP_DEADLINE);
     // Opening the root, then the first page of its listing: what the Files panel waits for.
     let opened = Instant::now();
-    let id = wire.request(Op::OpenRoot {
+    let root = match wire.ask(Op::OpenRoot {
         path: tree.root.to_string_lossy().into_owned(),
-    })?;
-    let root = match wire.answer(id)? {
+    })? {
         Reply::Root { root } => root,
         other => return Err(format!("openRoot answered {other:?}").into()),
     };
     let open_ms = millis(opened.elapsed());
+
+    // Readiness polling starts here, right after the root opened, and not after any listing: the
+    // first poll is part of what the Files panel waits for, not a consequence of its pages.
+    wire.begin_phase("index build", INDEX_DEADLINE);
+    let mut index = index_ready(wire, root)?;
+
     let page = list(wire, root, "", PAGE)?;
     let root_page_ms = millis(opened.elapsed());
+    let big_started = Instant::now();
+    let big = list(wire, root, shape.big_dir(), PAGE)?;
+    let big_ms = millis(big_started.elapsed());
+
     report.metric(
         "openRoot",
         open_ms,
@@ -106,24 +110,16 @@ pub fn measure(
         "ms",
         format!("{} entries of {}", page.entries.len(), page.total),
     );
-
-    // The first page of the folder that holds the most entries.
-    let started = Instant::now();
-    let big = list(wire, root, shape.big_dir(), PAGE)?;
     report.metric(
         format!(
             "first page of the {}-entry folder",
             thousands(big.total as usize)
         ),
-        millis(started.elapsed()),
+        big_ms,
         "ms",
         format!("{} entries of {}", big.entries.len(), big.total),
     );
 
-    // Quick open becomes usable when the background walk publishes its index. A query with no
-    // terms matches nothing, so polling it costs a read of the index's counters, not a scan.
-    wire.begin_phase("index build", INDEX_DEADLINE);
-    let mut index = index_ready(wire, root)?;
     while !index.ready {
         if opened.elapsed() > INDEX_DEADLINE {
             return Err(format!("the index was not ready within {INDEX_DEADLINE:?}").into());
@@ -178,7 +174,7 @@ pub fn measure(
     // A literal content search over the tree's source, capped per file rather than in total.
     wire.begin_phase("content search", SEARCH_DEADLINE);
     let started = Instant::now();
-    let id = wire.request(Op::Search {
+    let subscription = match wire.ask(Op::Search {
         root,
         query: SearchQuery {
             pattern: SEARCH_LITERAL.to_owned(),
@@ -191,8 +187,7 @@ pub fn measure(
             max_matches: 0,
             max_file_bytes: SEARCH_FILE_CAP,
         },
-    })?;
-    let subscription = match wire.answer(id)? {
+    })? {
         Reply::Subscription { subscription } => subscription,
         other => return Err(format!("search answered {other:?}").into()),
     };
@@ -232,25 +227,25 @@ pub fn measure(
     );
 
     // The watcher: one write at a time, then a burst it cannot describe one by one.
-    watch::latency(wire, tree, root, report)?;
-    watch::burst(wire, tree, root, report)?;
+    watch::latency(wire, root, &scratch, report)?;
+    watch::burst(wire, root, &scratch, report)?;
 
+    report.fact("scratch", scratch.relative().to_owned());
     report.fact("json", options.json.display().to_string());
     Ok(())
 }
 
 /// One page of one folder.
-pub fn list(wire: &mut Wire, root: u64, dir: &str, limit: u64) -> Result<Page, Box<dyn Error>> {
-    let id = wire.request(Op::List {
+pub fn list(wire: &mut Wire, root: u64, dir: &str, limit: u64) -> Result<Page, WireError> {
+    match wire.ask(Op::List {
         root,
         dir: dir.to_owned(),
         limit,
         cursor: None,
         hide: vec![".git".to_owned(), ".DS_Store".to_owned()],
-    })?;
-    match wire.answer(id)? {
+    })? {
         Reply::Page(page) => Ok(page),
-        other => Err(format!("list answered {other:?}").into()),
+        other => Err(WireError::failed(format!("list answered {other:?}"))),
     }
 }
 
@@ -260,30 +255,58 @@ pub fn index_query(
     root: u64,
     query: &str,
     limit: u64,
-) -> Result<IndexResult, Box<dyn Error>> {
-    let id = wire.request(Op::IndexQuery {
+) -> Result<IndexResult, WireError> {
+    match wire.ask(Op::IndexQuery {
         root,
         query: query.to_owned(),
         limit,
-    })?;
-    match wire.answer(id)? {
+    })? {
         Reply::Index(index) => Ok(index),
-        other => Err(format!("indexQuery answered {other:?}").into()),
+        other => Err(WireError::failed(format!("indexQuery answered {other:?}"))),
+    }
+}
+
+/// One quick-open query that never runs past `deadline`.
+pub fn index_until(
+    wire: &mut Wire,
+    root: u64,
+    query: &str,
+    limit: u64,
+    deadline: Instant,
+) -> Result<IndexResult, WireError> {
+    match wire.ask_until(
+        Op::IndexQuery {
+            root,
+            query: query.to_owned(),
+            limit,
+        },
+        deadline,
+    )? {
+        Reply::Index(index) => Ok(index),
+        other => Err(WireError::failed(format!("indexQuery answered {other:?}"))),
     }
 }
 
 /// The index's size and readiness, from a query with no terms: it matches nothing, so it reads the
 /// index's counters rather than scanning every path.
-pub fn index_ready(wire: &mut Wire, root: u64) -> Result<IndexResult, Box<dyn Error>> {
+pub fn index_ready(wire: &mut Wire, root: u64) -> Result<IndexResult, WireError> {
     index_query(wire, root, "", 1)
 }
 
+/// The index's size and readiness, never running past `deadline`.
+pub fn index_ready_until(
+    wire: &mut Wire,
+    root: u64,
+    deadline: Instant,
+) -> Result<IndexResult, WireError> {
+    index_until(wire, root, "", 1, deadline)
+}
+
 /// The subscription of a watch.
-pub fn subscribe(wire: &mut Wire, root: u64) -> Result<u64, Box<dyn Error>> {
-    let id = wire.request(Op::Watch { root })?;
-    match wire.answer(id)? {
+pub fn subscribe(wire: &mut Wire, root: u64) -> Result<u64, WireError> {
+    match wire.ask(Op::Watch { root })? {
         Reply::Subscription { subscription } => Ok(subscription),
-        other => Err(format!("watch answered {other:?}").into()),
+        other => Err(WireError::failed(format!("watch answered {other:?}"))),
     }
 }
 

@@ -69,6 +69,16 @@ export interface FilesIo {
   shallow(root: string, path: string, options?: IoOptions): Promise<Description | null>;
   /** The kind and size of a path, which a read asks before it opens bytes. */
   metadata(root: string, path: string): Promise<{ kind: EntryKind; size: number } | null>;
+  /**
+   * A folder's paths breadth-first, folders ending in `/`, at most `limit`; git-ignored entries
+   * and the daemon's own temporaries are left out. This is the legacy `list` reply's walk.
+   */
+  paths(
+    root: string,
+    dir: string,
+    limit: number,
+    options?: IoOptions,
+  ): Promise<{ paths: string[]; truncated: boolean }>;
   /** One range of a file; a file that changes while being read is `CONFLICT`. */
   read(
     root: string,

@@ -8,8 +8,9 @@
  *   after `hello`), `answer-exit` (answers a stat, then exits), `corrupt-reply` (answers with a
  *   message the schema rejects), `read-no-body` (a read says a body follows, but none does),
  *   `search-hang` (subscribes, then never reports), `search-fails` (subscribes, then reports
- *   `searchFailed`), `search-hold` (never answers a search) or `hold-requests` (answers openRoot,
- *   never another request).
+ *   `searchFailed`), `search-hold` (never answers a search), `hold-requests` (answers openRoot,
+ *   never another request) or `unsupported` (answers every op but `openRoot` with `UNSUPPORTED`,
+ *   as a stale binary does).
  * - `FAKE_FILES_MISSING_ROOT`: a path whose `openRoot` fails with `NOT_FOUND` while
  *   `FAKE_FILES_VANISH_FILE` exists (all generations, when that env is unset).
  * - `FAKE_FILES_SLOW_WATCH_MS`: delays a watch's reply by this many ms.
@@ -100,6 +101,10 @@ function watchEvent(subscription: number): Message {
 }
 
 function answer(id: number, op: Extract<Message, { type: "request" }>["op"]): void {
+  if (behaviour === "unsupported" && op.op !== "openRoot") {
+    send({ type: "error", id, code: "UNSUPPORTED", message: `op ${op.op} is not known` });
+    return;
+  }
   switch (op.op) {
     case "openRoot": {
       if (missingRoot && op.path === missingRoot && (!vanishFile || existsSync(vanishFile))) {

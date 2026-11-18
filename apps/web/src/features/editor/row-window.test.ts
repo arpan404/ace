@@ -9,7 +9,11 @@ import { WrapIndex } from "./wrap-index.ts";
  */
 
 function index(lines: string[], columns = 20): WrapIndex {
-  const created = new WrapIndex({ lenLines: () => lines.length, line: (at) => lines[at] ?? "" });
+  const created = new WrapIndex({
+    lenLines: () => lines.length,
+    line: (at) => lines[at] ?? "",
+    version: () => 0,
+  });
   created.setColumns(columns, { first: 0, last: 0 });
   return created;
 }
