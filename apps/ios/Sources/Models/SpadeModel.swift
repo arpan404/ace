@@ -166,10 +166,10 @@ import Observation
         if conversation?.id != id { conversation = nil }
     }
 
-    /// Another machine's runtime: nothing of this one's Spade applies.
+    /// A new runtime: its Spade is read again. Cards (their drafts and locks) are kept here: only
+    /// another machine resets them (`SpadeCards.reset`).
     func reset() {
         shown = nil; line = nil; bots = nil; listFailed = false
-        cards.reset()
         belong(to: nil)
     }
 }

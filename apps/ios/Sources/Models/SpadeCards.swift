@@ -99,7 +99,8 @@ import Observation
         if let out = sent[key], out.from != card.standing { sent[key] = nil }
     }
 
-    /// Another machine's runtime: nothing of this one's cards applies.
+    /// Another machine's runtime: nothing of this one's cards applies. Another route to the same
+    /// machine keeps them all, so cards left for later come back as they were.
     func reset() {
         sent = [:]
         shown = [:]

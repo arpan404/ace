@@ -228,6 +228,8 @@ import QuartzCore
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
+        // Cards for later keep what was filled in across another route to the same machine.
+        if !sameMachine { spade.cards.reset() }
         inboxLayout = .empty; chatLayout = .empty
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.

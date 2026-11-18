@@ -93,6 +93,25 @@ import Testing
         clock.advance()
     }
 
+    @Test func anotherRouteToTheSameMachineKeepsCardsForLaterButAnotherMachineDoesNot() async throws {
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in QuietSession() })
+        func reach(_ host: String, at port: Int) async throws {
+            let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(port)")), hostId: host,
+                                          deviceId: "device", pin: nil, credential: { "{}" })
+            await model.connect(target: target, directory: FileManager.default.temporaryDirectory)
+        }
+        try await reach("home", at: 1)
+        model.spade.apply(.row(conversation: "c1", key: "k", bubble: .question(SpadeCardsTests.card(.later))))
+        model.spade.cards.keep([.text("Faro")], conversation: "c1", callId: "q1")
+
+        // Wi-Fi to cellular: the same machine by another route.
+        try await reach("home", at: 2)
+        #expect(model.spade.cards.drafts("c1", callId: "q1") == [.text("Faro")])
+
+        try await reach("work", at: 1)
+        #expect(model.spade.cards.drafts("c1", callId: "q1") == nil)
+    }
+
     @Test func anAcceptedCardWhoseUpdateNeverComesIsReadBackAndUnlocked() async {
         let clock = ManualClock()
         let cards = SpadeCards(wait: { await clock.sleep($0) })
@@ -182,3 +201,9 @@ import Testing
     }
 }
 
+private final class QuietSession: ClientSession, @unchecked Sendable {
+    func start(itemLimit: Int) {}
+    func invoke(_ name: String, json: String) {}
+    func acknowledge(accepted: Bool) {}
+    func stop(completion: @escaping @Sendable () -> Void) { completion() }
+}
