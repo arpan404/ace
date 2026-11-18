@@ -31,6 +31,7 @@ impl Scored {
             dropped: false,
             network: false,
             config: spade_classify::ConfigTools::default(),
+            hardened: true,
         }
     }
 }

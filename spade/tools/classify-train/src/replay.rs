@@ -386,7 +386,13 @@ fn shell_call(
     match decide(model, &subject, reviewing, config_clean) {
         Screen::LowRisk => {
             o.classifier_run += 1;
-            if !truth.low() {
+            // With untrusted content in view only a read may be settled.
+            let right = if tainted {
+                truth == Label::Sure(Effect::Read)
+            } else {
+                truth.low()
+            };
+            if !right {
                 if std::env::var_os("CLASSIFY_DUMP").is_some() {
                     let short: String = command.chars().take(300).collect();
                     eprintln!("REPLAY FALSE-LOW {truth:?} {short:?}");
@@ -537,13 +543,13 @@ mod tests {
             panic!("the built-in model doesn't read");
         };
         let calls = [
-            shell("t", "cargo build"),
+            shell("t", "ls -la src"),
             shell("t", "grep -rn TODO src"),
-            shell("t", "cargo test"),
+            shell("t", "touch src/new_module.rs"),
         ];
-        let this = replay(&calls, model, &|m, s, r, c| m.decide(s, r, c).1, true);
+        let this = replay(&calls, model, &|m, s, r, c| m.decide(s, r, c).screen, true);
         // The first command runs before anything untrusted is in view; the read after it settles;
-        // the test run after it waits for the reviewer.
+        // the write after it waits for the reviewer.
         assert_eq!(this.classifier_run, 2);
         assert_eq!(this.reviewer, 1);
         let main = replay(

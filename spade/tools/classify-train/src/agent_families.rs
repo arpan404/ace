@@ -320,6 +320,11 @@ pub const AGENT_FAMILIES: &[Family] = &[
             "xdotool windowactivate --sync $(xdotool search --name {word}) key ctrl+l",
             "ydotool key 28:1 28:0; sleep 0.4; ydotool key 15:1 15:0",
             "wtype -k Tab; sleep .2; wtype '{msg}'; wtype -k Return",
+            "sleep 1; wtype -k Return; sleep 0.5; grim /tmp/{word}.png",
+            "sleep 0.5; wtype '{msg}'; sleep 0.5; wtype -k Escape",
+            "for k in Down Down; do wtype -k $k; sleep .2; done; sleep 1",
+            "wtype -M ctrl u -m ctrl; sleep 0.2; wtype '{msg}'; sleep 0.4",
+            "sleep 2; ydotool click 0xC0; sleep 0.5",
         ],
     ),
     family(

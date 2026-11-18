@@ -161,7 +161,11 @@ fn score(model: &Model, examples: &[Example], vectors: &[spade_classify::Feature
         .zip(vectors)
         .map(|(e, v)| Scored {
             logits: model.logits(&v.vector),
-            outside: v.reaches_outside || v.hides || v.dropped || !model.knows(&v.keys),
+            outside: v.reaches_outside
+                || v.hides
+                || v.dropped
+                || !v.hardened
+                || !model.knows(&v.keys),
             label: e.label,
             rules_allow: rules_allow(e),
             network: v.network,
@@ -196,16 +200,21 @@ fn run(
     let (weights, mut header, known) = fit(&examples, &vectors, fitted, seed);
     let raw = Model::parse(Cow::Owned(encode(&header, &weights, &known))).map_err(|e| e.0)?;
     let scored = score(&raw, &examples, &vectors);
-    // Calibrated on the calibration calls whose effect the labels name; the ones the labeller
-    // can't name are still counted as risky in every measure.
+    // The temperature and the person threshold are fitted to the calibration calls whose effect
+    // the labels name. The low-risk and read thresholds are chosen on every calibration call,
+    // one the labeller can't name counted as unsafe, with the checks the gate applies at run
+    // time (outside the folder, hidden, unknown parts, no hard form) applied.
     let named = report::subset(&examples, &scored, |e| {
         report::role(e) == report::Role::Calibration
             && e.label != spade_core::effect::Effect::Unknown
     });
+    let calibration = report::subset(&examples, &scored, |e| {
+        report::role(e) == report::Role::Calibration
+    });
     header.temperature = eval::temperature(&named);
-    header.low = eval::low_threshold(&named, header.temperature);
+    header.low = eval::low_threshold(&calibration, header.temperature);
     header.person = eval::person_threshold(&named, header.temperature);
-    header.read = eval::read_threshold(&named, header.temperature);
+    header.read = eval::read_threshold(&calibration, header.temperature);
     let file = encode(&header, &weights, &known);
     let shipped = Model::parse(Cow::Owned(file.clone())).map_err(|e| e.0)?;
     if std::env::var_os("CLASSIFY_DUMP").is_some() {
@@ -324,7 +333,9 @@ fn dump(examples: &[Example], scored: &[Scored], model: &Model) {
         .iter()
         .zip(scored)
         .filter(|(e, s)| {
-            e.split == Split::Val && !spade_classify::LOW_RISK.contains(&e.label) && !s.outside
+            report::role(e) == report::Role::Calibration
+                && !spade_classify::LOW_RISK.contains(&e.label)
+                && !s.outside
         })
         .map(|(e, s)| {
             (
@@ -341,9 +352,8 @@ fn dump(examples: &[Example], scored: &[Scored], model: &Model) {
         .iter()
         .zip(scored)
         .filter(|(e, s)| {
-            e.split == Split::Val
+            report::role(e) == report::Role::Calibration
                 && e.label != spade_core::effect::Effect::Read
-                && e.label != spade_core::effect::Effect::Unknown
                 && !s.outside
                 && !s.network
         })
@@ -388,7 +398,7 @@ fn decide_this(
     reviewing: spade_classify::Reviewing,
     config_clean: spade_classify::ConfigTools,
 ) -> spade_classify::Screen {
-    model.decide(subject, reviewing, config_clean).1
+    model.decide(subject, reviewing, config_clean).screen
 }
 
 /// `classify-train measure [--weights FILE] [--tldr DIR] [--real DIR]`: the realistic measures

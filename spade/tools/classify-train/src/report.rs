@@ -140,18 +140,18 @@ pub fn head(
         let _ = writeln!(r, "| {label} | {} | {} | {} |", n[0], n[1], n[2]);
     }
     let calibration = subset(examples, scored, |e| role(e) == Role::Calibration);
-    let named = subset(examples, scored, |e| {
-        role(e) == Role::Calibration && e.label != spade_core::effect::Effect::Unknown
-    });
+
     let _ = writeln!(
         r,
         "\n## Calibration\n\nOn the calibration data alone, the low-risk threshold would be \
-         {:.3}: just above its riskiest call with a named risky effect that the code's checks \
-         let through. The threshold is that with a margin, never below the floor of {:.2}. The \
-         read threshold is above every calibration call that isn't a read and could be settled \
-         with untrusted content in view, by 0.02. Calls the labeller can't name count as risky in \
-         every measure.\n\n{}",
-        eval::validation_low(&named, h.temperature),
+         {:.3}: just above its riskiest call that isn't low-risk (one the labeller can't name \
+         counted as unsafe) and that the gate's checks let through (inside the folder, nothing \
+         hidden, every part known, a hard form). The threshold is that with a margin, never below \
+         the floor of {:.2}. The read threshold is above every calibration call that isn't a read \
+         (unnamed ones included) and could be settled with untrusted content in view, by 0.02. \
+         The temperature and the person threshold are fitted to the calls whose effect the labels \
+         name. Calls the labeller can't name count as risky in every measure.\n\n{}",
+        eval::validation_low(&calibration, h.temperature),
         eval::LOW_FLOOR,
         eval::sweep(model, &calibration),
     );
