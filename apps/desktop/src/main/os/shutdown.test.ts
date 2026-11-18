@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shutDownBeforeQuit } from "./shutdown.ts";
+import { daemonAtQuit, shutDownBeforeQuit } from "./shutdown.ts";
 
 describe("shutdown before quit", () => {
   it("withdraws the update report and stops the browser backend together, then stops the daemon", async () => {
@@ -67,4 +67,12 @@ describe("shutdown before quit", () => {
       ["Before quit: update report withdrawn", { ms: 3_000 }],
     ]);
   });
+});
+
+it.each([
+  ["a plain quit", { completely: false, updateInstalls: false }, "leave"],
+  ["Quit ace completely", { completely: true, updateInstalls: false }, "stop"],
+  ["a quit that installs a downloaded update", { completely: false, updateInstalls: true }, "stop"],
+] as const)("%s: the daemon this app started is told to %s", (_name, facts, action) => {
+  expect(daemonAtQuit(facts)).toBe(action);
 });

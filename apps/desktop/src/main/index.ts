@@ -69,7 +69,7 @@ import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { QuitGate } from "./os/quit-gate.ts";
-import { shutDownBeforeQuit } from "./os/shutdown.ts";
+import { daemonAtQuit, shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
@@ -177,7 +177,6 @@ function openLogs(): (component: string) => Log {
 function main(target: DaemonTarget, crashDumps: string): void {
   const logger = openLogs();
   const log = logger("desktop");
-  const daemonLog = logger("daemon");
   // Names what the main thread is doing, so a freeze is reported with its operation.
   const operation = createStallOperation();
   // One timer notices the main thread freezing, for the stall watchdog and the daemon's
@@ -219,9 +218,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
     log: logger("supervisor"),
     sinceLaunch: () => performance.now(),
     freezes: beat,
-    daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
-      daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
-    ),
   });
   const settings = new SettingsStore(join(app.getPath("userData"), "desktop-settings.json"));
   const backgrounds = new WindowBackgroundStore(
@@ -254,6 +250,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     window: () => window,
     open: (link) => open(link),
     quitAll: () => app.quit(),
+    quitCompletely: () => quitCompletely(),
     log: (message) => log("warn", message),
     mark: operation.run,
     trayHost:
@@ -281,8 +278,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
   runtime.onStatus((status) => updateReport.connected(status.state === "running"));
   updateReport.connected(runtime.current().state === "running");
   /**
-   * Every quit waits here until the daemon this app started has exited: the browser backend
-   * tells the daemon first, then that daemon stops (SIGTERM, then SIGKILL after its grace).
+   * "Quit ace completely" (the app menu, the tray) or an update's restart: this quit stops the
+   * daemon too. Any other quit leaves it running for the next launch (ADR 0186).
+   */
+  let stopDaemonOnQuit = false;
+  const quitCompletely = () => {
+    stopDaemonOnQuit = true;
+    app.quit();
+  };
+  /**
+   * Every quit waits here until the app has shut down: the browser backend tells the daemon it
+   * is going, then the daemon this app started is left running, or, on a complete quit, stops
+   * (SIGTERM, then SIGKILL after its grace).
    */
   const quitLog = logger("quit");
   const quitGate = new QuitGate({
@@ -295,7 +302,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
           { name: "update report withdrawn", run: () => updateReport.withdraw() },
           { name: "browser backend stopped", run: () => background.stop() },
         ],
-        daemon: () => runtime.stop(),
+        daemon: () => {
+          const action = daemonAtQuit({
+            completely: stopDaemonOnQuit,
+            // electron-updater installs a downloaded update as the app quits.
+            updateInstalls: updates.current().state === "downloaded",
+          });
+          quitLog("info", action === "stop" ? "Stopping the daemon" : "Leaving the daemon running");
+          return action === "stop" ? runtime.stop() : runtime.release();
+        },
         now: Date.now,
         log: (message, data) => quitLog("info", message, data),
       });
@@ -349,6 +364,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
         await rememberSpadeUpdateMode(target.home, spadeMode).catch((error: unknown) =>
           log("warn", `Remembering Spade's update mode failed: ${String(error)}`),
         );
+      // The new version starts its own daemon.
+      stopDaemonOnQuit = true;
       await quitGate.shutDown();
     },
     quit: () => app.quit(),
@@ -534,10 +551,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
         defaultId: 1,
         cancelId: 1,
         message: "Agents are using the browser",
-        detail: "Quitting closes the pages they are working in, and they stop where they are.",
+        detail: stopDaemonOnQuit
+          ? "Quitting closes the pages they are working in, and they stop where they are."
+          : "Quitting closes the pages they are working in. The agents keep running without them.",
       });
       if (choice !== 0) {
         relaunch = undefined;
+        stopDaemonOnQuit = false;
         return;
       }
     }
@@ -729,6 +749,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
             developer: !app.isPackaged,
             bindings,
             trigger: (id) => emit(contents(), "keymap.action", id),
+            quitCompletely,
             checkForUpdates: () =>
               void updates
                 .check("person")

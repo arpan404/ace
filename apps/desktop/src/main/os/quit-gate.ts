@@ -1,12 +1,15 @@
 /**
- * Longest a quit waits for the app's own shutdown: the browser backend (2 s), then the daemon
- * this app started (SIGTERM, a 10 s grace, SIGKILL and 10 s more for its exit report), with
- * room to spare. Past it the app quits anyway, so a quit can never hang.
+ * Longest a quit waits for the app's own shutdown: the browser backend (2 s), then, on a complete
+ * quit, the daemon this app started (SIGTERM, a 10 s grace, SIGKILL and 10 s more for its exit
+ * report), with room to spare. Past it the app quits anyway, so a quit can never hang.
  */
 export const quitBoundMs = 30_000;
 
 export interface QuitGatePorts {
-  /** Stops what the app runs: the browser backend, then the daemon this app started. */
+  /**
+   * Stops what the app runs: the browser backend, then the daemon this app started on a complete
+   * quit, or leaves that daemon running on a plain one (ADR 0186).
+   */
   shutDown(): Promise<void>;
   /** Quits the app for real, once shutdown is over. */
   quit(): void;
@@ -17,8 +20,8 @@ export interface QuitGatePorts {
 
 /**
  * Holds every quit (Cmd+Q, the tray, closing the last window, an update's restart) until the
- * app has shut down, the daemon it started included, so that daemon never outlives the app
- * holding ace's data. Shutdown runs once: a second quit while it runs waits for the same one.
+ * app has shut down: the browser backend always, and the daemon it started when the quit is
+ * complete. Shutdown runs once: a second quit while it runs waits for the same one.
  */
 export class QuitGate {
   private ports: QuitGatePorts;
