@@ -11,6 +11,7 @@
     "./runtime-package": "./src/copy-runtime-package.ts",
     "./spade": "./src/spade.ts",
     "./ace-media": "./src/ace-media.ts",
+    "./ace-files": "./src/ace-files.ts",
     "./media-smoke": "./src/media-smoke.ts",
     "./screen-identity": "./src/screen-identity.ts"
   },

@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { hashFile } from "@ace/service";
 import type { ReleaseTarget } from "@ace/protocol";
 import type { z } from "zod";
-import { checkLinuxMedia, mediaSizeLimit, stagedAceMedia } from "./ace-media.ts";
+import { mediaSizeLimit, stagedAceMedia } from "./ace-media.ts";
+import { checkLinuxRustBinary } from "./rust-binary.ts";
 
 import {
   readScreenHelperIdentity,
@@ -36,7 +37,7 @@ export async function smokeMedia(root: string, target: Target, version: string, 
     `const {execFileSync}=require('node:child_process');const p=${JSON.stringify(binary)};if(execFileSync(p,['--version'],{encoding:'utf8',timeout:10000}).trim()!==${JSON.stringify(version)})throw Error('ace-media version mismatch');execFileSync(p,[],{timeout:10000,stdio:'pipe'});`,
   ]);
   if (output.trim()) throw new Error("Unexpected media smoke output");
-  if (target.startsWith("linux-")) await checkLinuxMedia(binary);
+  if (target.startsWith("linux-")) await checkLinuxRustBinary("ace-media", binary);
   process.stdout.write(
     `ace-media ${target}: packaged version and clean exit passed (${await hashFile(binary)})\n`,
   );
