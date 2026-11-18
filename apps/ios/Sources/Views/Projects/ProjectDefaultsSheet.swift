@@ -27,7 +27,7 @@ struct ProjectDefaultsSheet: View {
                 if let project {
                     EditProjectView(model: model, project: project) { _ in done() }
                 } else if let problem {
-                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem) {
+                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem, failed: true) {
                         Button("Retry") { Task { await load() } }
                     }
                 } else {

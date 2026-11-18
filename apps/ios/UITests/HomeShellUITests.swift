@@ -222,6 +222,46 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
     }
 
+    /// The query stays put while the machine goes and comes back: what it found goes with it,
+    /// this phone's pages are still found, and the machine's answer returns when it reconnects.
+    func testWithTheMachineOfflineSearchStillFindsSettingsPages() throws {
+        let app = launch()
+        defer { try? control(online: true); app.terminate() }
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        app.openSearch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("composer toolbar")
+        let pull = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.pull.")).firstMatch
+        XCTAssertTrue(pull.waitForExistence(timeout: 15))
+
+        try control(online: false)
+        // Nothing found here is left from the machine, so the search says it's offline.
+        XCTAssertTrue(app.staticTexts["Search is offline"].waitForExistence(timeout: 20))
+        XCTAssertFalse(pull.exists)
+
+        try control(online: true)
+        XCTAssertTrue(pull.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["Search is offline"].exists)
+
+        try control(online: false)
+        XCTAssertTrue(app.staticTexts["Search is offline"].waitForExistence(timeout: 20))
+        let clear = field.buttons["Clear text"]
+        if clear.exists { clear.tap() }
+        field.tap()
+        field.typeText("appearance")
+        let appearance = app.buttons["search.command.settings:appearance"]
+        XCTAssertTrue(appearance.waitForExistence(timeout: 10))
+        XCTAssertTrue(appearance.label.contains("Settings"))
+        // The note covers only what waits for a machine.
+        XCTAssertTrue(app.staticTexts["search.offline"].exists)
+        XCTAssertFalse(pull.exists)
+        capture("search-offline")
+        appearance.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
+    }
+
     func testAThreadOpenedFromSearchShowsOnThreads() {
         let app = launch()
         app.openSearch()
@@ -377,6 +417,16 @@ import XCTest
         app.launchWithArguments()
         allowNotifications()
         return app
+    }
+    /// Takes the fixture's machine offline (its sockets close and it refuses new ones) or back.
+    private func control(online: Bool) throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/control")))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"online":\#(online)}"#.utf8)
+        let done = expectation(description: "control")
+        URLSession.shared.dataTask(with: request) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
     }
     /// The first launch asks to send notifications; the fixture's tests take Allow.
     private func allowNotifications() {

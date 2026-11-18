@@ -34,7 +34,8 @@ The approval strip had already moved off words to real buttons (owner, 2026-11-1
    with the caret when it opens a page. The destructive role draws in the system red in all
    three. They live in `apps/ios/Sources/Views/Primitives/AceButtonStyles.swift`.
 2. **Actions have their own colour.** `AceDesign.Ink.action` is the theme's accent when it has a
-   hue, and the system blue when the accent is ink, so nothing tappable draws in the body ink.
+   hue and reads at 4.5:1 on a grouped row, else a blue that does (#0062CC light, #0A84FF dark;
+   the system blue #007AFF is 3.25:1 on the light row). Nothing tappable draws in the body ink.
    Stacks (Settings, Projects, Agents, Browser) are tinted with it. The send button, the selected
    tab and the person's bubble keep the one accent (`Ink.accent`) as before.
 3. **One error row, one empty state, one add row.** `ProblemRow` is the only way a failed read or
@@ -58,4 +59,5 @@ words over icons on status strips.
 
 ## Tests
 
-`NativePaletteTests.actionsKeepAColouredAccentAndTurnSystemBlueWhenTheAccentIsInk` pins decision 2.
+`NativePaletteTests` pins decision 2: `actionsKeepAColouredAccentAndTurnBlueWhenTheAccentIsInk`, and
+`actionWordsReadAtFourAndAHalfToOneOnAGroupedRowInEveryThemeAndAccent` for every theme and accent.

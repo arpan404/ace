@@ -139,13 +139,18 @@ import UIKit
         /// The one accent: the primary action (send, approve, the selected tab's fill).
         static var accent: Color { AceTheme.Colours.foreground }
         /// What can be tapped: a row action, a button's fill or words, a stack's tint. Never the
-        /// body ink (ADR 0184), so the theme's accent when it has a hue, else the system blue.
+        /// body ink (ADR 0184): the theme's accent when it has a hue and reads at 4.5:1 on a
+        /// grouped row, else a blue that does (the system blue is too light on the light row).
         static var action: Color { Color(pair: actionPair) }
         static var actionPair: NativePalette.Pair {
             let accent = NativePaletteBridge.pair(for: "accent", light: 0x222222, dark: 0xDEDEDE)
-            return NativePalette.Pair(light: hued(accent.light) ? accent.light : 0x007AFF,
-                                      dark: hued(accent.dark) ? accent.dark : 0x0A84FF)
+            let row = NativePaletteBridge.pair(for: "fill", light: 0xE7E7E7, dark: 0x191919)
+            return NativePalette.Pair(light: actionable(accent.light, on: row.light) ? accent.light : actionBlue.light,
+                                      dark: actionable(accent.dark, on: row.dark) ? accent.dark : actionBlue.dark)
         }
+        /// The blue actions fall back to, deep enough in light and bright enough in dark to read
+        /// on the grouped row.
+        static let actionBlue = NativePalette.Pair(light: 0x0062CC, dark: 0x0A84FF)
         /// Provider marks in lists keep their colours at this strength.
         static let markOpacity: Double = 0.8
         /// A project's tint under its initials or glyph, as the web's `bg-(--tint)/12`.
@@ -415,6 +420,23 @@ extension AceDesign.Ink {
     nonisolated private static func hued(_ rgb: UInt32) -> Bool {
         let channels = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]
         return (channels.max() ?? 0) - (channels.min() ?? 0) >= hueSpread
+    }
+    /// Body-size words need 4.5:1 against what they sit on (WCAG AA).
+    nonisolated private static let actionContrast = 4.5
+    nonisolated private static func actionable(_ rgb: UInt32, on row: UInt32) -> Bool {
+        hued(rgb) && contrast(rgb, row) >= actionContrast
+    }
+    /// The WCAG contrast ratio of two colours, 1 to 21.
+    nonisolated private static func contrast(_ one: UInt32, _ other: UInt32) -> Double {
+        func luminance(_ rgb: UInt32) -> Double {
+            let linear = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255].map { channel -> Double in
+                let value = Double(channel) / 255
+                return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+        }
+        let (a, b) = (luminance(one), luminance(other))
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
     /// A row's branch: the faint tier on the dark page, the subtle one on the light page.
     static func branch(_ scheme: ColorScheme) -> Color {
