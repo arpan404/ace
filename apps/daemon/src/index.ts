@@ -107,6 +107,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
   assertTestHomeIsolation(home);
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
+  // When this process began, on the same clock: each startup phase logs how far in it ended.
+  const entered = now();
+  const spawnedAt = entered - process.uptime() * 1000;
+  const sinceSpawn = () => Math.round(now() - spawnedAt);
   const config = options.config ?? readConfig();
   const diagnostics = options.diagnostics ?? {
     doctor: () => connectedDoctorReport(config, process.env, now),
@@ -194,6 +198,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
   } catch (error) {
     log.log("warn", "Daemon run marker could not be written", logError(error));
   }
+  log.log(
+    "info",
+    "Daemon modules loaded",
+    logFields([["sinceSpawnMs", Math.round(entered - spawnedAt)]]),
+  );
   resources.own(
     installFatalLogFlush(process, log, (error) =>
       sqliteFailureDetails(error, config.dataDir, diskSpace),
@@ -409,6 +418,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
+    const storeBegan = now();
     const eventStore = openAtStart(
       () =>
         new Store(
@@ -430,6 +440,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       config.dataDir,
       diskSpace,
       pauseBelow,
+    );
+    log.log(
+      "info",
+      "Event store opened",
+      logFields([
+        ["durationMs", Math.round(now() - storeBegan)],
+        ["sinceSpawnMs", sinceSpawn()],
+      ]),
     );
     // One admission gate for the server and the engine, closed before any service starts when
     // maintenance was asked for, so startup recovery honours it too (ADR 0041).
@@ -608,6 +626,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         log.log("error", "WebSocket failure", logError(error));
       },
       warn: (message, fields) => log.log("warn", message, fields),
+      info: (message, fields) => log.log("info", message, fields),
     };
     bindLiveServices(serverOptions, services);
     // Late-bound: the lifecycle exists once the server below has started its transports.
@@ -617,9 +636,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
       return lifecycle.delete(command);
     };
     lifetime.signal.throwIfAborted();
+    const serverBegan = now();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();
-    log.log("info", "Daemon listening", logFields([["url", server.url], ...build]));
+    log.log(
+      "info",
+      "Daemon listening",
+      logFields([
+        ["url", server.url],
+        ["durationMs", Math.round(now() - serverBegan)],
+        ["sinceSpawnMs", sinceSpawn()],
+        ...build,
+      ]),
+    );
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
     endpointPath = path;
