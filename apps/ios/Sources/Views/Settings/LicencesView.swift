@@ -47,7 +47,7 @@ struct LicencesView: View {
                     NavigationLink { LicenceNoticeView(name: entry.name, licence: entry.licence, notice: entry.notice) } label: {
                         InsetRow(entry.name, systemImage: nil, value: entry.licence)
                     }
-                    .accessibilityIdentifier("licences.\(entry.name)")
+                    .accessibilityIdentifier("licences.entry.\(entry.name)")
                 }
             } footer: { Text("The interface uses Apple's system fonts.") }
             .insetRowBackground()

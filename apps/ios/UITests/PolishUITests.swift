@@ -29,6 +29,10 @@ import XCTest
         XCTAssertTrue(licences.waitForExistence(timeout: 5))
         app.buttons["settings.licences"].tap()
         XCTAssertTrue(app.staticTexts["Zod"].waitForExistence(timeout: 5))
+        // markit's row and the link to its third-party notices are two things, named apart.
+        for _ in 0..<4 where !app.buttons["licences.markit"].exists { app.swipeUp() }
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "licences.markit").count, 1)
+        XCTAssertTrue(app.buttons["licences.entry.markit"].exists)
         screenshot("settings-licences")
     }
 
