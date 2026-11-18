@@ -136,7 +136,7 @@ export const shelfCount = (cols: number, entries: readonly MarketEntrySummary[])
 /** One card as a list item, so a shelf reads as a list. */
 export function CardItem(props: { children: ReactNode }) {
   return (
-    <div role="listitem" style={{ display: "contents" }}>
+    <div role="listitem" className="mk-card-item">
       {props.children}
     </div>
   );

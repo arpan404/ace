@@ -112,7 +112,12 @@ function VersionRow(props: {
   const live = version.status === "live" || version.status === "not-reviewed";
   const appealable = version.status === "blocked" || (version.status === "waiting" && version.held);
   return (
-    <div className="mk-mine-row" aria-label={`Version ${version.version}`} role="listitem">
+    <div
+      className="mk-mine-row"
+      data-kind="version"
+      aria-label={`Version ${version.version}`}
+      role="listitem"
+    >
       <span className="mk-v" style={{ fontVariantNumeric: "tabular-nums" }}>
         {version.version}
       </span>

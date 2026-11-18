@@ -63,6 +63,7 @@
   }
   .mk-stage > .mk-mark {
     width: 28%;
+    min-width: 20px;
     max-width: 56px;
     height: auto;
   }
@@ -376,6 +377,10 @@
   }
   .mk-cards[data-cols="4"] {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  /* A card's list item adds no box; the widths trim a shelf by hiding these. */
+  .mk-card-item {
+    display: contents;
   }
   .mk-card {
     display: flex;

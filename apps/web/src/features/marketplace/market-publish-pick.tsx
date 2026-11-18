@@ -24,6 +24,8 @@ export function PickChoices(props: {
 }) {
   const listed = usePublishables(props.type);
   const data = listed.data;
+  // A bot shows its face; a skill or plugin has no picture, so it is a lockup.
+  const bots = props.type === "spade-bot";
   if (!data) return listed.isError ? <p className="mk-line">These can't be listed now.</p> : null;
   return (
     <>
@@ -37,7 +39,8 @@ export function PickChoices(props: {
       ) : (
         <div
           className="mk-cards"
-          data-cols="3"
+          data-cols={bots ? "3" : "2"}
+          data-form={bots ? "stage" : "lockup"}
           data-phone="grid"
           role="group"
           aria-label="Yours"
@@ -51,13 +54,14 @@ export function PickChoices(props: {
                 key={JSON.stringify(each.source)}
                 type="button"
                 className="mk-choice"
+                data-form={bots ? "stage" : "lockup"}
                 aria-pressed={samePick(props.chosen, each)}
                 onClick={() => props.onChoose(item)}
               >
                 {each.type === "spade-bot" ? (
                   <BotPicture face={face} size={96} />
                 ) : (
-                  <Stage entry={keyOf(item)} size="card" />
+                  <Stage entry={keyOf(item)} size="small" />
                 )}
                 <span className="mk-card-words">
                   <span className="mk-name">{each.title}</span>

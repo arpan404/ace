@@ -123,9 +123,8 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
         <h1 className="mk-display-sm">What are you publishing?</h1>
         <div
           className="mk-cards"
-          data-cols="4"
-          data-quad=""
-          data-phone="grid"
+          data-cols="2"
+          data-form="lockup"
           style={{ marginTop: 32 }}
         >
           {choices.map((choice) => (
@@ -133,6 +132,7 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
               key={choice.type}
               type="button"
               className="mk-choice"
+              data-form="lockup"
               onClick={() => {
                 setType(choice.type);
                 setItem(undefined);
@@ -141,7 +141,7 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
             >
               <Stage
                 entry={{ source: "market", type: choice.type, name: choice.name.toLowerCase() }}
-                size="card"
+                size="small"
               />
               <span className="mk-card-words">
                 <span className="mk-name">{choice.name}</span>
