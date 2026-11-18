@@ -450,7 +450,7 @@ struct ConversationFeed: View {
     private func observeLifecycle<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content
             .task { appeared(proxy: proxy) }
-            .task(id: ready) { if ready, !revealed { revealWhenSettled() } }
+            .task(id: ready) { if ready, !revealed { revealWhenSettled(proxy: proxy) } }
             .onDisappear { disappeared() }
             // Away from the end, or reading a window apart from it: following a joined window is at
             // the end, so Scroll to end isn't offered there.
@@ -678,7 +678,7 @@ struct ConversationFeed: View {
     /// height and offset have held for two frames with the feed at the end it follows, a quarter
     /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157). A saved
     /// place being reopened counts as not yet placed until its row is back where it was.
-    private func revealWhenSettled() {
+    private func revealWhenSettled(proxy: ScrollViewProxy) {
         let intent = intent
         let started = CACurrentMediaTime()
         var settle = TranscriptSettle(at: started)
@@ -688,10 +688,13 @@ struct ConversationFeed: View {
                                                  restoring: viewport.sessionAnchor != nil || reading.loading)
             return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
         }) { outcome in
+            // Still short of the end it follows at the limit: shown at the end, not on the way.
+            if outcome == .capped, pinned, intent.metrics.bottom > 1 { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) { revealed = true }
             TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
+            TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
         }
     }
     /// An older page is about to join above the reader's line. What is drawn is frozen over the

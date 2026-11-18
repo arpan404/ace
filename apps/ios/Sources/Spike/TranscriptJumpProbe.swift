@@ -249,6 +249,17 @@ enum TranscriptJumpHooks {
         PerfProbe.record(["jump.reveal.ms": String(Int((seconds * 1_000).rounded())), "jump.reveal.capped": capped ? "1" : "0"])
         #endif
     }
+    /// Where the opened feed landed: `fromEnd`, read a few frames after it showed, is how far its
+    /// end is below the bottom edge. Recorded as `jump.landed.fromEnd`.
+    @MainActor static func landed(fromEnd: @escaping @MainActor () -> Double) {
+        #if ACE_FIXTURE
+        guard PerfProbe.enabled else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            PerfProbe.record(["jump.landed.fromEnd": String(Int(fromEnd().rounded()))])
+        }
+        #endif
+    }
     @MainActor static func scrolling(_ phase: ScrollPhase) {
         #if ACE_FIXTURE
         guard PerfProbe.enabled else { return }

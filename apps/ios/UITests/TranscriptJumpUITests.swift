@@ -14,6 +14,7 @@ import XCTest
         print("jump open ios-log-long: \(run) reveal=\(app.probe["jump.reveal.ms"] ?? "-")ms capped=\(app.probe["jump.reveal.capped"] ?? "-")")
         XCTAssertGreaterThan(run.frames, 30, "frames were sampled: \(run)")
         XCTAssertEqual(run.moved, 0, "the rows stay where they were first drawn: \(run)")
+        assertLandedAtEnd(app)
     }
 
     /// A live thread opens at its streaming end: the rows only ever move up with the answer as it
@@ -26,6 +27,7 @@ import XCTest
         XCTAssertFalse(run.trace.contains("swap"), "the screen is never replaced: \(run)")
         XCTAssertLessThanOrEqual(run.onScreen.max() ?? 0, 0, "rows never move down: \(run)")
         XCTAssertGreaterThanOrEqual(run.onScreen.min() ?? 0, -60, "rows move up a line or so at a time: \(run)")
+        assertLandedAtEnd(app)
     }
 
     /// Reading back, an older page lands above the rows on screen without moving them: it joins
@@ -42,9 +44,9 @@ import XCTest
         let pages = [jumpRun(app, "older.1"), jumpRun(app, "older.2")]
         for (n, page) in pages.enumerated() { print("jump older ios-reading page \(n + 1): \(page)") }
         for page in pages { XCTAssertGreaterThan(page.frames, 30, "frames were sampled: \(page)") }
-        let joins = pages.flatMap(\.atRest).filter { abs($0.inContent) >= 100 }
-        XCTAssertFalse(joins.isEmpty, "a page joined while the feed was at rest: \(pages)")
         for page in pages {
+            XCTAssertFalse(page.trace.contains("swap"), "no frame replaced the whole screen: \(page)")
+            XCTAssertTrue(page.atRest.contains { abs($0.inContent) >= 100 }, "the page joined while the feed was at rest: \(page)")
             let most = page.atRest.map { abs($0.onScreen) }.max() ?? 0
             XCTAssertLessThanOrEqual(most, 1, "the rows on screen stayed put while the page joined: \(page)")
         }
@@ -60,6 +62,13 @@ import XCTest
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         return app
+    }
+
+    /// The opened feed was shown at its end, not on its way there.
+    private func assertLandedAtEnd(_ app: XCUIApplication) {
+        let fromEnd = app.waitForProbe("jump.landed.fromEnd", timeout: 10)
+        XCTAssertNotNil(fromEnd, "the probe read where the feed landed")
+        XCTAssertLessThanOrEqual(fromEnd ?? .infinity, 1, "the feed showed at its end")
     }
 
     /// The probe's last `name` run, once it has recorded one.
