@@ -18,6 +18,12 @@ export interface IdleWorkerRuntime {
   delay(callback: () => void, milliseconds: number): () => void;
   /** Monotonic milliseconds. Without it the idle window stays fixed. */
   now?(): number;
+  /**
+   * A background worker never keeps the process alive, idle or busy. Its isolate is unref'd
+   * after this class attaches its listeners: a `message` listener attached later refs a worker
+   * again, on Node and Bun alike.
+   */
+  background?: boolean;
 }
 export interface WorkerPort {
   on(event: "message", listener: (input: unknown) => void): this;
@@ -25,6 +31,7 @@ export interface WorkerPort {
   on(event: "exit", listener: (code: number) => void): this;
   postMessage(message: unknown, transfer?: readonly Transferable[]): void;
   terminate(): Promise<number>;
+  unref?(): void;
 }
 const systemRuntime: IdleWorkerRuntime = {
   spawn: (entry, options) => startWorker(entry, options),
@@ -116,6 +123,7 @@ export class IdleWorker extends EventEmitter {
         });
       this.emit("exit", code);
     });
+    if (this.runtime.background) worker.unref?.();
   }
   postMessage(message: unknown, transfer?: readonly Transferable[]): void {
     this.cancelIdle?.();

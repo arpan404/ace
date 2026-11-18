@@ -147,3 +147,26 @@ test.each([false, true])(
     }
   },
 );
+
+test("a program that ran a CLI probe exits as soon as its own work ends, not when the probe thread retires", async () => {
+  const { spawn } = await import("node:child_process");
+  const { once } = await import("node:events");
+  const processModule = new URL("./process.ts", import.meta.url).href;
+  const started = performance.now();
+  const child = spawn(
+    process.execPath,
+    [
+      "--eval",
+      `const { probeOutput } = await import(${JSON.stringify(processModule)});
+       const result = await probeOutput("/bin/sh", ["-c", "printf done"]);
+       console.log(result.stdout);`,
+    ],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  let output = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => (output += chunk));
+  const [code] = await once(child, "exit");
+  expect({ code, output: output.trim() }).toEqual({ code: 0, output: "done" });
+  // The probe thread idles for 5 s before it retires; the program must not wait for that.
+  expect(performance.now() - started).toBeLessThan(4_000);
+});

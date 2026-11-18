@@ -14,12 +14,10 @@ export interface ProbeThread {
 }
 
 const runtime: IdleWorkerRuntime = {
-  spawn(entry, options) {
-    const worker = startWorker(entry, options);
-    // An idle isolate never keeps a CLI command or a stopping daemon alive.
-    worker.unref();
-    return worker;
-  },
+  spawn: (entry, options) => startWorker(entry, options),
+  // An idle isolate never keeps a CLI command or a stopping daemon alive. A probe in flight
+  // still does: its child process is ref'd.
+  background: true,
   delay(callback, milliseconds) {
     // The idle timer is the thread's own, never the caller's that last used it.
     const timer = unscoped(() => setTimeout(callback, milliseconds));

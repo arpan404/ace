@@ -296,9 +296,16 @@ function discoveryReporter() {
       process.send({ discoveredOn, probedOn, codexModels }, () => process.disconnect());
     });
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
-    // The daemon's own stop is what is checked; nothing else the fake CLI left may hold the exit.
-    process.once("SIGTERM", () => { void daemon.close().then(() => process.exit(0), () => process.exit(1)); });
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
   `;
+}
+
+/** Processes still running whose command line names `folder`: what a test's daemon left. */
+async function leftIn(folder: string): Promise<string[]> {
+  const { execFileSync } = await import("node:child_process");
+  return execFileSync("/bin/ps", ["-A", "-o", "pid=,command="], { encoding: "utf8" })
+    .split("\n")
+    .filter((line) => line.includes(folder));
 }
 
 const startedOnSavedPath = {
@@ -321,8 +328,12 @@ it("a daemon the app started on a saved PATH reads providers only on the login s
   // Engine discovery, provider status and model admission all read CLIs on it.
   expect((await answer)[0]).toEqual({ discoveredOn: path, probedOn: path, codexModels: true });
   await daemon.client.close();
+  // The process ends on its own once the daemon has stopped: nothing it started holds it.
+  const stopping = performance.now();
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
+  expect(performance.now() - stopping).toBeLessThan(3_000);
+  expect(await leftIn(login)).toEqual([]);
 });
 
 it.skipIf(process.platform === "win32")(
@@ -348,8 +359,12 @@ it.skipIf(process.platform === "win32")(
     const path = ["/bundled", shellBin, "/usr/bin", "/bin"].join(":");
     expect((await answer)[0]).toEqual({ discoveredOn: path, probedOn: path, codexModels: true });
     await daemon.client.close();
+    const stopping = performance.now();
     daemon.child.kill("SIGTERM");
     expect((await daemon.exited)[0]).toBe(0);
+    expect(performance.now() - stopping).toBeLessThan(3_000);
+    // The login shell the daemon ran, and anything it started, are gone too.
+    expect(await leftIn(root)).toEqual([]);
   },
 );
 
