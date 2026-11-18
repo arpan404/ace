@@ -1,22 +1,42 @@
 /**
- * The beta build's app icon (ADR 0177): the stable master with a "BETA" band across the tile's
- * foot, so a beta in the Dock is never mistaken for stable. The band is clipped to the tile's
- * own rounded body (`#clip` in `build/icon.svg`), so the corners stay the system's shape.
+ * The beta build's app icon (ADR 0177): the stable master in porcelain, a light tile with
+ * graphite wings, so a beta in the Dock is never mistaken for stable. Only the master's paints
+ * change; the tile, its clip and the mark are the master's own, so the two icons never drift.
  * `scripts/icons.ts --beta` rasterizes it while a beta packages; nothing is committed.
  */
-export const betaBand = `
-  <g clip-path="url(#clip)" data-band="beta">
-    <rect x="100" y="752" width="824" height="172" fill="#f4f4f6"/>
-    <text x="512" y="870" text-anchor="middle" fill="#0a0a0b"
-      font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
-      font-size="112" font-weight="700" letter-spacing="18">BETA</text>
-  </g>
-`;
+const porcelain: Array<[element: string, id: string, content: string]> = [
+  [
+    "linearGradient",
+    "fill",
+    `<stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#eeeef1"/>
+      <stop offset="1" stop-color="#d9dae0"/>`,
+  ],
+  [
+    "radialGradient",
+    "sheen",
+    `<stop offset="0" stop-color="#fff" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>`,
+  ],
+  [
+    "linearGradient",
+    "ink",
+    `<stop offset="0" stop-color="#2c2d31"/>
+      <stop offset="1" stop-color="#0a0a0b"/>`,
+  ],
+  [
+    "filter",
+    "lift",
+    `<feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/>`,
+  ],
+];
 
-/** The master icon with the band drawn last, above the glyph. */
-export function withBetaBand(svg: string): string {
-  const end = svg.lastIndexOf("</svg>");
-  if (end === -1 || !svg.includes('id="clip"'))
-    throw new Error("The icon master has no tile clip to draw the beta band in");
-  return `${svg.slice(0, end)}${betaBand}${svg.slice(end)}`;
+/** The master icon repainted in porcelain. */
+export function betaIcon(svg: string): string {
+  return porcelain.reduce((out, [element, id, content]) => {
+    const paint = new RegExp(`(<${element}\\b[^>]*\\bid="${id}"[^>]*>)[\\s\\S]*?(</${element}>)`);
+    if (!paint.test(out))
+      throw new Error(`The icon master has no ${element} #${id} to paint the beta icon with`);
+    return out.replace(paint, (_, open: string, close: string) => `${open}${content}${close}`);
+  }, svg);
 }

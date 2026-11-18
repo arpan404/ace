@@ -125,7 +125,9 @@ backups aside). It would leave stable without the person's data.
 
 **The badge.**
 
-- A beta build has a Dock icon with a "BETA" band, rendered by `scripts/icons.ts` at build time.
+- A beta build has the porcelain Dock icon: the stable master repainted with a light tile and
+  graphite wings, rendered by `scripts/icons.ts` at build time. It has no lettering. (It first
+  shipped with a "BETA" band across the tile's foot; the owner replaced that on 2026-11-18.)
 - The sidebar's foot shows the word **Beta**, as text beside the update button (no chip, no tint).
 - The daemon's hello reports its line, so the web app connected to a beta daemon shows the same
   word. iOS follows later.
