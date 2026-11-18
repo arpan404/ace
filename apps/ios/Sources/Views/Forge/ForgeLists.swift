@@ -21,7 +21,8 @@ struct ForgePullsList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
                        icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], connection: client.connection, noun: "Pull requests",
+                       reconnect: { client.retry() }, refresh: refresh, more: more) {
             // Rows open where they were read, even while another project's rows load.
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
@@ -99,10 +100,25 @@ struct ForgeIssuesList: View {
     }
 }
 
-/// The list around the rows: skeleton on the first read, the error state with Try again when
-/// nothing could be read, the empty state, a dimmed list while a changed filter reads, a quiet
-/// line when a refresh failed over rows already shown (or one of several repositories couldn't be
-/// read), Show more, and pull to refresh.
+/// What a list shows in place of rows, or that it shows its rows.
+enum ForgeListState: Equatable {
+    case reading, unreachable, failed(String), empty, rows
+
+    /// A list never read waits on a skeleton only while its machine is connecting or ready: one
+    /// that is offline or reconnecting reads nothing until it's back, so it says so instead of
+    /// waiting on a skeleton that never resolves. Rows already read stay shown either way.
+    static func of(loaded: Bool, failure: String?, empty: Bool, connection: String) -> ForgeListState {
+        if !loaded, let failure { return .failed(failure) }
+        if !loaded { return ["reconnecting", "offline", "fatal"].contains(connection) ? .unreachable : .reading }
+        return empty ? .empty : .rows
+    }
+}
+
+/// The list around the rows: skeleton on the first read, the offline state when its machine
+/// can't be reached, the error state with Try again when nothing could be read, the empty
+/// state, a dimmed list while a changed filter reads, a quiet line when a refresh failed over
+/// rows already shown (or one of several repositories couldn't be read), Show more, and pull to
+/// refresh.
 struct ForgeListFrame<Rows: View>: View {
     let loaded: Bool
     let empty: Bool
@@ -114,6 +130,12 @@ struct ForgeListFrame<Rows: View>: View {
     let loading: Bool
     /// Repositories that couldn't be read, said over the rows the others gave.
     var notes: [String] = []
+    /// The machine's connection; the lists read nothing while it's out.
+    var connection = "ready"
+    /// What the list holds, for the offline line ("Pull requests").
+    var noun = "Rows"
+    /// Asks the machine to connect again; nil hides Retry.
+    var reconnect: (() -> Void)? = nil
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
@@ -122,22 +144,30 @@ struct ForgeListFrame<Rows: View>: View {
 
     var body: some View {
         List {
-            if !loaded, let failure {
+            switch ForgeListState.of(loaded: loaded, failure: failure, empty: empty, connection: connection) {
+            case .failed(let failure):
                 EmptyState(icon: nil, title: "Couldn't load from GitHub", line: failure, failed: true) {
                     Button("Try again") { Task { await refresh() } }
                 }
                 .padding(.top, AceDesign.Space.pageState)
                 .forgeRowChrome()
-            } else if !loaded {
+            case .unreachable:
+                EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "\(noun) load once it's connected.") {
+                    if let reconnect { Button("Retry", action: reconnect).accessibilityIdentifier("forge.list.retry") }
+                }
+                .padding(.top, AceDesign.Space.pageState)
+                .forgeRowChrome()
+                .accessibilityIdentifier("forge.list.unreachable")
+            case .reading:
                 SkeletonRows(count: 6).forgeRowChrome()
-            } else if empty {
+            case .empty:
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
                     .padding(.top, AceDesign.Space.pageState)
                     .forgeRowChrome()
                 ForEach(notes, id: \.self) { note in
                     Text(note).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
-            } else {
+            case .rows:
                 if let failure {
                     Text(failure).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }

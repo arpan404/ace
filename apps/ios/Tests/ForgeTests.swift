@@ -195,4 +195,20 @@ import Foundation
         let current = revisions(head: String(repeating: "3", count: 40), prHead: String(repeating: "3", count: 40))
         #expect(ForgeViewedVersion.head(patchHead: current.prHead, current: current, drawsSides: false, shown: nil) == current.prHead)
     }
+
+    @Test func aListNeverReadWaitsOnASkeletonOnlyWhileTheMachineIsStillConnecting() {
+        let state = { (connection: String) in
+            ForgeListState.of(loaded: false, failure: nil, empty: true, connection: connection)
+        }
+        #expect(state("connecting") == .reading)
+        #expect(state("starting") == .reading)
+        #expect(state("ready") == .reading)
+        #expect(state("reconnecting") == .unreachable)
+        #expect(state("offline") == .unreachable)
+        #expect(state("fatal") == .unreachable)
+        // A read that failed says why, whatever the connection; rows already read stay shown offline.
+        #expect(ForgeListState.of(loaded: false, failure: "Bad token", empty: true, connection: "offline") == .failed("Bad token"))
+        #expect(ForgeListState.of(loaded: true, failure: nil, empty: false, connection: "offline") == .rows)
+        #expect(ForgeListState.of(loaded: true, failure: nil, empty: true, connection: "offline") == .empty)
+    }
 }
