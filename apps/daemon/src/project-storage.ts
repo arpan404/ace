@@ -322,6 +322,11 @@ export class ProjectStorage {
       this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
     return workspace;
   }
+  /** Whether `other` stands here for logical project `id`: it or an id merged into it. */
+  sameIdentity(other: string, id: ProjectIdentityId): boolean {
+    const parsed = ProjectIdentityId.safeParse(other);
+    return parsed.success && this.store.atomic((db) => resolveIdentity(db, parsed.data)) === id;
+  }
   /** The registration's logical project id, minting one (`created`) when it has none. */
   ensureIdentity(id: WorkspaceId): ProjectIdentityId {
     let minted = false;

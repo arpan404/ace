@@ -329,10 +329,12 @@ export class Projects {
       const id = this.catalog.ensureIdentity(p.workspaceId);
       const written = await writeMarker(
         directory.handle,
-        { version: 1, id, name: project.name },
+        { version: 1, id, ...(project.name ? { name: project.name } : {}) },
         p.replace === true,
+        (other) => this.catalog.sameIdentity(other, id),
       );
-      if (written === "marker_conflict") return { ok: false, error: "marker_conflict" };
+      if (written === "marker_conflict" || written === "marker_unreadable")
+        return { ok: false, error: written };
       return { ok: true, workspace: this.catalog.get(p.workspaceId) };
     } finally {
       await directory.close();

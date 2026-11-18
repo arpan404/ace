@@ -47,14 +47,24 @@ machine names or credentials. A subfolder project's marker lives in that subfold
   "fork of …" and offers **Keep linked** or **New project**. New project keeps the new
   registration's own identity; the original's registrations are unchanged.
 - **Suggestions** list registrations whose marker names the asked identity, marked as such,
-  among the remote suggestions. Nothing links without confirmation.
+  among the remote suggestions. Nothing links without confirmation, and the confirmation of one
+  found only by its marker says that anyone can copy a marker. Linking it joins that
+  registration alone, recorded as `marker`: nothing is merged on the strength of a file.
 - **Never a transfer landing**: a registration whose identity came from a marker is never where
   a transfer lands by identity (ADR 0180), and a marker is never read for a landing.
 - **Writing** goes through the held descriptor with an exclusive create. A marker that already
-  names the same id is left alone; one that names another id is replaced only after the person
-  confirms (`replace`), never silently.
+  names the same logical project (its id or one merged into it here) is left alone. One naming
+  another project (`marker_conflict`), or a file there that isn't a marker (`marker_unreadable`),
+  is replaced only after the person confirms what is there (`replace`), never silently.
 - Read-only folders and repositories work entirely without a marker; a write that fails says so
   and changes nothing else.
+
+## Limits
+
+The timeout bounds reading the file. Opening the folder and the file are local system calls the
+timeout can't interrupt, so a project on a hung network mount can still hold the read; this is
+the same exposure every read of a project folder has, and suggestions open at most one page of
+folders per request.
 
 ## Rejected
 

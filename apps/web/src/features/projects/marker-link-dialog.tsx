@@ -78,7 +78,10 @@ export function MarkerLinkDialog(props: {
   const [problem, setProblem] = useState<string>();
   const { onOpenChange } = props;
   // Nothing known to link to yet (another machine may still be connecting): nothing is asked.
-  if (!known) return null;
+  // Already in it (linked before): one confirmation per registration, never a second.
+  if (!known || known.checkouts.some((each) => each.key === added)) return null;
+  // Asked once its remotes and theirs are read, so it never turns into a fork prompt mid-way.
+  if (facts.some((result) => result.isPending && result.fetchStatus !== "idle")) return null;
   const mine = facts[0]?.data;
   const theirs = facts.slice(1).flatMap((result) => (result.data ? [result.data] : []));
   const fork =

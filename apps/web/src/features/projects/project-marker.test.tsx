@@ -125,3 +125,49 @@ test("Share identity with clones writes the marker, and asks before replacing an
   });
   expect(inspected?.inspection?.marker).toEqual({ version: 1, id: own, name: "weather" });
 });
+
+test("a checkout found only by its marker joins alone, recorded as by marker, after a caution", async () => {
+  const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  const build = made.machines.get("build");
+  if (!build) throw new Error("no build server");
+  made.daemon.projects.seedFolders("/Users/dev", [
+    { path: "/Users/dev/code/weather", git: true, remote: weather },
+  ]);
+  const mine = made.daemon.projects.command({
+    type: "workspace.add",
+    path: "/Users/dev/code/weather",
+  })?.workspace?.id;
+  const own = made.daemon.projects.get(mine ?? "")?.identity?.id ?? "";
+  // On the build server, an unrelated repository carrying a copy of this project's marker.
+  build.projects.seedFolders("/home/ci", [
+    {
+      path: "/home/ci/elsewhere",
+      git: true,
+      remote: "https://github.com/acme/other.git",
+      marker: { version: 1, id: own },
+    },
+  ]);
+  const there = build.projects.command({ type: "workspace.add", path: "/home/ci/elsewhere" })
+    ?.workspace?.id;
+  await made.open("/new");
+  await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
+  await userEvent.pointer({
+    keys: "[MouseRight]",
+    target: await screen.findByRole("menuitemradio", { name: "weather" }),
+  });
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Edit project" });
+  const same = await within(dialog).findByRole("group", { name: "Same project elsewhere" });
+  await userEvent.click(within(same).getByRole("button", { name: "Find it on your machines" }));
+  const row = await within(same).findByRole("listitem", {
+    name: "Build server · /home/ci/elsewhere",
+  });
+  expect(within(row).getByText("Its project marker names this project")).toBeTruthy();
+  await userEvent.click(within(row).getByRole("button", { name: /^Link:/ }));
+  const confirm = within(same).getByRole("group", { name: "Confirm link" });
+  expect(confirm.textContent).toContain("anyone can copy one");
+  await userEvent.click(within(confirm).getByRole("button", { name: "Link" }));
+  await waitFor(() =>
+    expect(build.projects.get(there ?? "")?.identity).toMatchObject({ id: own, source: "marker" }),
+  );
+});

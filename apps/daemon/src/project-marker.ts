@@ -76,8 +76,11 @@ export async function markerAt(path: string): Promise<string | undefined> {
   }
 }
 
-/** Why a marker wasn't written. */
-export type MarkerRefusal = "marker_conflict";
+/**
+ * Why a marker wasn't written: one naming another project is there, or something at its name
+ * doesn't read as a marker at all.
+ */
+export type MarkerRefusal = "marker_conflict" | "marker_unreadable";
 
 /**
  * Write the folder's marker for `marker.id`, creating `.ace` when missing, through the held
@@ -88,9 +91,11 @@ export async function writeMarker(
   folder: PinnedDirectory,
   marker: ProjectMarker,
   replace: boolean,
+  /** Whether an id names the same logical project here (an alias of it does too). */
+  same: (id: string) => boolean = (id) => id === marker.id,
 ): Promise<"written" | "unchanged" | MarkerRefusal> {
   const existing = await readMarker(folder);
-  if (existing?.id === marker.id) return "unchanged";
+  if (existing && same(existing.id)) return "unchanged";
   let directory: PinnedDirectory;
   try {
     directory = folder.child(markerFolder);
@@ -107,7 +112,7 @@ export async function writeMarker(
       if (!isExisting(error)) throw error;
     }
     // Something is there: another id's marker, or a file that doesn't read as one.
-    if (!replace) return "marker_conflict";
+    if (!replace) return existing ? "marker_conflict" : "marker_unreadable";
     directory.replace(markerFile, text);
     return "written";
   } finally {

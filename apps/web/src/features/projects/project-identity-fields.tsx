@@ -15,6 +15,7 @@ import { usePoolProjects } from "@/lib/pool-projects.ts";
 import {
   keepsIdentities,
   linkPlan,
+  markerLinkPlan,
   runLinkPlan,
   type CheckoutRef,
   type LinkPlan,
@@ -112,7 +113,7 @@ export function ProjectIdentityFields(props: {
   const [busy, setBusy] = useState(false);
   const [half, setHalf] = useState<{ plan: LinkPlan; failed: string[] }>();
   const [problem, setProblem] = useState<string>();
-  const [sharing, setSharing] = useState<"conflict" | "written">();
+  const [sharing, setSharing] = useState<"conflict" | "unreadable" | "written">();
   const group = here ? groupOf(groups, here.id, props.projectId) : undefined;
   const others = (group?.checkouts ?? []).filter(
     (each) => !(each.machineId === here?.id && each.workspaceId === props.projectId),
@@ -174,13 +175,18 @@ export function ProjectIdentityFields(props: {
   const link = (suggestion: Suggestion) => {
     const a: CheckoutRef = { machineId: here.id, workspaceId: props.projectId };
     const b: CheckoutRef = { machineId: suggestion.machineId, workspaceId: suggestion.workspaceId };
-    const plan = linkPlan(
-      groups,
-      a,
-      b,
-      keeping.map((each) => each.id),
-      props.newId ?? (() => crypto.randomUUID()),
-    );
+    const newId = props.newId ?? (() => crypto.randomUUID());
+    // Only its marker says so: that checkout alone joins, and it is never a transfer's landing.
+    const plan =
+      suggestion.marker && suggestion.shared.length === 0
+        ? markerLinkPlan(groups, a, b, newId)
+        : linkPlan(
+            groups,
+            a,
+            b,
+            keeping.map((each) => each.id),
+            newId,
+          );
     void run(plan);
   };
   const unlink = async (checkout: ProjectCheckout) => {
@@ -210,6 +216,7 @@ export function ProjectIdentityFields(props: {
         ...(replace ? { replace: true as const } : {}),
       });
       if (result?.error === "marker_conflict") setSharing("conflict");
+      else if (result?.error === "marker_unreadable") setSharing("unreadable");
       else if (result?.ok) setSharing("written");
       else setProblem("Couldn't write the project marker. Is the folder read-only?");
     } catch {
@@ -285,6 +292,12 @@ export function ProjectIdentityFields(props: {
               It has other remotes too: it may be a fork of this project.
             </p>
           )}
+          {confirming.shared.length === 0 && (
+            <p className="text-meta text-muted-foreground">
+              Only its project marker says so, and anyone can copy one. Link it only if it is this
+              project.
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
@@ -356,11 +369,12 @@ export function ProjectIdentityFields(props: {
           )}
         </div>
       )}
-      {sharing === "conflict" && (
+      {(sharing === "conflict" || sharing === "unreadable") && (
         <div role="group" aria-label="Replace marker" className="grid gap-2 rounded-md border p-3">
           <p className="text-ui">
-            This folder already has a project marker naming another project. Replace it with this
-            one?
+            {sharing === "conflict"
+              ? "This folder already has a project marker naming another project. Replace it with this one?"
+              : "This folder already has a .ace/project.json that isn't a project marker ace can read. Replace it?"}
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setSharing(undefined)}>

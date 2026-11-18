@@ -92,7 +92,8 @@ test("a symlink where the marker goes is never written through", async () => {
   const outside = join(f.root, "victim.txt");
   await writeFile(outside, "keep me\n");
   await symlink(outside, f.file);
-  expect(await writeMarker(f.held, { version: 1, id: P }, false)).toBe("marker_conflict");
+  // Something is there that isn't a marker: said so, and nothing is written through it.
+  expect(await writeMarker(f.held, { version: 1, id: P }, false)).toBe("marker_unreadable");
   expect(await readFile(outside, "utf8")).toBe("keep me\n");
 });
 
@@ -161,4 +162,26 @@ test("Share identity with clones writes the project's marker, and asks before re
     await f.command({ type: "workspace.identity.marker.write", workspaceId, replace: true }),
   ).toMatchObject({ ok: true });
   expect(JSON.parse(await readFile(join(path, ".ace", "project.json"), "utf8")).id).toBe(P);
+});
+
+test("Share identity with clones says when what is there isn't a marker, and leaves a merged id's marker alone", async () => {
+  const f = await projectFixture({ identityId: () => P });
+  onTestFinished(() => f.close());
+  const path = join(f.root, "odd");
+  await mkdir(join(path, ".ace"), { recursive: true });
+  await writeFile(join(path, ".ace", "project.json"), "my own notes\n");
+  const added = await f.command({ type: "workspace.add", path });
+  const workspaceId = WorkspaceId.parse(added.workspace?.id);
+  expect(await f.command({ type: "workspace.identity.marker.write", workspaceId })).toMatchObject({
+    ok: false,
+    error: "marker_unreadable",
+  });
+  expect(await readFile(join(path, ".ace", "project.json"), "utf8")).toBe("my own notes\n");
+  // A marker naming Q, which was merged into this project's P here, is this project's already.
+  await writeFile(join(path, ".ace", "project.json"), JSON.stringify({ version: 1, id: Q }));
+  await f.command({ type: "workspace.identity.merge", from: Q, into: P });
+  expect(await f.command({ type: "workspace.identity.marker.write", workspaceId })).toMatchObject({
+    ok: true,
+  });
+  expect(JSON.parse(await readFile(join(path, ".ace", "project.json"), "utf8")).id).toBe(Q);
 });

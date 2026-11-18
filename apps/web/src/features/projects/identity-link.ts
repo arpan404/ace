@@ -77,6 +77,32 @@ export function linkPlan(
 }
 
 /**
+ * Linking `b` into `a`'s logical project when only `b`'s project marker says they are one
+ * (ADR 0181): `b` alone is linked, recorded as through a marker, so it is never where a transfer
+ * lands; nothing is merged on the strength of a file anyone can copy. `a` gets an identity first
+ * when it has none (`newId`).
+ */
+export function markerLinkPlan(
+  groups: readonly ProjectGroup[],
+  a: CheckoutRef,
+  b: CheckoutRef,
+  newId: () => string,
+): LinkPlan {
+  const idA = idOf(groups, a);
+  const identityId = idA ?? newId();
+  const link = (checkout: CheckoutRef, viaMarker: boolean): LinkStep => ({
+    machineId: checkout.machineId,
+    payload: {
+      type: "workspace.identity.link",
+      workspaceId: WorkspaceId.parse(checkout.workspaceId),
+      identityId,
+      ...(viaMarker ? { viaMarker: true as const } : {}),
+    },
+  });
+  return { identityId, steps: [...(idA ? [] : [link(a, false)]), link(b, true)] };
+}
+
+/**
  * Send each step to its machine; the machines whose step was refused or didn't answer. A step
  * repeats harmlessly (link and merge are idempotent), so a retry sends the whole plan again.
  */

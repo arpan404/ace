@@ -200,9 +200,15 @@ export class FakeProjects {
     };
   }
   /** `workspaces.identitySuggestions`, as the daemon pages it. */
-  identitySuggestions(remotes: readonly string[], subpath: string, after = "", limit = 32) {
+  identitySuggestions(
+    remotes: readonly string[],
+    subpath: string,
+    after = "",
+    limit = 32,
+    identityId?: string,
+  ) {
     this.seed();
-    if (!remotes.length)
+    if (!remotes.length && !identityId)
       return { kind: "identitySuggestions" as const, suggestions: [], next: null };
     const wanted = new Set(remotes);
     const all = [...this.projects.values()]
@@ -211,11 +217,23 @@ export class FakeProjects {
     const page = all.slice(0, limit);
     const suggestions = page.flatMap((project) => {
       const facts = this.checkout(project.id);
-      if (!facts || facts.subpath !== subpath) return [];
-      const shared = facts.remotes.filter((remote) => wanted.has(remote));
-      if (!shared.length) return [];
-      const sameRemotes = shared.length === wanted.size && facts.remotes.length === wanted.size;
-      return [{ workspaceId: project.id, shared, sameRemotes }];
+      const marked =
+        identityId !== undefined && this.directories.get(project.path)?.marker?.id === identityId;
+      const shared =
+        facts && facts.subpath === subpath
+          ? facts.remotes.filter((remote) => wanted.has(remote))
+          : [];
+      if (!shared.length && !marked) return [];
+      const sameRemotes =
+        shared.length > 0 && shared.length === wanted.size && facts?.remotes.length === wanted.size;
+      return [
+        {
+          workspaceId: project.id,
+          shared,
+          sameRemotes,
+          ...(marked ? { marker: true as const } : {}),
+        },
+      ];
     });
     return {
       kind: "identitySuggestions" as const,
