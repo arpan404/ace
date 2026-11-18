@@ -152,20 +152,23 @@ export class Authorizations {
     };
     this.pending.set(key, waiting);
     this.watchPage(key, waiting);
-    void opened.outcome.then((outcome) => {
-      let location: string;
-      try {
-        location = this.answer(outcome, { client, redirectUri, challenge, base, state });
-      } catch {
-        location = responseUrl(redirectUri, base, state, {
-          error: "server_error",
-          error_description: "ace couldn't save this sign-in.",
-        });
-      }
-      this.pending.set(key, { kind: "done", location });
-      // The code is good for a minute; past it the page has nothing left to give.
-      this.deps.after(codeTtlMs, () => this.pending.delete(key));
-    });
+    // A request's outcome settles only, and the answer below catches its own failure.
+    void opened.outcome
+      .then((outcome) => {
+        let location: string;
+        try {
+          location = this.answer(outcome, { client, redirectUri, challenge, base, state });
+        } catch {
+          location = responseUrl(redirectUri, base, state, {
+            error: "server_error",
+            error_description: "ace couldn't save this sign-in.",
+          });
+        }
+        this.pending.set(key, { kind: "done", location });
+        // The code is good for a minute; past it the page has nothing left to give.
+        this.deps.after(codeTtlMs, () => this.pending.delete(key));
+      })
+      .catch(() => {});
     return redirect(`${base.url}/authorize/wait?${new URLSearchParams({ k: key })}`);
   }
   /** Turns the person's answer into the redirect: a grant and its code, or a refusal. */

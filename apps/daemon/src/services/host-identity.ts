@@ -27,6 +27,7 @@ export function createHostIdentitySession({
         return true;
       }
       pending = true;
+      // The read answers its own failure below.
       void (async () => {
         try {
           const name = (await options.settings?.get("host.displayName"))?.value;
@@ -53,7 +54,7 @@ export function createHostIdentitySession({
         } finally {
           pending = false;
         }
-      })();
+      })().catch(() => {});
       return true;
     },
   };

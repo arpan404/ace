@@ -145,7 +145,8 @@ export class RemoteJobs {
     this.deps.store
       .statement("UPDATE machine_jobs SET stopping=1 WHERE machine=? AND job_id=?")
       .run(row.machine, row.job_id);
-    void this.stopThere({ ...row, stopping: 1 });
+    // stopThere() settles its own failure; the row stays held for the next poll.
+    void this.stopThere({ ...row, stopping: 1 }).catch(() => {});
   }
   private key(machine: string, jobId: string): string {
     return `${remoteJobPrefix}${machine}/${jobId}`;
@@ -185,7 +186,8 @@ export class RemoteJobs {
     if (!any) return;
     this.cancelTimer = this.deps.schedule(this.pace.waitMs, () => {
       this.cancelTimer = undefined;
-      void this.poll();
+      // poll() logs its own failure and arms the next one.
+      void this.poll().catch(() => {});
     });
   }
   private async poll(): Promise<void> {

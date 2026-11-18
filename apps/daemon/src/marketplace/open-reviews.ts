@@ -245,6 +245,7 @@ export class OpenReviews {
   sweep(): void {
     const now = this.#ports.now();
     for (const [id, pending] of this.#pending)
-      if (pending.review.expiresAt <= now) void this.cancel(id);
+      // cancel() already swallows a plugin cancellation failure.
+      if (pending.review.expiresAt <= now) void this.cancel(id).catch(() => {});
   }
 }

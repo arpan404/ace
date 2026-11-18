@@ -149,9 +149,9 @@ export class MachineUpdates {
       };
       this.#record = { ...this.#record, installing };
       // Recorded before it begins: the daemon after the restart settles it by its version.
-      void this.#save().then(() =>
-        installer.begin(ask, step.mode, (end) => this.#ended(ask.id, end)),
-      );
+      void this.#save()
+        .then(() => installer.begin(ask, step.mode, (end) => this.#ended(ask.id, end)))
+        .catch((error: unknown) => this.#options.log(error));
     } else if (ask && step.kind === "expire") {
       this.#record = {
         ask: null,
@@ -164,7 +164,8 @@ export class MachineUpdates {
           at: this.#options.now(),
         },
       };
-      void this.#save();
+      // save() logs its own failure, so a rejected save leaves nothing here to report.
+      void this.#save().catch(() => {});
     }
     this.#tell();
   }
@@ -185,7 +186,8 @@ export class MachineUpdates {
         at: this.#options.now(),
       },
     };
-    void this.#save();
+    // save() logs its own failure, so a rejected save leaves nothing here to report.
+    void this.#save().catch(() => {});
     this.#evaluate();
   }
 

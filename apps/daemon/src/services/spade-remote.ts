@@ -25,7 +25,8 @@ export function createSpadeRemoteSession(context: SpadeRemoteSocket): SocketServ
   const run = (work: () => Promise<void>) => {
     const task = work().catch(() => {});
     context.tasks.add(task);
-    void task.finally(() => context.tasks.delete(task));
+    // The work above drops its own failure; this only forgets the task.
+    void task.finally(() => context.tasks.delete(task)).catch(() => {});
   };
   return {
     handle(message) {

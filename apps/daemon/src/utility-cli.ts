@@ -60,7 +60,8 @@ export function createUtilityCli(options: UtilityCliOptions): UtilityCli {
     let cancelTimer: (() => void) | undefined;
     let timedOut = false;
     const stop = () => {
-      void child?.stop({ graceMs: 0 });
+      // Only a head start: the finally block stops the same process again and reports there.
+      void child?.stop({ graceMs: 0 }).catch(() => {});
     };
     try {
       child = spawn({

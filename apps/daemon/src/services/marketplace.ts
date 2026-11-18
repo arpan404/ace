@@ -138,9 +138,20 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
         return true;
       }
-      const task = run().then(reply);
+      const task = run()
+        .then(reply)
+        .catch((error: unknown) => {
+          options.log?.(error);
+          reply({
+            op: "error",
+            code: "failed",
+            message:
+              error instanceof Error ? error.message.slice(0, 2000) : "Marketplace request failed",
+          });
+        });
       tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      // The task answers its own failure above; this only forgets it.
+      void task.finally(() => tasks.delete(task)).catch(() => {});
       return true;
     },
   };
