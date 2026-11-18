@@ -7,6 +7,7 @@ import {
   project,
   shotOrder,
   storyAt,
+  teamTree,
   type Insets,
   type Rect,
   type Size,
@@ -139,5 +140,50 @@ describe("what has happened in the story", () => {
     }
     expect(storyAt(5).done).toBe(true);
     expect(storyAt(4.5).done).toBe(false);
+  });
+});
+
+describe("the team growing out of the composer", () => {
+  const chip = { width: 172, height: 38 };
+
+  it("stands the chips beside the composer on a wide screen, clear of it and of the edge", () => {
+    const composer = { x: 138, y: 525, width: 800, height: 140 };
+    const stage = { width: 1440, height: 900 };
+    const tree = teamTree(composer, stage, 138, 6, chip, false);
+    expect(tree?.leaves).toHaveLength(6);
+    for (const leaf of tree?.leaves ?? []) {
+      expect(leaf.x).toBeGreaterThan(composer.x + composer.width);
+      expect(leaf.x + chip.width).toBeLessThanOrEqual(stage.width - 138);
+      expect(leaf.y + chip.height).toBeLessThanOrEqual(composer.y + composer.height);
+    }
+  });
+
+  it("draws nothing when a wide screen has no room beside the composer", () => {
+    const composer = { x: 40, y: 500, width: 900, height: 120 };
+    expect(teamTree(composer, { width: 1024, height: 768 }, 40, 6, chip, false)).toBeUndefined();
+  });
+
+  it("hangs the chips under the composer on a narrow screen, inside its width", () => {
+    const composer = { x: 20, y: 400, width: 350, height: 110 };
+    const tree = teamTree(composer, { width: 390, height: 844 }, 20, 6, chip, true);
+    for (const leaf of tree?.leaves ?? []) {
+      expect(leaf.y).toBeGreaterThan(composer.y + composer.height);
+      expect(leaf.x + chip.width).toBeLessThanOrEqual(composer.x + composer.width);
+    }
+  });
+
+  it("starts every line at the composer and ends it at its chip", () => {
+    const composer = { x: 138, y: 525, width: 800, height: 140 };
+    const tree = teamTree(composer, { width: 1440, height: 900 }, 138, 6, chip, false);
+    tree?.lines.forEach((line, index) => {
+      const leaf = tree.leaves[index];
+      expect(
+        line.startsWith(`M${composer.x + composer.width} ${composer.y + composer.height / 2}`),
+      ).toBe(true);
+      expect(
+        line.endsWith(`${leaf?.x}`) ||
+          line.endsWith(`${leaf?.x} ${(leaf?.y ?? 0) + chip.height / 2}`),
+      ).toBe(true);
+    });
   });
 });

@@ -9,6 +9,7 @@ import {
   project,
   shotOrder,
   storyAt,
+  teamTree,
   union,
   type Camera,
   type Rect,
@@ -27,6 +28,14 @@ import {
  */
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * How wide the opening composer is drawn on a wide screen: up to 800 pixels, leaving room at its
+ * side for the team's tree where the screen has it.
+ */
+function composerWidth(free: number): number {
+  return free - 300 >= 560 ? Math.min(800, free - 300) : Math.min(800, free);
+}
 
 /** A box with `by` pixels of room added on every side. */
 function grow(rect: Rect, by: number): Rect {
@@ -49,6 +58,9 @@ export function startZoomStory(root: HTMLElement): void {
   const lens = q("[data-zoom-lens]");
   const ghost = q("[data-zoom-ghost]");
   const cue = q("[data-zoom-cue]");
+  const fan = q("[data-zoom-fan]");
+  const fanLines = [...root.querySelectorAll<SVGPathElement>("[data-fan-line]")];
+  const fanLeaves = [...root.querySelectorAll<HTMLElement>("[data-fan-leaf]")];
   const app = q(".ace");
   const composer = q(".ace .composer");
   const placeholder = q(".ace .composer .placeholder");
@@ -144,7 +156,9 @@ export function startZoomStory(root: HTMLElement): void {
           left: side,
         },
         // On a wide screen the composer is drawn larger than life, up to 880 pixels across.
-        maxScale: narrow ? 0.92 : Math.min(1.3, 880 / promptBox.width),
+        maxScale: narrow
+          ? 0.92
+          : Math.min(1.3, composerWidth(size.width - side * 2) / promptBox.width),
         alignX: 0,
         alignY: 0,
       },
@@ -160,6 +174,7 @@ export function startZoomStory(root: HTMLElement): void {
       all: { rect: union([mac, build, workstation, phone]), insets },
     };
     cameras = shotOrder.map((id) => frame(shots[id], size));
+    growTeam(side);
 
     mids = paths.map((path) => {
       // Lines run between screens, not between the wider bodies under them.
@@ -170,6 +185,35 @@ export function startZoomStory(root: HTMLElement): void {
       const half = path.getPointAtLength(path.getTotalLength() / 2);
       return { x: half.x, y: half.y };
     });
+  }
+
+  /** Places the opening's tree of agents around the composer as the first shot shows it. */
+  function growTeam(side: number): void {
+    const camera = cameras[0];
+    if (!fan || !camera || !promptBox) return;
+    const at = project(camera, promptBox);
+    const composerBox = narrow
+      ? {
+          ...at,
+          width: size.width - side * 2,
+          height: (ghost?.offsetHeight ?? promptBox.height) * readable,
+        }
+      : { ...at, width: promptBox.width * camera.scale, height: promptBox.height * camera.scale };
+    const tree = teamTree(
+      composerBox,
+      size,
+      side,
+      fanLeaves.length,
+      { width: 172, height: 38 },
+      narrow,
+    );
+    fan.hidden = !tree;
+    if (!tree) return;
+    tree.leaves.forEach((leaf, index) => {
+      const chip = fanLeaves[index];
+      if (chip) chip.style.translate = `${leaf.x}px ${leaf.y}px`;
+    });
+    tree.lines.forEach((line, index) => fanLines[index]?.setAttribute("d", line));
   }
 
   let applied: StoryState | undefined;
@@ -246,13 +290,17 @@ export function startZoomStory(root: HTMLElement): void {
       ghost.style.transform = `translate(${at.x}px, ${at.y}px) scale(${scale})`;
       ghost.style.opacity = narrow ? String(1 - arrived) : "";
       ghost.style.visibility = arrived === 1 ? "hidden" : "";
+      const waiting = 1 - clamp(leg.at / 0.06);
+      if (fan) {
+        fan.style.opacity = String(waiting);
+        fan.style.visibility = waiting === 0 ? "hidden" : "";
+      }
       if (cue) {
-        const waiting = 1 - clamp(leg.at / 0.06);
         cue.style.opacity = String(waiting);
         if (waiting > 0) {
           const box = ghost.getBoundingClientRect();
           const within = stage.getBoundingClientRect();
-          cue.style.transform = `translate(${box.left - within.left + 4}px, ${box.bottom - within.top + 16}px)`;
+          cue.style.transform = `translate(${box.left - within.left + (narrow ? 34 : 4)}px, ${box.bottom - within.top + 16}px)`;
         }
       }
     }

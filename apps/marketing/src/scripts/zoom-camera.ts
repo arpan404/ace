@@ -197,3 +197,65 @@ export function link(from: Rect, to: Rect): string {
   const bend = (y2 - y1) / 2;
   return `M${a.x} ${y1}C${a.x} ${y1 + bend} ${b.x} ${y2 - bend} ${b.x} ${y2}`;
 }
+
+export interface Tree {
+  /** Top left corner of each chip, in stage pixels. */
+  leaves: { x: number; y: number }[];
+  /** One line per chip, from the composer to the chip's left edge. */
+  lines: string[];
+}
+
+/**
+ * The opening's picture of "a whole team out": a tree growing from the composer, one branch
+ * per agent, drawn the way ace draws a thread's agents. On a wide screen the chips stand in a
+ * column at the right edge and the trunk leaves the composer's side; on a narrow one they hang
+ * under it. Returns nothing when a wide screen has no room beside the composer.
+ */
+export function teamTree(
+  composer: Rect,
+  stage: Size,
+  side: number,
+  count: number,
+  chip: Size,
+  narrow: boolean,
+): Tree | undefined {
+  const radius = 14;
+  const bottom = composer.y + composer.height;
+  if (narrow) {
+    const trunk = composer.x + 18;
+    const x = trunk + 30;
+    const leaves = Array.from({ length: count }, (_, index) => ({
+      x,
+      y: bottom + 60 + index * (chip.height + 10),
+    }));
+    return {
+      leaves,
+      lines: leaves.map((leaf) => {
+        const y = leaf.y + chip.height / 2;
+        return `M${trunk} ${bottom}V${y - radius}Q${trunk} ${y} ${trunk + radius} ${y}H${leaf.x}`;
+      }),
+    };
+  }
+
+  const right = composer.x + composer.width;
+  const x = stage.width - side - chip.width;
+  if (x - right < 96) return undefined;
+  const trunk = right + (x - right) * 0.42;
+  const from = composer.y + composer.height / 2;
+  const top = 116;
+  const last = bottom - chip.height;
+  const step = count > 1 ? (last - top) / (count - 1) : 0;
+  const leaves = Array.from({ length: count }, (_, index) => ({ x, y: top + step * index }));
+  return {
+    leaves,
+    lines: leaves.map((leaf) => {
+      const y = leaf.y + chip.height / 2;
+      const rise = y - from;
+      // A branch level with the composer runs straight; the others turn twice.
+      if (Math.abs(rise) < radius * 2)
+        return `M${right} ${from}C${trunk} ${from} ${trunk} ${y} ${x} ${y}`;
+      const turn = Math.sign(rise) * radius;
+      return `M${right} ${from}H${trunk - radius}Q${trunk} ${from} ${trunk} ${from + turn}V${y - turn}Q${trunk} ${y} ${trunk + radius} ${y}H${x}`;
+    }),
+  };
+}

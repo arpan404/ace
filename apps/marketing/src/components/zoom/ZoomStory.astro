@@ -78,6 +78,19 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     </div>
 
     <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
+    <div class="fan" data-zoom-fan aria-hidden="true">
+      <svg width="1" height="1">
+        {builtInAgents.map((_, index) => <path data-fan-line pathLength="1" style={`--i: ${index}`} />)}
+      </svg>
+      {
+        builtInAgents.map((agent, index) => (
+          <span class="leaf" data-fan-leaf style={`--i: ${index}`}>
+            <BrandMark brand={agent.brand} size={18} />
+            {agent.label}
+          </span>
+        ))
+      }
+    </div>
     <p class="cue" data-zoom-cue aria-hidden="true">
       Scroll to send
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
@@ -116,19 +129,7 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
             Star on GitHub
           </a>
         </div>
-        <div class="facts">
-          <ul aria-label="Agents ace runs">
-            {
-              builtInAgents.map((agent) => (
-                <li title={agent.label}>
-                  <BrandMark brand={agent.brand} size={18} />
-                  <span class="sr-only">{agent.label}</span>
-                </li>
-              ))
-            }
-          </ul>
-          <p>{product.heroFacts.join(". ")}.</p>
-        </div>
+        <p class="facts">{product.heroFacts.join(". ")}.</p>
       </div>
     </div>
 
@@ -385,25 +386,81 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     margin-top: 28px;
   }
 
-  /* The agents ace runs, as bare marks, then what it costs and where it runs. */
   .facts {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 18px;
-    margin-top: 20px;
+    margin-top: 18px;
     color: var(--subtle);
     font-size: 13px;
   }
 
-  .facts ul {
-    display: flex;
-    gap: 12px;
-    color: var(--muted);
+  /*
+   * "A whole team out", drawn: a tree grows from the composer to the agents ace runs, as a
+   * thread lists its agents. The script places the chips and draws the lines.
+   */
+  .fan {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
   }
 
-  .facts li {
-    display: grid;
+  .zoom:not([data-live]) .fan {
+    display: none;
+  }
+
+  .fan svg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+  }
+
+  .fan path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+  }
+
+  .leaf {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 38px;
+    padding: 0 16px 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: 0 10px 24px -16px var(--frame-shadow);
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /* The lines draw outward from the composer and each chip lands as its line arrives. */
+  :global(html.motion) .fan path {
+    animation: grow 0.9s var(--ease-out) both;
+    animation-delay: calc(0.35s + var(--i) * 70ms);
+  }
+
+  :global(html.motion) .leaf {
+    animation: land 0.5s var(--ease-out) both;
+    animation-delay: calc(0.95s + var(--i) * 70ms);
+  }
+
+  @keyframes grow {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+
+  @keyframes land {
+    from {
+      opacity: 0;
+      scale: 0.92;
+    }
   }
 
   /* Under the composer: what to do next. It leaves with the first scroll. */
