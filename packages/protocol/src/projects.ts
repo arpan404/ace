@@ -150,7 +150,7 @@ export const Project = z.object({
    */
   identity: ProjectIdentity.optional(),
   /**
-   * Its remotes and folder inside the repository, once its daemon has read them (ADR 0187):
+   * Its remotes and folder inside the repository, once its daemon has read them (ADR 0189):
    * clients group registrations with the same key. Absent: not read yet, not a checkout with
    * a remote, unlinked by the person, or an older daemon.
    */

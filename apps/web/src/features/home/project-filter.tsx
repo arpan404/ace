@@ -1,6 +1,6 @@
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@ace/icons";
-import { projectBadge, projectTint } from "@ace/ui-core";
+import { isChatEntry, projectBadge, projectCounts, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -19,10 +19,15 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { machineRow, useMachineEntries } from "@/lib/machine-threads.ts";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { DeviceFilter, ScopeMark, scopeNames, useScopeMachines } from "./device-filter.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
+import { checkoutKey, filterRows } from "./project-scope.ts";
 import { useProjects } from "./use-home-threads.ts";
+import { useProjectGroups } from "./use-project-scope.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
 import { part } from "@/lib/suit-part.ts";
@@ -34,33 +39,58 @@ const all = "\u0000all";
  * caret opens the project and device filter (it narrows all three tabs to one project or
  * device, offers actions for each project and ends with Add project). A project shows its mark
  * and name; a device shows its glyph and name; both show the mark and name, then ` · `, then
- * the glyph and name, truncated with the full text in the tooltip. Every project the daemon
- * lists is here, with or without threads, beside any project only threads still mention.
+ * the glyph and name, truncated with the full text in the tooltip. Projects are logical ones
+ * (ADR 0189): one row for each project on any machine the device filter lets through, with
+ * or without threads, its count summed over those machines, beside any project only threads
+ * still mention. A row's actions act on this machine's checkout; one with none here has none.
  */
 export function ProjectFilter() {
   const organizer = useOrganizer();
   const { project } = useOrganizerState();
-  const chosen = useScopeMachines(useSidebarDevice());
+  const device = useSidebarDevice();
+  const chosen = useScopeMachines(device);
   const deviceName = scopeNames(chosen);
+  const own = usePrimaryMachine().id;
   const withThreads = useProjects();
+  const others = useMachineEntries(useHostIdentity()?.hostId);
+  const groups = useProjectGroups();
   const directory = useProjectDirectory();
   const { name } = directory;
-  const projectName = project === null ? null : name(project);
+  const counts = useMemo(() => {
+    const counted = new Map(withThreads.map((p) => [checkoutKey(own, p.id), p.threads]));
+    const byHost = new Map<string, typeof others>();
+    for (const entry of others) {
+      const host = machineRow(entry.id)?.hostId;
+      if (!host || isChatEntry(entry)) continue;
+      byHost.set(host, [...(byHost.get(host) ?? []), entry]);
+    }
+    for (const [host, entries] of byHost)
+      for (const each of projectCounts(entries))
+        counted.set(checkoutKey(host, each.id), each.threads);
+    return counted;
+  }, [withThreads, others, own]);
+  const rows = useMemo(
+    () =>
+      filterRows({
+        groups,
+        device,
+        own,
+        counts,
+        chosen: project,
+        name,
+        isChat: directory.isChat,
+      }),
+    [groups, device, own, counts, project, name, directory.isChat],
+  );
+  const chosenRow = project === null ? undefined : rows.find((row) => row.value === project);
+  const projectName = project === null ? null : (chosenRow?.label ?? name(project));
+  const mark = chosenRow?.actsOn ?? project;
   const label = projectName ?? "All projects";
   const fullTitle =
     projectName && deviceName
       ? `${projectName} · ${deviceName}`
       : (projectName ?? deviceName ?? "All projects");
-  const total = withThreads.reduce((sum, p) => sum + p.threads, 0);
-  const rows = useMemo(() => {
-    const counts = new Map(withThreads.map((p) => [p.id, p.threads]));
-    const ids = [...new Set([...directory.projects.map((p) => p.id), ...counts.keys()])].filter(
-      (id) => !directory.isChat(id),
-    );
-    return ids
-      .map((id) => ({ id, label: name(id), threads: counts.get(id) ?? 0 }))
-      .toSorted((a, b) => a.label.localeCompare(b.label));
-  }, [withThreads, directory, name]);
+  const total = rows.reduce((sum, row) => sum + row.threads, 0);
 
   return (
     <span className="flex min-w-0 flex-1">
@@ -72,10 +102,10 @@ export function ProjectFilter() {
             className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-md font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
           >
             <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-              {project !== null && (
+              {mark !== null && (
                 <ProjectMark
-                  id={project}
-                  badge={projectBadge({ id: project, name: projectName ?? project })}
+                  id={mark}
+                  badge={projectBadge({ id: mark, name: projectName ?? mark })}
                 />
               )}
               {project !== null && <span className="min-w-0 truncate">{projectName}</span>}
@@ -102,11 +132,11 @@ export function ProjectFilter() {
             {rows.length > 0 && <MenuSeparator />}
             {rows.map((row) => (
               <ProjectItem
-                key={row.id}
-                value={row.id}
+                key={row.value}
+                value={row.value}
                 label={row.label}
                 count={row.threads}
-                registered={directory.projects.some((p) => p.id === row.id)}
+                actsOn={row.actsOn}
               />
             ))}
           </MenuRadioGroup>
@@ -119,25 +149,27 @@ export function ProjectFilter() {
 }
 
 /** A project in the filter, its folder in the project's tint as on its rows; All stays grey. */
-function ProjectItem(props: { value: string; label: string; count: number; registered?: boolean }) {
+function ProjectItem(props: {
+  value: string;
+  label: string;
+  count: number;
+  /** This machine's checkout its actions act on; without one it has none. */
+  actsOn?: string | undefined;
+}) {
+  const markId = props.actsOn ?? props.value;
   const item = (
     <MenuRadioItem value={props.value} aria-label={props.label} className="flex-1">
       <span className="flex items-center gap-[9px]">
         <span
           className="flex text-muted-foreground"
           style={
-            props.value === all
-              ? undefined
-              : { color: `var(--project-${projectTint(props.value)})` }
+            props.value === all ? undefined : { color: `var(--project-${projectTint(markId)})` }
           }
         >
           {props.value === all ? (
             <Icon icon={FolderSimpleIcon} />
           ) : (
-            <ProjectMark
-              id={props.value}
-              badge={projectBadge({ id: props.value, name: props.label })}
-            />
+            <ProjectMark id={markId} badge={projectBadge({ id: markId, name: props.label })} />
           )}
         </span>
         {props.label}
@@ -148,8 +180,8 @@ function ProjectItem(props: { value: string; label: string; count: number; regis
       </span>
     </MenuRadioItem>
   );
-  if (!props.registered) return item;
-  const actions = <ManageProjectItems projectId={props.value} name={props.label} />;
+  if (!props.actsOn) return item;
+  const actions = <ManageProjectItems projectId={props.actsOn} name={props.label} />;
   return (
     <div className="group/project flex items-center">
       <ContextMenu>

@@ -21,7 +21,7 @@ export interface RemoteKeyReaderOptions {
 }
 
 /**
- * Keeps registrations' remote keys (ADR 0187) fresh in the background: `poke` starts a sweep
+ * Keeps registrations' remote keys (ADR 0189) fresh in the background: `poke` starts a sweep
  * that reads, a few at a time with a pause between, every registration whose key is unread or
  * older than its TTL, and announces each whose key changed. Nothing runs until something pokes
  * it (a client connecting, a project added), never at daemon open (ADR 0170). A poke during a

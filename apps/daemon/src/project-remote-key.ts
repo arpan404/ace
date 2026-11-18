@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { ProjectRemoteKey, WorkspaceId } from "@ace/protocol";
 
 /*
- * Each registration's remote key (ADR 0187): its remotes and folder inside the repository, as
+ * Each registration's remote key (ADR 0189): its remotes and folder inside the repository, as
  * last read from Git, kept beside the registration so a list reports it without reading Git.
  * Opening the daemon only makes the table, empty the first time (ADR 0170); rows are filled in
  * idle batches (`RemoteKeyReader`). `apart` records an unlink: that registration's key is never

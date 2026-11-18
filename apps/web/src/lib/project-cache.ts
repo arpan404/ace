@@ -3,6 +3,7 @@ import type {
   ProjectDefaults,
   ProjectIdentity,
   ProjectNote,
+  ProjectRemoteKey,
 } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -28,6 +29,8 @@ export interface Project {
   kind?: "chat" | undefined;
   /** Its logical project across machines (ADR 0180); absent: one of its own. */
   identity?: ProjectIdentity | undefined;
+  /** Its remotes and folder in the repository, which group it with clones (ADR 0189). */
+  remoteKey?: ProjectRemoteKey | undefined;
   /** When work last started in it here (ms). */
   openedAt?: number | undefined;
 }
@@ -43,6 +46,23 @@ export function rememberProject(queryClient: QueryClient, project: Project): voi
     list ? [...list.filter((p) => p.id !== project.id), project] : list,
   );
   settle(queryClient);
+}
+
+/**
+ * Put an updated project in place. Only a read already in flight, which may predate the
+ * change, is read again behind it: a daemon reading every checkout's remotes (ADR 0189) pushes
+ * one update per project, and each must not read the whole list again.
+ */
+function updateProject(queryClient: QueryClient, project: Project): void {
+  const held = queryClient.getQueryData<Project[]>(projectsKey);
+  const fetching = queryClient.isFetching({ queryKey: projectsKey, exact: true }) > 0;
+  if (fetching || !held?.some((p) => p.id === project.id)) {
+    rememberProject(queryClient, project);
+    return;
+  }
+  queryClient.setQueryData<Project[]>(projectsKey, (list) =>
+    list?.map((p) => (p.id === project.id ? project : p)),
+  );
 }
 
 /** Drop a removed project from the shared list. */
@@ -86,6 +106,8 @@ export function useProjectListSync(): void {
     () =>
       client.projects.onChanged((change) => {
         if (change.change === "removed") forgetProject(queryClient, change.workspaceId);
+        else if (change.workspace && change.change === "updated")
+          updateProject(queryClient, change.workspace);
         else if (change.workspace) rememberProject(queryClient, change.workspace);
         else settle(queryClient);
         // Its repository choices may be what changed (ADR 0120).

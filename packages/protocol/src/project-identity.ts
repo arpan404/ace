@@ -7,7 +7,7 @@ import { WorkspaceId } from "./ids.ts";
  * out. A registration's identity is a grouping its own daemon keeps, never an authority: it is
  * set by the daemon (on add, clone or create), by an explicit link, merge or unlink the person
  * confirmed, or by a transfer from one of the person's paired machines. Clients also group
- * checkouts of the same remotes at the same folder (`ProjectRemoteKey`, ADR 0187); an unlinked
+ * checkouts of the same remotes at the same folder (`ProjectRemoteKey`, ADR 0189); an unlinked
  * registration reports none. A registration without either is its own project.
  */
 
@@ -127,7 +127,7 @@ export const ProjectIdentityOperations = [
 ] as const;
 
 /**
- * What a registration is a checkout of, for grouping by remote (ADR 0187): every remote's
+ * What a registration is a checkout of, for grouping by remote (ADR 0189): every remote's
  * `normalizeRemoteUrl` key, sorted, and its folder inside the repository. Clients put
  * registrations with the same remotes at the same subpath in one logical project. A daemon
  * reports it only for a Git checkout with a remote, and never for one the person unlinked.

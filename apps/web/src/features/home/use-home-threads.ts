@@ -25,6 +25,8 @@ import { usePendingActions } from "@/lib/pending-actions.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { inScope, useSidebarDevice } from "./device-filter-state.ts";
+import { checkoutKey } from "./project-scope.ts";
+import { useProjectScope } from "./use-project-scope.ts";
 
 /** How Home orders the threads below Pinned (Settings › Agents › Sort threads). */
 export function useHomeSort(): HomeSort {
@@ -150,7 +152,7 @@ export function useHomeList(
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
-  const state = useOrganizerState();
+  const scope = useProjectScope().checkouts;
   const now = useNow();
   const read = useEntries();
   const placed = usePlaceOf(now, false);
@@ -164,9 +166,12 @@ export function useHomeList(
       const onDevice = device
         ? all.filter((entry) => inScope(device, machineRow(entry.id)?.hostId ?? ownDevice))
         : all;
-      const project = state.project;
+      // A project covers its checkouts on every machine (ADR 0189).
       const work = onDevice.filter(
-        (entry) => !isChatThread(entry) && (project === null || entry.workspaceId === project),
+        (entry) =>
+          !isChatThread(entry) &&
+          (!scope ||
+            scope.has(checkoutKey(machineRow(entry.id)?.hostId ?? ownDevice, entry.workspaceId))),
       );
       const entries =
         query.trim().length > 0
@@ -193,7 +198,7 @@ export function useHomeList(
       };
     },
     [
-      state,
+      scope,
       read,
       others,
       device,

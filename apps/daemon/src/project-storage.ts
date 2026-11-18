@@ -357,7 +357,7 @@ export class ProjectStorage {
   }
   /**
    * Split the registration off into a fresh logical project; its old one's aliases stay. It is
-   * never grouped by remote again (ADR 0187): only a link puts it back with other checkouts.
+   * never grouped by remote again (ADR 0189): only a link puts it back with other checkouts.
    */
   unlink(id: WorkspaceId): Project {
     const workspace = this.store.atomic((db) => {

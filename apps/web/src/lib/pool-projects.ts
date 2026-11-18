@@ -27,6 +27,12 @@ const Kept = z.object({
   identity: z
     .object({ id: z.string().max(64), aliases: z.array(z.string().max(64)).max(32) })
     .optional(),
+  remoteKey: z
+    .object({
+      remotes: z.array(z.string().max(4096)).min(1).max(64),
+      subpath: z.string().max(4096),
+    })
+    .optional(),
   openedAt: z.number().nonnegative().optional(),
 });
 const KeptList = z.object({ at: z.number(), projects: z.array(Kept).max(keptProjects) });
@@ -51,6 +57,9 @@ const keep = (project: Project) => ({
   ...(project.kind ? { kind: project.kind } : {}),
   ...(project.identity
     ? { identity: { id: project.identity.id, aliases: [...project.identity.aliases] } }
+    : {}),
+  ...(project.remoteKey
+    ? { remoteKey: { remotes: [...project.remoteKey.remotes], subpath: project.remoteKey.subpath } }
     : {}),
   ...(project.openedAt === undefined ? {} : { openedAt: project.openedAt }),
 });
@@ -114,12 +123,22 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
     // The same object while no machine's list changed, so the lists below are kept too.
     combine,
   });
-  // Each online machine's pushes: a project added, renamed, linked or removed there.
+  // Each online machine's pushes: a project added, renamed, linked or removed there. A change
+  // that carries the project is put in place; a daemon reading its checkouts' remotes (ADR
+  // 0189) sends one per project, which must not each read the whole list again.
   const clients = online.map((machine) => [machine.id, machine.client] as const);
   const clientKey = clients.map(([id]) => id).join("\n");
   useEffect(() => {
     const stops = clients.map(([id, client]) =>
-      client?.projects.onChanged(() => {
+      client?.projects.onChanged((change) => {
+        const { workspace } = change;
+        const held = queryClient.getQueryData<Project[]>(poolKey(id));
+        if (workspace && change.change !== "added" && held?.some((p) => p.id === workspace.id)) {
+          queryClient.setQueryData<Project[]>(poolKey(id), (list) =>
+            list?.map((p) => (p.id === workspace.id ? workspace : p)),
+          );
+          return;
+        }
         void queryClient.invalidateQueries({ queryKey: poolKey(id), exact: true });
       }),
     );

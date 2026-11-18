@@ -1,5 +1,5 @@
 /*
- * Logical projects across the person's machines (ADR 0180, ADR 0187): one group per project,
+ * Logical projects across the person's machines (ADR 0180, ADR 0189): one group per project,
  * holding each machine's checkouts (registrations) of it. Registrations group as connected
  * components of three kinds of edge every machine reports: identity ids, alias edges, and
  * remote keys (the same remotes at the same folder inside the repository). So a machine that
@@ -20,7 +20,7 @@ export interface GroupableProject {
   path: string;
   kind?: string | undefined;
   identity?: { id: string; aliases: readonly string[] } | undefined;
-  /** Its remotes' normalized keys and folder inside the repository (ADR 0187). */
+  /** Its remotes' normalized keys and folder inside the repository (ADR 0189). */
   remoteKey?: { remotes: readonly string[]; subpath: string } | undefined;
   openedAt?: number | undefined;
 }

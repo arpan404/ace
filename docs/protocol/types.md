@@ -6100,6 +6100,10 @@ Example:
 {
   "command": {
     "action": "type",
+    "expect": {
+      "tabId": "example",
+      "url": "example"
+    },
     "ref": "example",
     "text": "example"
   },
@@ -6407,6 +6411,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"navigation_history"` |  |
 
 Example:
@@ -6423,6 +6428,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"selection"` |  |
 
 Example:
@@ -6430,6 +6436,10 @@ Example:
 ```json
 {
   "action": "selection",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "tabId": "example"
 }
 ```
@@ -6439,6 +6449,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"history"` |  |
 | direction | yes | ["back","forward","reload","stop"] |  |
 
@@ -6447,7 +6458,7 @@ Example:
 ```json
 {
   "action": "history",
-  "direction": "stop"
+  "direction": "back"
 }
 ```
 
@@ -6456,6 +6467,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"find_text"` |  |
 | text | yes | string | {"maxLength":4096} |
 | forward | no | boolean | {"default":true} |
@@ -6474,6 +6486,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"navigate"` |  |
 | url | yes | string | {"maxLength":8192} |
 | timeout | no | integer | {"default":10000,"minimum":1,"maximum":120000} |
@@ -6484,6 +6497,7 @@ Example:
 ```json
 {
   "action": "navigate",
+  "timeout": 4,
   "url": "example",
   "waitUntil": "load"
 }
@@ -6494,6 +6508,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"click"` |  |
 | ref | no | string | {"description":"Ref from the latest snapshot. Omit it to click at x, y.","minLength":1,"maxLength":256} |
 | x | no | number | {"description":"CSS pixels from the viewport's left edge; needs y.","minimum":-100000,"maximum":100000} |
@@ -6507,6 +6522,7 @@ Example:
 ```json
 {
   "action": "click",
+  "modifiers": [],
   "tabId": "example"
 }
 ```
@@ -6516,6 +6532,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"type"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 | text | yes | string | {"maxLength":65536} |
@@ -6525,6 +6542,10 @@ Example:
 ```json
 {
   "action": "type",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "ref": "example",
   "text": "example"
 }
@@ -6535,6 +6556,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"press"` |  |
 | key | yes | string | {"minLength":1,"maxLength":256} |
 | ref | no | string | {"minLength":1,"maxLength":256} |
@@ -6553,6 +6575,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"scroll"` |  |
 | x | yes | number | {"minimum":-100000,"maximum":100000} |
 | y | yes | number | {"minimum":-100000,"maximum":100000} |
@@ -6562,8 +6585,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 7,
-  "y": 9
+  "x": 9,
+  "y": 4
 }
 ```
 
@@ -6572,6 +6595,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"drag"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 | toRef | yes | string | {"minLength":1,"maxLength":256} |
@@ -6591,6 +6615,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"measure_interaction"` |  |
 | observeMs | no | integer | {"default":2000,"minimum":1,"maximum":10000} |
 | repeat | no | integer | {"default":1,"minimum":1,"maximum":5} |
@@ -6602,7 +6627,11 @@ Example:
 ```json
 {
   "action": "measure_interaction",
-  "filmstrip": true
+  "interaction": {
+    "action": "press",
+    "key": "example"
+  },
+  "repeat": 1
 }
 ```
 
@@ -6611,6 +6640,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"snapshot"` |  |
 | ref | no | string | {"description":"Ref of a container from the latest snapshot: return only its subtree.","minLength":1,"maxLength":256} |
 | interactiveOnly | no | boolean | {"default":false,"description":"Only actionable elements (buttons, links, fields), as a flat list."} |
@@ -6622,7 +6652,10 @@ Example:
 ```json
 {
   "action": "snapshot",
-  "interactiveOnly": false,
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "ref": "example",
   "tabId": "example"
 }
@@ -6633,6 +6666,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"screenshot"` |  |
 | fullPage | no | boolean | {"default":false,"description":"The whole scrollable page, not the viewport."} |
 | ref | no | string | {"description":"Only this element from the latest snapshot.","minLength":1,"maxLength":256} |
@@ -6643,7 +6677,10 @@ Example:
 ```json
 {
   "action": "screenshot",
-  "fullPage": false,
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "ref": "example",
   "tabId": "example"
 }
@@ -6654,6 +6691,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"evaluate"` |  |
 | expression | yes | string | {"maxLength":65536} |
 | mode | no | ["read-only","unrestricted"] | {"default":"unrestricted","description":"unrestricted: runs in the page like a script of its own and may change it (awaits promises). read-only: an isolated world where anything with a side effect (writes, calls into page code, promises) is refused; use it to read values."} |
@@ -6663,7 +6701,8 @@ Example:
 ```json
 {
   "action": "evaluate",
-  "expression": "example"
+  "expression": "example",
+  "mode": "unrestricted"
 }
 ```
 
@@ -6672,6 +6711,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"wait_for"` |  |
 | ref | no | string | {"description":"Ref from the latest snapshot. Use only for element visibility waits.","minLength":1,"maxLength":256} |
 | state | no | ["visible","hidden"] | {"description":"Required with ref."} |
@@ -6686,10 +6726,13 @@ Example:
 ```json
 {
   "action": "wait_for",
-  "ref": "example",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "tabId": "example",
-  "text": "example",
-  "timeout": 10
+  "timeMs": 10,
+  "url": "example"
 }
 ```
 
@@ -6698,6 +6741,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"logs"` |  |
 | kind | no | ["console","network"] |  |
 | level | no | string | {"minLength":1,"maxLength":256} |
@@ -6710,9 +6754,13 @@ Example:
 ```json
 {
   "action": "logs",
-  "kind": "console",
-  "tabId": "example",
-  "url": "example"
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
+  "kind": "network",
+  "level": "example",
+  "tabId": "example"
 }
 ```
 
@@ -6721,6 +6769,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"resize"` |  |
 | width | yes | integer | {"minimum":100,"maximum":4096} |
 | height | yes | integer | {"minimum":100,"maximum":4096} |
@@ -6732,9 +6781,10 @@ Example:
 ```json
 {
   "action": "resize",
-  "devicePixelRatio": 3,
-  "height": 106,
-  "width": 104
+  "devicePixelRatio": 4,
+  "height": 103,
+  "touch": false,
+  "width": 106
 }
 ```
 
@@ -6743,6 +6793,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"emulate"` |  |
 | width | yes | integer | {"minimum":100,"maximum":4096} |
 | height | yes | integer | {"minimum":100,"maximum":4096} |
@@ -6757,10 +6808,10 @@ Example:
 ```json
 {
   "action": "emulate",
-  "height": 101,
-  "mobile": false,
-  "touch": true,
-  "width": 106
+  "deviceScaleFactor": 4,
+  "height": 108,
+  "mobile": true,
+  "width": 101
 }
 ```
 
@@ -6769,6 +6820,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"tabs"` |  |
 | operation | no | ["list","open","select","close","keep"] | {"default":"list"} |
 | url | no | string | {"maxLength":8192} |
@@ -6780,7 +6832,8 @@ Example:
 ```json
 {
   "action": "tabs",
-  "label": "example"
+  "keep": true,
+  "url": "example"
 }
 ```
 
@@ -6789,6 +6842,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"fill_form"` |  |
 | fields | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"ref":{"type":"string","minLength":1,"maxLength":256},"value":{"type":"string","maxLength":65536}},"required":["ref","value"]}} |
 
@@ -6811,6 +6865,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"downloads"` |  |
 | operation | no | ["list","wait"] | {"default":"list"} |
 | timeout | no | integer | {"default":10000,"minimum":1,"maximum":120000} |
@@ -6828,6 +6883,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"pdf"` |  |
 | landscape | no | boolean | {"default":false} |
 | printBackground | no | boolean | {"default":true} |
@@ -6836,7 +6892,8 @@ Example:
 
 ```json
 {
-  "action": "pdf"
+  "action": "pdf",
+  "printBackground": false
 }
 ```
 
@@ -6845,6 +6902,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"extensions"` |  |
 | operation | no | ["list"] | {"default":"list"} |
 
@@ -6862,6 +6920,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"upload"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 | files | yes | array | {"minItems":1,"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":8192}} |
@@ -6871,6 +6930,10 @@ Example:
 ```json
 {
   "action": "upload",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "files": [
     "example"
   ],
@@ -6883,6 +6946,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"dialog"` |  |
 | dialogId | yes | string | {"minLength":1,"maxLength":256} |
 | accept | yes | boolean |  |
@@ -6894,7 +6958,11 @@ Example:
 {
   "accept": true,
   "action": "dialog",
-  "dialogId": "example"
+  "dialogId": "example",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  }
 }
 ```
 
@@ -6903,6 +6971,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"hover"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 
@@ -6920,6 +6989,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"select"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 | values | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","maxLength":4096}} |
@@ -6942,6 +7012,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"check"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 
@@ -6950,6 +7021,10 @@ Example:
 ```json
 {
   "action": "check",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "ref": "example",
   "tabId": "example"
 }
@@ -6960,6 +7035,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"uncheck"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 
@@ -6968,6 +7044,10 @@ Example:
 ```json
 {
   "action": "uncheck",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "ref": "example"
 }
 ```
@@ -6977,6 +7057,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"focus"` |  |
 | ref | yes | string | {"minLength":1,"maxLength":256} |
 
@@ -6985,6 +7066,10 @@ Example:
 ```json
 {
   "action": "focus",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "ref": "example"
 }
 ```
@@ -6994,6 +7079,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"find"` |  |
 | role | no | string | {"description":"Accessible role, e.g. button, link, textbox, heading.","minLength":1,"maxLength":256} |
 | name | no | string | {"description":"Accessible name; a case-insensitive substring unless exact is true.","minLength":1,"maxLength":1024} |
@@ -7005,7 +7091,8 @@ Example:
 {
   "action": "find",
   "exact": true,
-  "name": "example"
+  "name": "example",
+  "role": "example"
 }
 ```
 
@@ -7014,6 +7101,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"network_body"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 
@@ -7031,13 +7119,18 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"record_start"` |  |
 
 Example:
 
 ```json
 {
-  "action": "record_start"
+  "action": "record_start",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  }
 }
 ```
 
@@ -7046,6 +7139,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"record_stop"` |  |
 
 Example:
@@ -7066,7 +7160,10 @@ Example:
 ```json
 {
   "action": "annotate",
-  "config": {},
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "operation": "start"
 }
 ```
@@ -7076,6 +7173,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"zoom"` |  |
 | factor | yes | number | {"minimum":0.25,"maximum":5} |
 
@@ -7084,7 +7182,7 @@ Example:
 ```json
 {
   "action": "zoom",
-  "factor": 4
+  "factor": 5
 }
 ```
 
@@ -7093,13 +7191,18 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"clear_data"` |  |
 
 Example:
 
 ```json
 {
-  "action": "clear_data"
+  "action": "clear_data",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  }
 }
 ```
 
@@ -7108,6 +7211,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"page_source"` |  |
 
 Example:
@@ -7115,6 +7219,10 @@ Example:
 ```json
 {
   "action": "page_source",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "tabId": "example"
 }
 ```
@@ -7124,6 +7232,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"context_target"` |  |
 | x | yes | number | {"minimum":0,"maximum":100000} |
 | y | yes | number | {"minimum":0,"maximum":100000} |
@@ -7133,8 +7242,8 @@ Example:
 ```json
 {
   "action": "context_target",
-  "x": 8,
-  "y": 0
+  "x": 0,
+  "y": 1
 }
 ```
 
@@ -7143,6 +7252,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"image_data"` |  |
 | url | yes | string | {"minLength":1,"maxLength":8192} |
 
@@ -7151,6 +7261,10 @@ Example:
 ```json
 {
   "action": "image_data",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "url": "example"
 }
 ```
@@ -7160,6 +7274,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
+| expect | no | [BrowserExpectedPlace.json](schema/BrowserExpectedPlace.json) |  |
 | action | yes | `"annotate_capture"` |  |
 | target | yes | [BrowserAnnotationCaptureTarget.json](schema/BrowserAnnotationCaptureTarget.json) |  |
 
@@ -7168,9 +7283,14 @@ Example:
 ```json
 {
   "action": "annotate_capture",
+  "expect": {
+    "tabId": "example",
+    "url": "example"
+  },
   "tabId": "example",
   "target": {
-    "kind": "page"
+    "id": "example",
+    "kind": "annotation"
   }
 }
 ```
@@ -7198,6 +7318,7 @@ Example:
 | type | yes | ["alert","confirm","prompt","beforeunload"] |  |
 | message | yes | string | {"maxLength":4096} |
 | defaultPrompt | no | string | {"maxLength":4096} |
+| url | no | string | {"maxLength":8192} |
 
 Example:
 
@@ -7313,6 +7434,24 @@ Example:
   "requestId": "example",
   "threadId": "example",
   "type": "browser.download.read"
+}
+```
+
+## BrowserExpectedPlace
+
+[JSON Schema](schema/BrowserExpectedPlace.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| tabId | yes | string | {"minLength":1,"maxLength":256} |
+| url | yes | string | {"minLength":1,"maxLength":8192} |
+
+Example:
+
+```json
+{
+  "tabId": "example",
+  "url": "example"
 }
 ```
 
@@ -8039,22 +8178,22 @@ Example:
       "owner": "example"
     },
     "closed": false,
-    "features": [],
     "pending_dialog": {
       "dialogId": "example",
       "message": "example",
       "tabId": "example",
-      "type": "beforeunload"
-    },
-    "recording": {
-      "by": {
-        "kind": "page"
-      }
+      "type": "beforeunload",
+      "url": "example"
     },
     "status": "ready",
     "tabs": [],
     "threadId": "example",
-    "url": "example"
+    "url": "example",
+    "video": {
+      "attempts": 7,
+      "reason": "example",
+      "status": "retrying"
+    }
   },
   "type": "browser.state"
 }
@@ -8264,6 +8403,7 @@ Example:
 {
   "favicon": "example",
   "kept": false,
+  "label": "example",
   "muted": true,
   "pageStateLost": false,
   "pending_dialog": {
@@ -8274,7 +8414,6 @@ Example:
   },
   "personActive": true,
   "playing": true,
-  "private": false,
   "tabId": "example",
   "title": "example",
   "url": "example"
@@ -8406,7 +8545,8 @@ Example:
     "dialogId": "example",
     "message": "example",
     "tabId": "example",
-    "type": "prompt"
+    "type": "prompt",
+    "url": "example"
   }
 }
 ```
@@ -9840,9 +9980,9 @@ Example:
     "path": "example"
   },
   "threads": {
-    "needsYou": 5,
-    "running": 9,
-    "total": 6
+    "needsYou": 9,
+    "running": 0,
+    "total": 5
   }
 }
 ```
@@ -30447,6 +30587,7 @@ Example:
 | defaults | no | [ProjectDefaults.json](schema/ProjectDefaults.json) |  |
 | notes | no | array | {"maxItems":50,"items":{"$ref":"https://ace.local/protocol/v1/ProjectNote.json"}} |
 | identity | no | [ProjectIdentity.json](schema/ProjectIdentity.json) |  |
+| remoteKey | no | [ProjectRemoteKey.json](schema/ProjectRemoteKey.json) |  |
 | openedAt | no | number | {"minimum":0} |
 
 Example:
@@ -30462,6 +30603,7 @@ Example:
   },
   "name": "example",
   "notes": [],
+  "openedAt": 0,
   "path": "example"
 }
 ```
@@ -31131,6 +31273,26 @@ Example:
 {
   "id": "example",
   "text": "example"
+}
+```
+
+## ProjectRemoteKey
+
+[JSON Schema](schema/ProjectRemoteKey.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| remotes | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":4096}} |
+| subpath | yes | string | {"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "remotes": [
+    "example"
+  ],
+  "subpath": "example"
 }
 ```
 

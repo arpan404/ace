@@ -71,7 +71,7 @@ export interface ProjectsOptions {
   chatId?: () => string;
   /** "Clear stale lock" for a project's repository: how many it retired, and what still holds one. */
   clearLock?: (path: string) => Promise<Omit<CommandResult, "commandId">>;
-  /** How remote-key sweeps (ADR 0187) wait between batches; a timer unless a test injects one. */
+  /** How remote-key sweeps (ADR 0189) wait between batches; a timer unless a test injects one. */
   remoteKeyWait?: (ms: number) => Promise<void>;
 }
 type CloneFlight = {
@@ -103,7 +103,7 @@ export class Projects {
   private noteId: () => string;
   private chats: ChatProjects | undefined;
   private deleteThread: ((command: Command) => Promise<CommandResult>) | undefined;
-  /** Registrations' remote keys, read in idle batches once a client is here (ADR 0187). */
+  /** Registrations' remote keys, read in idle batches once a client is here (ADR 0189). */
   private remoteKeys: RemoteKeyReader;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
@@ -214,7 +214,7 @@ export class Projects {
   }
   /**
    * A client connected: read every registration's remote key that is unread or stale, in the
-   * background (ADR 0187). Resolves when that sweep ends.
+   * background (ADR 0189). Resolves when that sweep ends.
    */
   readRemoteKeys(): Promise<void> {
     return this.remoteKeys.poke();
