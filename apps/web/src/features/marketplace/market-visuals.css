@@ -67,7 +67,7 @@
     height: auto;
   }
   .mk-stage[data-type="tool"] {
-    background: var(--surface-2);
+    background: var(--surface-1);
   }
   .mk-stage > .mk-win-fit {
     position: absolute;
@@ -424,6 +424,34 @@
   }
   .mk-card-top .mk-meta {
     flex: none;
+  }
+
+  /* A lockup: the entry's mark beside its words, for lists without pictures to lead with. */
+  .mk-cards[data-form="lockup"] {
+    gap: 28px 32px;
+  }
+  .mk-card[data-form="lockup"] {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .mk-card[data-form="lockup"] .mk-card-open {
+    flex: none;
+  }
+  .mk-card[data-form="lockup"] .mk-stage {
+    width: 56px;
+    aspect-ratio: 1;
+    border-radius: var(--radius-lg);
+  }
+  .mk-card[data-form="lockup"] .mk-stage > .mk-mark {
+    width: 40%;
+  }
+  .mk-card[data-form="lockup"]:hover .mk-stage {
+    transform: none;
+  }
+  .mk-card[data-form="lockup"] .mk-card-words {
+    flex: 1;
+    padding: 2px 0 0;
   }
 
   /* ---------- Sections ---------- */

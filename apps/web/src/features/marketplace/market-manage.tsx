@@ -233,7 +233,7 @@ function Manage(props: { entry: MarketOwnEntry }) {
           entry={{ source: "market", ...key, previews: entry.listing.previews }}
           size="small"
         />
-        <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 0 }}>
           <h1 className="mk-display-sm">{summary.title}</h1>
           <span className="mk-line">
             {[
@@ -246,6 +246,13 @@ function Manage(props: { entry: MarketOwnEntry }) {
               .join(" · ")}
           </span>
         </div>
+        <Button
+          variant="secondary"
+          disabled={!live.length || summary.visibility === "unlisted"}
+          onClick={() => nav.push({ kind: "entry", entry: { source: "market", ...key } })}
+        >
+          Open its page
+        </Button>
       </div>
       {said && (
         <p role="status" className="mk-line" style={{ marginTop: 16 }}>
@@ -299,6 +306,7 @@ function Manage(props: { entry: MarketOwnEntry }) {
         onSave={(listing) => act({ action: "listing", listing })}
       />
       <Section title="Who can find it">
+        <div className="mk-section-body">
         <div className="mk-word-choice" role="group" aria-label="Visibility">
           {(["listed", "unlisted"] as const).map((visibility) => (
             <button
@@ -337,9 +345,11 @@ function Manage(props: { entry: MarketOwnEntry }) {
             </Button>
           )}
         </div>
+        </div>
       </Section>
       <Section title="Hand it to another publisher">
-        <div style={{ display: "flex", gap: 8, alignItems: "end", maxWidth: 480 }}>
+        <div className="mk-section-body">
+        <div style={{ display: "flex", gap: 8, alignItems: "end", width: "100%", maxWidth: 480 }}>
           <div style={{ flex: 1 }}>
             <label className="mk-label" htmlFor="mk-transfer">
               Their handle
@@ -361,18 +371,9 @@ function Manage(props: { entry: MarketOwnEntry }) {
           </Button>
         </div>
         <p className="mk-line">It moves once they accept, within a week.</p>
+        </div>
       </Section>
       <SignalsSection type={summary.type} name={summary.name} />
-      <div style={{ marginTop: 40 }}>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!live.length || summary.visibility === "unlisted"}
-          onClick={() => nav.push({ kind: "entry", entry: { source: "market", ...key } })}
-        >
-          Open its page
-        </Button>
-      </div>
     </div>
   );
 }

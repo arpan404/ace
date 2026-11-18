@@ -14,6 +14,7 @@ import { readAtText } from "./market-model.ts";
 import { MarketNavContext, type MarketNav } from "./market-nav.ts";
 import { MarketLayer } from "./market-page.tsx";
 import { TryBar, useTryOn } from "./market-try.tsx";
+import { keepTabWithin } from "./market-focus.ts";
 
 /*
  * The Marketplace as a modal over the app (ADR 0168): 90% of the window with the app dimmed
@@ -120,6 +121,10 @@ export function MarketModal(props: {
       if (event.key === "Escape") {
         event.preventDefault();
         close();
+        return;
+      }
+      if (event.key === "Tab" && modal.current) {
+        keepTabWithin(modal.current, event);
         return;
       }
       const back =

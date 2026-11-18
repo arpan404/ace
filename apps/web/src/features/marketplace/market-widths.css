@@ -19,7 +19,8 @@
     }
     .mk-picks {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
       gap: 8px;
     }
     .mk-pick {
@@ -35,7 +36,8 @@
     .mk-cards[data-cols="4"] {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .mk-cards[data-shelf][data-cols="4"] > :nth-child(n + 4) {
+    .mk-cards[data-shelf][data-form="stage"][data-cols="4"] > :nth-child(n + 4),
+    .mk-cards[data-shelf][data-form="lockup"][data-cols="4"] > :nth-child(n + 7) {
       display: none;
     }
     .mk-cols {
@@ -89,7 +91,7 @@
     .mk-cards[data-cols="3"] {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .mk-cards[data-shelf][data-cols="4"] > :nth-child(n + 4) {
+    .mk-cards[data-shelf][data-form="stage"][data-cols="4"] > :nth-child(n + 4) {
       display: flex;
     }
     .mk-cards[data-shelf][data-cols="3"] > :nth-child(3) {
@@ -205,7 +207,7 @@
       justify-self: stretch;
     }
     .mk-mine-row {
-      grid-template-columns: 96px minmax(0, 1fr);
+      grid-template-columns: 56px minmax(0, 1fr);
       gap: 16px;
     }
     .mk-mine-row > .mk-actions {
@@ -285,7 +287,7 @@
       grid-template-columns: 22px 64px minmax(0, 1fr) 40px;
       gap: 12px;
     }
-    .mk-cards[data-shelf] {
+    .mk-cards[data-shelf][data-form="stage"] {
       display: flex;
       overflow-x: auto;
       scroll-snap-type: x mandatory;
@@ -298,7 +300,14 @@
     .mk-cards[data-shelf]::-webkit-scrollbar {
       display: none;
     }
-    .mk-cards[data-shelf] > * {
+    .mk-cards[data-shelf][data-form="lockup"] {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 20px;
+    }
+    .mk-cards[data-shelf][data-form="lockup"] > :nth-child(n + 5) {
+      display: none;
+    }
+    .mk-cards[data-shelf][data-form="stage"] > * {
       flex: none;
       width: 72%;
       scroll-snap-align: start;
@@ -315,7 +324,8 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 24px 12px;
     }
-    .mk-cards[data-phone="list"] {
+    .mk-cards[data-phone="list"],
+    .mk-cards[data-form="lockup"] {
       grid-template-columns: minmax(0, 1fr);
     }
     .mk-entry-hero {
@@ -344,7 +354,7 @@
       flex: 1;
     }
     .mk-mine-row {
-      grid-template-columns: 72px minmax(0, 1fr);
+      grid-template-columns: 48px minmax(0, 1fr);
       gap: 12px;
     }
     .mk-version {

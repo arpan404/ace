@@ -115,8 +115,6 @@
   .mk-field[data-big] {
     font: 600 var(--mk-display-sm) / 1.15 var(--font-sans);
     letter-spacing: var(--mk-tracking-display);
-    padding: 2px 8px;
-    margin-left: -8px;
   }
   .mk-label {
     font-size: var(--text-ui);
@@ -133,7 +131,7 @@
   }
   .mk-mine-row {
     display: grid;
-    grid-template-columns: 112px minmax(0, 1fr) auto;
+    grid-template-columns: 56px minmax(0, 1fr) auto;
     gap: 20px;
     align-items: start;
     padding: 16px 0;
@@ -143,7 +141,8 @@
     border-top: 0;
   }
   .mk-mine-row > .mk-stage {
-    border-radius: var(--radius);
+    aspect-ratio: 1;
+    border-radius: var(--radius-lg);
   }
   .mk-versions {
     display: grid;
@@ -280,9 +279,25 @@
     gap: 48px;
     align-items: start;
   }
-  .mk-describe .mk-form {
+  /* A form's fields, one under another; a page section's controls and their sentence. */
+  .mk-form {
     display: grid;
+    gap: 20px;
+  }
+  .mk-describe .mk-form {
     gap: 24px;
+  }
+  .mk-section-body {
+    display: grid;
+    gap: 12px;
+    justify-items: start;
+  }
+  .mk-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
   .mk-chips {
     display: flex;

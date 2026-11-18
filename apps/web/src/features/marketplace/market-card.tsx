@@ -1,5 +1,5 @@
 import type { MarketEntrySummary } from "@ace/protocol/marketplace";
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { part } from "@/lib/suit-part.ts";
 import { typeWord } from "./market-model.ts";
 import { Byline } from "./market-marks.tsx";
@@ -7,9 +7,25 @@ import { openEntry, useMarketNav } from "./market-nav.ts";
 import { Stage } from "./market-stage.tsx";
 
 /*
- * Cards (the visual leads, the words sit under it), result rows and the section a shelf sits in.
- * Every card and row opens its entry's page; the byline opens its publisher's page (ADR 0174).
+ * Cards, result rows and the section a shelf sits in. A card leads with its picture when every
+ * entry in its list has one to show (a Suit's window, a listing's pictures); otherwise the list
+ * is lockups, a small mark beside the words, so nothing draws a large empty box. Every card and
+ * row opens its entry's page; the byline opens its publisher's page (ADR 0174).
  */
+
+/** `stage`: the picture leads and the words sit under it. `lockup`: a small mark beside them. */
+export type CardForm = "stage" | "lockup";
+
+/** Stages only when every entry has a picture: Suits draw their window, others need previews. */
+export const cardForm = (
+  entries: readonly Pick<MarketEntrySummary, "type" | "previews">[],
+): CardForm =>
+  entries.length > 0 &&
+  entries.every((entry) => entry.type === "suit" || (entry.previews?.length ?? 0) > 0)
+    ? "stage"
+    : "lockup";
+
+const CardFormContext = createContext<CardForm>("stage");
 
 /** Who published it, in a byline's words: ace, a publisher, or a git catalog. */
 export function publisherName(entry: Pick<MarketEntrySummary, "byAce" | "publisher" | "from">) {
@@ -49,18 +65,23 @@ export function Card(props: {
   big?: boolean;
   /** The kind beside the name, where a shelf mixes types. */
   showKind?: boolean;
+  /** Its form when it stands alone; in `Cards`, the list decides. */
+  form?: CardForm;
 }) {
   const nav = useMarketNav();
+  const listForm = useContext(CardFormContext);
+  const form = props.form ?? listForm;
   const { entry } = props;
   const open = () => openEntry(nav, entry);
   return (
     <div
       {...part("card", undefined, "market-entry")}
       className="mk-card"
-      data-big={props.big ? "" : undefined}
+      data-form={form}
+      data-big={props.big && form === "stage" ? "" : undefined}
     >
       <button type="button" className="mk-card-open" tabIndex={-1} aria-hidden onClick={open}>
-        <Stage entry={entry} size="card" />
+        <Stage entry={entry} size={form === "stage" ? "card" : "small"} />
       </button>
       <div className="mk-card-words">
         <div className="mk-card-top">
@@ -76,29 +97,41 @@ export function Card(props: {
   );
 }
 
-/** A grid of cards. `shelf`: one row on Discover that scrolls sideways on a phone. */
+/**
+ * A grid of cards, in the form `entries` decides (`cardForm`); without entries (publishers,
+ * collections) they are stages. `shelf`: a row on Discover that scrolls sideways on a phone.
+ */
 export function Cards(props: {
   cols: 2 | 3 | 4;
+  entries?: readonly MarketEntrySummary[];
   shelf?: boolean;
   phone?: "grid" | "list" | undefined;
   quad?: boolean;
   label?: string;
   children: ReactNode;
 }) {
+  const form = props.entries ? cardForm(props.entries) : "stage";
   return (
-    <div
-      role="list"
-      aria-label={props.label}
-      className="mk-cards"
-      data-cols={props.cols}
-      data-shelf={props.shelf ? "" : undefined}
-      data-phone={props.phone}
-      data-quad={props.quad ? "" : undefined}
-    >
-      {props.children}
-    </div>
+    <CardFormContext value={form}>
+      <div
+        role="list"
+        aria-label={props.label}
+        className="mk-cards"
+        data-cols={props.cols}
+        data-form={form}
+        data-shelf={props.shelf ? "" : undefined}
+        data-phone={props.phone}
+        data-quad={props.quad ? "" : undefined}
+      >
+        {props.children}
+      </div>
+    </CardFormContext>
   );
 }
+
+/** How many entries a shelf of `cols` shows: one row of stages, or two of lockups. */
+export const shelfCount = (cols: number, entries: readonly MarketEntrySummary[]) =>
+  cardForm(entries.slice(0, cols)) === "stage" ? cols : cols * 2;
 
 /** One card as a list item, so a shelf reads as a list. */
 export function CardItem(props: { children: ReactNode }) {
