@@ -25,9 +25,11 @@ struct CodeReviewTab: View {
     var pair: (() -> Void)?
     /// Closes the page where it opens over the home screen; nil where it is a place of its own.
     var close: (() -> Void)?
+    /// The pages it had pushed, held back until its list has been on screen once.
+    @State private var held = HeldPath()
 
     var body: some View {
-        NavigationStack(path: $scope.path) {
+        NavigationStack(path: Binding(get: { held.shown(scope.path) }, set: { held.write($0, into: &scope.path) })) {
             ForgeHome(inbox: inbox, machine: $scope.machine, project: $scope.project, query: scope.query, kind: $scope.kind,
                       filters: $scope.filters,
                       actions: ForgeTabActions(open: { scope.path.append($0) }, openThread: openThread, startThread: startThread),
@@ -48,6 +50,13 @@ struct CodeReviewTab: View {
                 }
         }
         .tint(AceTheme.Colours.foreground)
+        .task {
+            // Laid out under its pages, the list meets its large title, search and pinned bar
+            // only on Back, and their insets then move it on every layout pass, without end.
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { held.release() }
+        }
     }
 
     private var prompt: String {
@@ -57,4 +66,19 @@ struct CodeReviewTab: View {
         case .inbox: "Search notifications"
         }
     }
+}
+
+/// A navigation stack opened again on the pages it had pushed: it shows only its root until the
+/// root has been laid out on screen, then the pages. Until then the stack's writes (its root
+/// alone) never replace the saved pages. Pure.
+struct HeldPath {
+    private(set) var released = false
+
+    func shown<Page>(_ saved: [Page]) -> [Page] { released ? saved : [] }
+
+    func write<Page>(_ path: [Page], into saved: inout [Page]) {
+        if released { saved = path }
+    }
+
+    mutating func release() { released = true }
 }
