@@ -148,6 +148,13 @@ reach the table.
 | `sim_act install`, `record_*`, `posture`             | the device                                                                                  | the device: the person decides, every step                             | —    |
 | `sim_act ui`, `tap`, … `type`, `key`, `clipboard_*`  | whatever app is in the device's foreground                                                  | no place: the person decides                                           | —    |
 
+So does every step in an app whose window shows another device or computer, on every screen tool
+path (`screen_state`, `screen_act`, the older `screen_open_app`, another machine's): the iOS
+Simulator, Xcode (its Devices window can't be told apart from the rest of it), Android emulators and
+qemu, scrcpy, iPhone Mirroring, QuickTime Player, Vysor, Genymotion, Sidecar-style displays, Screen
+Sharing, VNC and RDP clients, and VM apps (UTM, Parallels, VMware Fusion, VirtualBox and others).
+They are in the same app table, by name and id, and can't be allowed for a bot.
+
 Every step on a simulator or device goes to the person, whatever the operation: ace holds nothing
 there to a place, so a device place has no route but the person's (`Place::persons_alone`, checked
 before an Always allow, a grant or the reviewer), and a step ace can't hold asks even when the
