@@ -5,7 +5,8 @@ import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
 import type { Log } from "../log/desktop-log.ts";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
-import { loginShellPath, readSavedPath, writeSavedPath } from "./login-path.ts";
+import { loginShellPath } from "@ace/service/login-path";
+import { readSavedPath, writeSavedPath } from "./login-path.ts";
 import { launchPaths, type LaunchPaths, type SpawnPath } from "./spawn-path.ts";
 import { watchEndpointFile } from "./endpoint-watch.ts";
 import {

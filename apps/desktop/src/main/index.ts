@@ -57,7 +57,7 @@ import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
 import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
 import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { claimAceLinks } from "./os/link-handler.ts";
-import { loginShellPath } from "./daemon/login-path.ts";
+import { loginShellPath } from "@ace/service/login-path";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";

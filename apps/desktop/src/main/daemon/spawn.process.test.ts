@@ -4,6 +4,8 @@ import { delimiter, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { spawnDaemon } from "./spawn.ts";
+import { decodeLoginPathLine } from "@ace/service/login-path";
+import { z } from "zod";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -98,36 +100,44 @@ it.runIf(process.platform === "darwin")(
   },
 );
 
-it("a daemon spawned on a saved PATH gets the login shell's PATH on stdin, bundled tools first", async () => {
+it("a daemon spawned on a saved PATH gets the login shell's PATH on stdin exactly, bundled tools first", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
   roots.push(root);
   const entry = join(root, "ace.mjs");
-  // The daemon stand-in reports the PATH it started on, then the line the app sends it.
+  // The daemon stand-in reports what it started with, then the line the app sends it.
   await writeFile(
     entry,
     [
-      'console.log("started " + process.env.ACE_LOGIN_PATH_PENDING + " " + process.env.PATH);',
+      "console.log(JSON.stringify({ pending: process.env.ACE_LOGIN_PATH_PENDING, path: process.env.PATH }));",
       'let text = "";',
       'process.stdin.setEncoding("utf8").on("data", (chunk) => (text += chunk));',
-      'process.stdin.on("end", () => console.log("login " + text.trim()));',
+      'process.stdin.on("end", () => console.log(JSON.stringify({ line: text })));',
     ].join("\n"),
   );
   const login = Promise.withResolvers<string>();
-  const output: string[] = [];
+  const output: unknown[] = [];
   const child = spawnDaemon({
     home: root,
     resources: { entry, node: process.execPath, packaged: false, binDirectory: "/bundled" },
     path: "/saved/bin",
     loginPath: login.promise,
     version: "0.0.0",
-    env: {},
-    onOutput: (line) => output.push(line),
+    env: { PATH: "/usr/bin" },
+    onOutput: (line) => output.push(JSON.parse(line)),
   });
   const exit = new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
-  await vi.waitFor(() => expect(output).toContain(`started 1 /bundled${delimiter}/saved/bin`));
-  login.resolve(`/login/bin${delimiter}/saved/bin`);
-  expect(await exit).toEqual([0, null]);
   await vi.waitFor(() =>
-    expect(output).toContain(`login /bundled${delimiter}/login/bin${delimiter}/saved/bin`),
+    expect(output).toContainEqual({
+      // What the daemon needs to ask the login shell itself, as this app would.
+      pending: JSON.stringify({ prefix: "/bundled", inherited: "/usr/bin" }),
+      path: `/bundled${delimiter}/saved/bin`,
+    }),
   );
+  const fresh = `/My Tools/bin${delimiter}/odd\nfolder ${delimiter}/saved/bin`;
+  login.resolve(fresh);
+  expect(await exit).toEqual([0, null]);
+  await vi.waitFor(() => expect(output).toHaveLength(2));
+  const { line } = z.object({ line: z.string() }).parse(output[1]);
+  expect(line.split("\n")).toHaveLength(2);
+  expect(decodeLoginPathLine(line)).toBe(`/bundled${delimiter}${fresh}`);
 });
