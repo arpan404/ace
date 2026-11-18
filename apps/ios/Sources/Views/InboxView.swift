@@ -121,34 +121,52 @@ struct InboxView: View {
         return .search
     }
 
+    @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
+        Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
+            stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
+        }
+        .accessibilityIdentifier("tab.threads")
+        Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
+            stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
+        }
+        .accessibilityIdentifier("tab.chats")
+    }
+
+    /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
+    @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
+        if showsSpade {
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade }
+                .accessibilityIdentifier("tab.spade")
+        }
+    }
+
+    @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
+        Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
+            .accessibilityIdentifier("tab.review")
+    }
+
+    @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
+        if HomeTabs.composeTab {
+            Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
+                .accessibilityIdentifier("tab.search")
+            if inbox.canStartThreads {
+                Tab(tab == .chats ? "New chat" : "New thread", image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose,
+                    role: Self.composeRole) { Color.clear }
+            }
+        } else {
+            Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
+                .accessibilityIdentifier("tab.search")
+        }
+    }
+
     private var tabs: some View {
+        // Built from small parts: one builder with every tab and condition takes Xcode 26's
+        // type checker longer than it allows.
         TabView(selection: tabChoice) {
-            Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
-                stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
-            }
-            .accessibilityIdentifier("tab.threads")
-            Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
-                stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
-            }
-            .accessibilityIdentifier("tab.chats")
-            // Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
-            if showsSpade {
-                Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade }
-                    .accessibilityIdentifier("tab.spade")
-            }
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
-                .accessibilityIdentifier("tab.review")
-            if HomeTabs.composeTab {
-                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
-                    .accessibilityIdentifier("tab.search")
-                if inbox.canStartThreads {
-                    Tab(tab == .chats ? "New chat" : "New thread", image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose,
-                        role: Self.composeRole) { Color.clear }
-                }
-            } else {
-                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
-                    .accessibilityIdentifier("tab.search")
-            }
+            placeTabs
+            spadeTab
+            reviewTab
+            searchTabs
         }
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
