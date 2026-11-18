@@ -1,6 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { maxSpadeResponseBytes, type SpadeLiveEndReason, type SpadeStatus } from "@ace/protocol";
+import { personOnlyChangeRefusal } from "../answer-gate.ts";
 import { spadeLive } from "../spade/forward.ts";
 import type { SpadeLink } from "../spade/link.ts";
+import { personStamp } from "../spade/person-stamp.ts";
 import { checkLivePath } from "../spade/rules.ts";
 import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -9,10 +12,17 @@ import type { SocketContext, SocketService } from "./socket.ts";
 const maxStreams = 16;
 /** What the session reads of the Spade service. */
 export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded"> &
-  Partial<Pick<SpadeLink, "revokeGrant">>;
-type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
-  options: { spade?: SpadeAccess | undefined };
-};
+  Partial<Pick<SpadeLink, "revokeGrant" | "personKey">>;
+type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
+  Partial<Pick<SocketContext, "device" | "hostCredential">> & {
+    options: {
+      spade?: SpadeAccess | undefined;
+      /** Whether this machine's ace account signed in within ten minutes. */
+      marketAgent?: { freshSignIn(): Promise<boolean> } | undefined;
+    };
+    /** The clock stamps are dated with. */
+    now?: () => number;
+  };
 interface Stream {
   controller: AbortController;
   generation: number;
@@ -58,6 +68,18 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     connected: () => context.connected(),
     send: (message) => context.send(message),
     unavailable: () => unavailable(host()),
+    stamp: async (write) => {
+      const refused = await personOnlyChangeRefusal({
+        device: context.device?.(),
+        hostCredential: context.hostCredential?.() === true,
+        fresh: () => context.options.marketAgent?.freshSignIn() ?? Promise.resolve(false),
+      });
+      if (refused) return { refused };
+      const key = host()?.personKey?.();
+      if (!key) return { refused: "This ace can't stamp a change as yours yet." };
+      const now = (context.now ?? Date.now)();
+      return { stamp: personStamp(key, write, now, randomBytes(16).toString("hex")) };
+    },
   });
   const stopStream = (requestId: string, reason: SpadeLiveEndReason) => {
     const stream = streams.get(requestId);

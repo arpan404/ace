@@ -190,6 +190,20 @@ mod tests {
     }
 
     #[test]
+    fn a_stamp_ace_s_daemon_makes_is_one_spade_takes() {
+        // The vector in the daemon's `person-stamp.test.ts`; computed independently with
+        // Python's hmac.new(bytes(range(32)), message, sha256).
+        let key: Vec<u8> = (0u8..32).collect();
+        let stamp = "v1.1700000000000.00112233445566778899aabbccddeeff.\
+                     9d4be3f27e7c4b4e0aadae6e330483846f5ea77ecbe60121799f8c4b3c9b4149";
+        assert_eq!(
+            sign(&key, "a_1", "full_access", 1_700_000_000_000, NONCE),
+            stamp
+        );
+        assert!(check(&key, stamp, "a_1", "full_access", 1_700_000_000_000).is_ok());
+    }
+
+    #[test]
     fn a_stamp_is_used_once_and_needs_the_key_file() {
         let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
         let path = dir.path().join(KEY_FILE);
