@@ -59,12 +59,12 @@ export interface Grapheme {
 /** A string's grapheme clusters, so an emoji joined from five code points stays one cell pair. */
 export function graphemes(text: string): Grapheme[] {
   if (!segmenter) {
-    return Array.from(text).map((char, index) => ({
-      text: char,
-      start: index,
-      end: index + char.length,
-      width: charWidth(char),
-    }));
+    let at = 0;
+    return Array.from(text).map((char) => {
+      const grapheme = { text: char, start: at, end: at + char.length, width: charWidth(char) };
+      at += char.length;
+      return grapheme;
+    });
   }
   const out: Grapheme[] = [];
   for (const part of segmenter.segment(text)) {
