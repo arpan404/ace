@@ -23,23 +23,35 @@ struct FilesFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// The checkout as rows in tree order (`bridge/checkout-tree.ts`); folders end in "/".
-struct FileTree: Decodable, Sendable {
+/// The checkout as the bridge lists it (`bridge/checkout-tree-live.ts`): only the folders the
+/// person opened, a page at a time.
+struct FileTree: Decodable, Sendable, Equatable {
+    /// The scope the tree belongs to, as `FilesScope.memoryKey` names it.
+    let key: String
     let rows: [FileTreeRow]
-    /// Folders that start open: the ones holding an uncommitted change.
-    let open: [String]
-    /// The computer listed only the first 1,000 entries.
-    let truncated: Bool
 }
 struct FileTreeRow: Decodable, Sendable, Identifiable, Hashable {
-    let path: String
+    /// The entry's checkout path (folders end in "/"), or a synthetic key for a status row.
+    let key: String
+    /// "file", "folder", "loading", "more" or "error".
+    let kind: String
     let name: String
     let depth: Int
-    let folder: Bool
+    /// A folder row only: whether its children show.
+    let expanded: Bool
+    /// Listed but excluded by the checkout's gitignore rules: shown, dimmed.
+    let ignored: Bool
     /// The web's git letter ("M", "A", "D", "R", "U") and its word.
     let mark: String?
     let markLabel: String?
-    var id: String { path }
+    /// The folder a loading, Show more or error row belongs to.
+    let folder: String?
+    /// What an error row says.
+    let error: String?
+    var id: String { key }
+    var isFolder: Bool { kind == "folder" }
+    var isFile: Bool { kind == "file" }
+    var isEntry: Bool { isFolder || isFile }
 }
 struct FileSearch: Decodable, Sendable {
     let query: String
@@ -191,13 +203,14 @@ struct ArchivePreview: Decodable, Sendable, Equatable {
     let leavesOut: String
 }
 
-/// Files screens read again when the computer says any checkout changed; saves, uploads and the
-/// recent and open files arrive as their own patches.
+/// Files screens read again when the computer says any checkout changed; saves, uploads, the
+/// recent and open files, and the live tree arrive as their own patches.
 enum FilesPatch: Decodable, Sendable {
     case changed(Int)
     case download(FileDownload)
     case upload(FileUpload)
     case memory(FileMemory)
+    case tree(FileTree)
     private enum Keys: String, CodingKey { case type, seq }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -206,27 +219,30 @@ enum FilesPatch: Decodable, Sendable {
         case "files.download": self = .download(try FileDownload(from: decoder))
         case "files.upload": self = .upload(try FileUpload(from: decoder))
         case "files.memory": self = .memory(try FileMemory(from: decoder))
+        case "files.tree": self = .tree(try FileTree(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown files patch")
         }
     }
 }
 
 /// How many times the computer said files changed (screens read again when it moves), and the
-/// saves, uploads and remembered files the bridge reports.
+/// saves, uploads, remembered files and live trees the bridge reports.
 @MainActor @Observable final class ThreadFilesModel {
     var revision = 0
     var downloads: [String: FileDownload] = [:]
     var uploads: [String: FileUpload] = [:]
     var memory: [String: FileMemory] = [:]
+    var trees: [String: FileTree] = [:]
     func apply(_ patch: FilesPatch) {
         switch patch {
         case .changed(let seq): revision = seq
         case .download(let download): downloads[download.id] = download
         case .upload(let upload): uploads[upload.id] = upload
         case .memory(let memory): self.memory[memory.key] = memory
+        case .tree(let tree): trees[tree.key] = tree
         }
     }
-    func reset() { revision = 0; downloads = [:]; uploads = [:]; memory = [:] }
+    func reset() { revision = 0; downloads = [:]; uploads = [:]; memory = [:]; trees = [:] }
 }
 
 extension FilesScope {
@@ -263,4 +279,14 @@ extension ClientModel {
         try data.write(to: url, options: .atomic)
         return url
     }
+
+    /// The live Files tree (`bridge/checkout-tree-live.ts`): list what the screen shows, expand a
+    /// folder, ask for its next page, or read everything open again after a change from the phone.
+    func showFilesTree(_ scope: FilesScope) { action(["type": "files.tree.show", "scope": scope.wire]) }
+    func hideFilesTree(_ scope: FilesScope) { action(["type": "files.tree.hide", "scope": scope.wire]) }
+    func openFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.opened", "scope": scope.wire, "path": path]) }
+    func closeFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.closed", "scope": scope.wire, "path": path]) }
+    func moreFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.more", "scope": scope.wire, "path": path]) }
+    func retryFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.retry", "scope": scope.wire, "path": path]) }
+    func refreshFilesTree(_ scope: FilesScope) { action(["type": "files.tree.refresh", "scope": scope.wire]) }
 }
