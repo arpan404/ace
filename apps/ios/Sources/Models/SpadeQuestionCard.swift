@@ -82,14 +82,28 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         /// The number edited to `text` on a keyboard of `language` (nil when not known). Edits
         /// from two languages leave it `mixed`, so it is sent unread: `1,23` typed in English
         /// with `4` added in German is neither 1.234 nor 1,234; so is a number begun where the
-        /// keyboard wasn't known and finished on a known one. Cleared, it starts over.
+        /// keyboard wasn't known and finished on a known one. Only what is left of the earlier
+        /// text counts, and digits mean the same on any keyboard: an edit that keeps no decimal
+        /// or grouping mark of it (cleared, or Select All and paste) starts over.
         func typingNumber(_ text: String, on language: String?) -> Draft {
-            guard case let .number(typed, had, mixed) = self, !typed.isEmpty, !text.isEmpty else {
+            guard case let .number(typed, had, mixed) = self, !text.isEmpty,
+                  Draft.kept(typed, editedTo: text).contains(where: { !$0.isNumber && $0 != "-" && $0 != "\u{2212}" }) else {
                 return .number(text, language: text.isEmpty ? nil : language)
             }
             // Begun where the keyboard wasn't known, a known one taking over is a switch too.
             let switched = language != nil && had != language
             return .number(text, language: had ?? language, mixed: mixed || switched)
+        }
+
+        /// What of `old` an edit to `new` left in place: their common start and end.
+        private static func kept(_ old: String, editedTo new: String) -> [Character] {
+            let before = Array(old), after = Array(new)
+            var start = 0
+            while start < before.count, start < after.count, before[start] == after[start] { start += 1 }
+            var end = 0
+            while end < before.count - start, end < after.count - start,
+                  before[before.count - 1 - end] == after[after.count - 1 - end] { end += 1 }
+            return Array(before[..<start] + before[(before.count - end)...])
         }
 
         /// Pick `label`: the one pick for `choice`, toggled for `choices`. A single pick clears

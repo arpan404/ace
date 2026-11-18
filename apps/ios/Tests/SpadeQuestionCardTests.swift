@@ -72,6 +72,11 @@ import Testing
         // Begun where the keyboard wasn't known and finished on a known one: unread.
         let late = empty.typingNumber("1,2", on: nil).typingNumber("1,25", on: "de-DE")
         #expect(late.payload["unread"] as? Bool == true)
+        // Select All and paste on a known keyboard replaces it: read on that keyboard alone.
+        let pasted = empty.typingNumber("12", on: nil).typingNumber("1,5", on: "de-DE")
+        #expect(pasted.payload["text"] as? String == "1.5")
+        let mixedThenPasted = both.typingNumber("7", on: "de-DE").typingNumber("2,5", on: "de-DE")
+        #expect(mixedThenPasted.payload["text"] as? String == "2.5")
     }
 
     @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
