@@ -182,6 +182,7 @@ fn part_of_a_sensitive_apps_name_is_that_app() {
             "{given} may open a sensitive app"
         );
     }
+    // Other "studio" apps aren't Android Studio.
     for given in [
         "TextEdit",
         "Calculator",
@@ -189,6 +190,8 @@ fn part_of_a_sensitive_apps_name_is_that_app() {
         "Pages",
         "Figma",
         "Keynote",
+        "OBS Studio",
+        "Visual Studio Code",
     ] {
         assert_eq!(sensitive::app_given(given), None, "{given}");
     }

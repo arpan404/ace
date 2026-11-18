@@ -914,6 +914,10 @@ fn an_app_that_shows_another_device_asks_on_every_screen_path_despite_always_all
     let viewers = [
         ("Simulator", "com.apple.iphonesimulator"),
         ("Xcode", "com.apple.dt.Xcode"),
+        ("Android Studio", "com.google.android.studio"),
+        ("studio64", "studio64.exe"),
+        ("studio.sh", "android-studio"),
+        ("studio", "studio"),
         ("qemu-system-aarch64", "qemu-system-aarch64"),
         ("Android Emulator", "com.google.android.emulator"),
         ("scrcpy", "scrcpy"),

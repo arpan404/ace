@@ -102,6 +102,18 @@ pub const APPS: &[App] = &[
     ),
     // Its Devices window drives a connected device; Spade binds an app, not one of its windows.
     app("xcode", &["Xcode", "com.apple.dt.Xcode"], SHOWS_DEVICE),
+    // Its Running Devices window embeds the emulator and mirrors connected devices: the whole
+    // app, as for Xcode. A bare `studio` executable counts as a part of its name.
+    app("android studio", &["Android Studio"], SHOWS_DEVICE),
+    app(
+        "android.studio",
+        &["com.google.android.studio"],
+        SHOWS_DEVICE,
+    ),
+    app("android-studio", &["android-studio"], SHOWS_DEVICE),
+    app("jetbrains-studio", &["jetbrains-studio"], SHOWS_DEVICE),
+    app("studio64", &["studio64", "studio64.exe"], SHOWS_DEVICE),
+    app("studio.sh", &["studio.sh"], SHOWS_DEVICE),
     app(
         "emulator",
         &["Android Emulator", "com.google.android.emulator"],

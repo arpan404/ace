@@ -150,7 +150,7 @@ reach the table.
 
 So does every step in an app whose window shows another device or computer, on every screen tool
 path (`screen_state`, `screen_act`, the older `screen_open_app`, another machine's): the iOS
-Simulator, Xcode (its Devices window can't be told apart from the rest of it), Android emulators and
+Simulator, Xcode and Android Studio (their device windows can't be told apart from the rest of them), Android emulators and
 qemu, scrcpy, iPhone Mirroring, QuickTime Player, Vysor, Genymotion, Sidecar-style displays, Screen
 Sharing, VNC and RDP clients, and VM apps (UTM, Parallels, VMware Fusion, VirtualBox and others).
 They are in the same app table, by name and id, and can't be allowed for a bot.

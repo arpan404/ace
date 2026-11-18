@@ -280,7 +280,7 @@ close`) has no place either, so the person decides it.
   is the person's alone by its kind, so an operation added later can't reach the reviewer. A step
   ace can't hold to its place asks too, even under an Always allow. An app on this computer whose window
   shows another device or computer (simulators, emulators, device mirrors, remote desktops and VM
-  apps, and Xcode and QuickTime Player as a whole, since a window can't be told apart) is in the
+  apps, and Xcode, Android Studio and QuickTime Player as a whole, since a window can't be told apart) is in the
   sensitive-app table, so input through the screen tools reaches the person the same way. A step a drive grant covers is still reviewed, told the person allowed the app, and the
   review escalates only a send, a payment, a purchase, an access change or a password, so the
   rest of the session there runs without asking. A drive grant is refused at creation for a
