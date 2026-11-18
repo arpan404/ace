@@ -77,6 +77,7 @@ function httpsUrl(value: string | null | undefined): string | undefined {
  * WorkOS User Management over its REST API (the Node SDK is not used in the Worker).
  * `authorizeUrl` is AuthKit's authorization endpoint with PKCE; `exchange` and `refresh` are
  * `POST /user_management/authenticate` with the `authorization_code` and `refresh_token` grants.
+ * `deleteUser` is `DELETE /user_management/users/:id`; an ace account's id is its WorkOS user id.
  */
 export function workos(config: AccountConfig, fetcher: typeof fetch) {
   const base = config.workosUrl;
@@ -148,6 +149,20 @@ export function workos(config: AccountConfig, fetcher: typeof fetch) {
       authenticate({ grant_type: "authorization_code", code, code_verifier: verifier }),
     refresh: (refreshToken: string) =>
       authenticate({ grant_type: "refresh_token", refresh_token: refreshToken }),
+    /** Deletes the WorkOS user. One WorkOS no longer has (404) counts as deleted. */
+    async deleteUser(userId: string): Promise<void> {
+      const response = await fetcher(
+        `${base}/user_management/users/${encodeURIComponent(userId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${config.apiKey}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      await response.body?.cancel();
+      if (!response.ok && response.status !== 404)
+        throw new Error(`WorkOS answered ${response.status}`);
+    },
   };
 }
 export type AccountProvider = ReturnType<typeof workos>;

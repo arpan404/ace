@@ -33,6 +33,8 @@ export async function fakeWorkos() {
   let barrier: Promise<void> | undefined;
   let entered: (() => void) | undefined;
   let issued = 0;
+  let deleteFailure = false;
+  const deleted: string[] = [];
 
   const server = createServer((request, response) => {
     let raw = "";
@@ -46,6 +48,19 @@ export async function fakeWorkos() {
         }
         if (request.url === "/pictures/not-an-image")
           return reply(response, 200, { message: "not an image" });
+        const deleting = request.url?.match(/^\/user_management\/users\/([^/]+)$/)?.[1];
+        if (deleting && request.method === "DELETE") {
+          if (request.headers.authorization !== "Bearer sk_test_backend")
+            return reply(response, 401, { message: "Unauthorized" });
+          if (deleteFailure) return reply(response, 500, { message: "Internal error" });
+          const id = decodeURIComponent(deleting);
+          if (deleted.includes(id)) return reply(response, 404, { message: "Not found" });
+          for (const [token, held] of refreshTokens)
+            if (held.id === id) refreshTokens.delete(token);
+          deleted.push(id);
+          response.writeHead(202);
+          return response.end();
+        }
         if (request.url !== "/user_management/authenticate" || request.method !== "POST")
           return reply(response, 404, { message: "Not found" });
         const body = JSON.parse(raw) as Record<string, string>;
@@ -102,6 +117,12 @@ export async function fakeWorkos() {
         },
       };
     },
+    /** While on, deleting a user answers 500. */
+    failDeletes(on: boolean) {
+      deleteFailure = on;
+    },
+    /** The users WorkOS was asked to delete, in order. */
+    deletedUsers: () => [...deleted],
     /** Refresh tokens WorkOS would still accept. */
     liveRefreshTokens: () => [...refreshTokens.keys()],
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),

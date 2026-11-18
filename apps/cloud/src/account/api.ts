@@ -1,5 +1,6 @@
 import type { AccountSetup } from "./config.ts";
 import { sealer } from "./crypto.ts";
+import { accountEraser, deleteAccountRoute } from "./deletion.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { directoryRoutes } from "./directory.ts";
 import { loginRoutes } from "./login.ts";
@@ -64,6 +65,12 @@ export function accountApi(
   // deployments select only configured origins, never a caller-supplied Host or Origin.
   const canonicalLogin = loginFor(config.publicUrl);
   const hostLogins = new Map(config.publicOrigins?.map((origin) => [origin, loginFor(origin)]));
+  const deleteAccount = deleteAccountRoute({
+    sessions: reader,
+    provider,
+    erase: accountEraser(deps.db),
+    ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
+  });
   const directory = directoryRoutes({
     sessions: reader,
     machines: machineStore(deps.db),
@@ -86,6 +93,7 @@ export function accountApi(
     if (pathname === "/v1/machines" && method === "GET") return directory.list(request);
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
+    if (pathname === "/v1/account" && method === "DELETE") return deleteAccount(request);
     if (pathname === "/v1/account/login" && method === "POST") return login.start(request);
     if (pathname === "/v1/account/login" && method === "GET") return login.open(url);
     if (pathname === "/v1/account/callback" && method === "GET")
