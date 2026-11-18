@@ -60,28 +60,50 @@ export type ParcelRoute =
 
 /**
  * The routes to try, best first: the address the machines were linked on, the other direct
- * addresses the machine said it serves under the same pinned key (the LAN, Tailscale), then
- * the person's own relay and ace's relay. Loopback is never tried: on this machine it reaches
- * this machine. A direct address under another key is left out; it isn't the linked machine.
+ * addresses the machine said it serves (the LAN, Tailscale), the relay they were linked through,
+ * then the person's own relay and ace's relay. Loopback is never tried: on this machine it
+ * reaches this machine. A direct address must be under the key the link pinned; a machine
+ * linked through a relay only pinned none, so it is under the key the machine itself announced
+ * on that authenticated stream.
  */
 export function parcelRoutes(
-  saved: { origin: string; fingerprint: string },
+  saved: {
+    origin?: string | undefined;
+    fingerprint?: string | undefined;
+    relay?: { url: string; relayHostId: string } | undefined;
+  },
   paths: readonly MachinePath[],
 ): ParcelRoute[] {
-  const routes: ParcelRoute[] = [
-    { kind: "direct", url: saved.origin, fingerprint: saved.fingerprint, path: "saved" },
-  ];
-  const known = new Set([originOf(saved.origin)]);
+  const routes: ParcelRoute[] = [];
+  const known = new Set<string>();
+  if (saved.origin && saved.fingerprint) {
+    routes.push({
+      kind: "direct",
+      url: saved.origin,
+      fingerprint: saved.fingerprint,
+      path: "saved",
+    });
+    known.add(originOf(saved.origin));
+  }
   for (const kind of ["lan", "tailscale"] as const)
     for (const path of paths)
       if (
         path.kind === kind &&
-        path.fingerprint === saved.fingerprint &&
+        (saved.fingerprint === undefined || path.fingerprint === saved.fingerprint) &&
         !known.has(originOf(path.url))
       ) {
         known.add(originOf(path.url));
         routes.push({ kind: "direct", url: path.url, fingerprint: path.fingerprint, path: kind });
       }
+  if (saved.relay) {
+    known.add(`relay:${saved.relay.url}`);
+    routes.push({
+      kind: "relay",
+      url: saved.relay.url,
+      relayHostId: saved.relay.relayHostId,
+      hosted: false,
+    });
+  }
   for (const kind of ["relay", "account"] as const)
     for (const path of paths)
       if (path.kind === kind && !known.has(`relay:${path.url}`)) {

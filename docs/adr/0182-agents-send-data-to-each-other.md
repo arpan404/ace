@@ -150,8 +150,9 @@ TLS certificate proves nothing. Inside the stream:
   an account device. It reads the device again on every call, so revoking or re-pairing it
   refuses the next call, and revocation closes the stream.
 - It hands each call to the same `MachineTarget.handle` the TLS listener uses.
-- Through a relay it takes only `parcel` and `describe`. Four calls run at once per stream and at
-  most 32 wait; more are refused. Widening relayed calls to delegation is left for later.
+- Through a relay it takes every machine call (delegate, status, messages, tools, parcels),
+  decided by the same target, grants and ceilings as on the TLS listener. Four calls run at
+  once per stream and at most 32 wait; more are refused.
 - ace's hosted relay admits a client only with a `device` grant on the host's own account
   (ADR 0111). The caller asks its ace account for one (`machineAccount.deviceGrant`, a new
   `kind: "device"` request of the existing `POST /v1/grants`), naming its paired device id.
@@ -159,6 +160,33 @@ TLS certificate proves nothing. Inside the stream:
   address a paired machine names never receives one, since it could replay it against the
   person's other machines. Not signed in, or another address, that route is skipped. The
   person's own relay needs no grant.
+
+### Machines that reach each other only through a relay
+
+A link, a delegation and every call between two machines can go through the person's own
+relay alone, with no new authority:
+
+- **Linking.** A pairing link from a machine that is also on the person's own relay names that
+  relay and its relay host key as a second way in (`viaRelay`, `viaRelayHostId` in the
+  fragment, `PairingLink.alsoRelay`). A machine on its own relay alone already issues a relay
+  link (ADR 0070). A machine that can't reach a link's address (`offline`, nothing sent)
+  redeems the same single-use code through that relay (`pair.redeem` on a stream pinned to the
+  key, `machines/relay-pairing.ts`), with the scopes the link grants. The relay key comes only
+  from the link the person copied. ace's relay never carries a pairing; it admits account
+  devices only.
+- **The link.** A profile keeps its TLS address and key, its relay and key, or both
+  (`RemoteProfile.relay`). The CLI, project transfers (ADR 0101) and kept-open connections use
+  only the TLS address, so a relay-only link refuses them with "linked through a relay only"
+  before anything is sent.
+- **Machine calls.** `withRelayFallback` (`machines/relay-fallback.ts`) sends each call
+  directly, and through a relay only when the direct attempt never reached the machine
+  (`offline`, `MachineNotSent`, or no TLS address). Work is never sent twice: a call that may
+  have reached the machine (`disconnected`, a timeout after connecting, a refusal) is never
+  tried on the other path. Once the relay answered for a machine it goes first for five
+  minutes, so a dead address isn't waited on at every status poll.
+- **Routes.** The relay the machines were linked through comes first among relays. A machine
+  linked through a relay only pinned no TLS key, so a direct address it announces in
+  `describe` (over the pinned relay stream) is used under the key it announced there.
 
 ### Reliability and bounds
 
@@ -204,9 +232,11 @@ TLS certificate proves nothing. Inside the stream:
 
 - Data moves only along agent-tree edges. Two unrelated agents, or agents on machines that
   aren't linked, can't exchange data.
-- The relay route needs the machines to have been reachable directly once, to learn the relay
-  path, because linking itself needs a direct address today.
-- ace's hosted relay needs both machines signed in to the same ace account.
+- Two machines on ace's hosted relay only can't link: it admits account devices, which never
+  pair, and same-account machines don't link to each other through the account (that would be
+  new machine-to-machine authority). Parcels use ace's relay only between machines already
+  linked, and need both on the same ace account.
+- A pairing link names the person's own relay only while the machine is registered on it.
 - A child's parcel to its parent waits for the parent's machine to ask, every poll interval
   (2 s by default).
 
@@ -223,5 +253,9 @@ TLS certificate proves nothing. Inside the stream:
     after its turn ends until the parent's machine has collected it.
   - `parcels-relay`: a real relay over `wss://`. Once the machines are linked, every direct path
     is down, and a parcel goes each way through the relay.
+  - `parcels-relay-only`: the studio's link names an address the laptop can't reach. The
+    laptop links through the relay from Settings › Fleet, the studio shows online, and a
+    delegation, its status polls and a parcel each way all go through the relay, with every
+    direct call failing.
 - Tailscale is the same TLS listener at its 100.x address, so it is the direct route. It was
   verified by hand on machines on a tailnet (see the PR).

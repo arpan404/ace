@@ -30,6 +30,8 @@ type ParcelOperation = Extract<AgentControlOperation, { op: "data.send" | "data.
 
 export interface DaemonParcels {
   target: ParcelTarget;
+  /** Machine calls through a relay, for any op whose direct attempt never reached the machine. */
+  relayCalls: import("../machines/relay-fallback.ts").RelayCalls;
   /** The agents' `data_send` and `data_receive`. */
   agent(caller: McpAttribution, operation: ParcelOperation): Promise<AgentControlResult>;
   /** A linked machine described itself: its paths are kept for when its address fails. */
@@ -374,6 +376,14 @@ export function startParcels(context: ServiceContext): void {
 
   services.parcels = {
     target,
+    relayCalls: {
+      call: (profile, body, callOptions) =>
+        link.relays(profile, body, {
+          timeoutMs: callOptions.timeoutMs,
+          ...(callOptions.signal ? { signal: callOptions.signal } : {}),
+        }),
+      prefers: (profile) => link.prefersRelay(profile),
+    },
     described,
     async agent(caller, operation) {
       if (operation.op === "data.receive") return receive(caller, operation);

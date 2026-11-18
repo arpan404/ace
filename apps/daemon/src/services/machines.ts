@@ -33,6 +33,8 @@ import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
+import { withRelayFallback } from "../machines/relay-fallback.ts";
+import { redeemPairingThroughRelay } from "../machines/relay-pairing.ts";
 import { MachineConnections } from "../machines/connections.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
@@ -254,7 +256,11 @@ export function startMachines(context: ServiceContext): void {
       if (!list) throw new Error("The saved pairings can't be read just now");
       return list;
     },
-    transport: options.machines?.transport ?? machineRequest,
+    // A machine its direct address doesn't reach is called through its relay (ADR 0182).
+    transport: withRelayFallback(
+      options.machines?.transport ?? machineRequest,
+      () => services.parcels?.relayCalls,
+    ),
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
     described: (profile, description) => services.parcels?.described(profile, description),
@@ -290,6 +296,8 @@ export function startMachines(context: ServiceContext): void {
     },
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
     redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
+    // A machine reached only through a relay is linked through it (ADR 0182).
+    redeemRelay: (url, name) => redeemPairingThroughRelay(url, name, hostId),
     hostName,
     transfers: (profile) => new TransferClient(probes, profile).probe(),
   });

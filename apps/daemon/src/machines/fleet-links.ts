@@ -1,5 +1,5 @@
 import { ClientError } from "@ace/client";
-import { parsePairingLink, type PairingLink } from "@ace/client/access";
+import { pairingLinkUrl, parsePairingLink, type PairingLink } from "@ace/client/access";
 import type { DeviceCredential, FleetLink, HostId, MachineDescription } from "@ace/protocol";
 import type { Profiles, RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure } from "./transport.ts";
@@ -20,6 +20,14 @@ export interface FleetLinkDeps {
   describe(profile: string): Promise<MachineDescription>;
   /** Redeems another machine's pairing link as a new device named `name` there. */
   redeem(url: string, name: string): Promise<DeviceCredential>;
+  /**
+   * Redeems a relay pairing link through that relay, for a machine this one reaches only
+   * there (ADR 0182). Without it, relay links are refused.
+   */
+  redeemRelay?(
+    url: string,
+    name: string,
+  ): Promise<DeviceCredential & { relay: { url: string; hostId: string } }>;
   /** This machine's display name, which the other machine shows for the device. */
   hostName(): Promise<string>;
   /**
@@ -96,7 +104,11 @@ export class FleetLinks {
     } catch {
       link = undefined;
     }
-    if (!link || !link.daemon.startsWith("https:") || !/^[a-f0-9]{64}$/.test(link.fingerprint))
+    const relayed = link?.relay !== undefined && this.deps.redeemRelay !== undefined;
+    if (
+      !link ||
+      (!relayed && (!link.daemon.startsWith("https:") || !/^[a-f0-9]{64}$/.test(link.fingerprint)))
+    )
       throw new FleetError("invalid", "That pairing link isn't complete. Copy it again.");
     const { daemon, fingerprint } = link;
     const capacity = this.withProfiles((store) => {
@@ -106,11 +118,37 @@ export class FleetLinks {
     if (!capacity)
       throw new FleetError("limit", "This machine has 64 links already. Remove one first.");
     let credential: DeviceCredential;
+    let relay: { url: string; relayHostId: string } | undefined;
     try {
-      credential = await this.deps.redeem(
-        input.pairingUrl,
-        (await this.deps.hostName()).slice(0, 256) || "ace",
-      );
+      const name = (await this.deps.hostName()).slice(0, 256) || "ace";
+      const throughRelay = async (url: string) => {
+        if (!this.deps.redeemRelay) throw new ClientError("offline", "No relay redemption here");
+        const redeemed = await this.deps.redeemRelay(url, name);
+        relay = { url: redeemed.relay.url, relayHostId: redeemed.relay.hostId };
+        return redeemed;
+      };
+      if (relayed) credential = await throughRelay(input.pairingUrl);
+      else
+        try {
+          credential = await this.deps.redeem(input.pairingUrl, name);
+        } catch (error) {
+          // The address isn't reachable from here: the same code goes through the person's own
+          // relay the link also names, pinned to its host key there (ADR 0182).
+          const alsoRelay = link.alsoRelay;
+          if (!(error instanceof ClientError && error.code === "offline") || !alsoRelay)
+            throw error;
+          credential = await throughRelay(
+            pairingLinkUrl({
+              relay: alsoRelay,
+              code: link.code,
+              scopes: link.scopes,
+              app: "https://ace.invalid",
+            }),
+          );
+        }
+      // A direct link's relay is kept too, for when the address stops answering.
+      if (!relay && link.alsoRelay)
+        relay = { url: link.alsoRelay.url, relayHostId: link.alsoRelay.hostId };
     } catch (error) {
       throw redeemFailure(error);
     }
@@ -125,8 +163,10 @@ export class FleetLinks {
             input.name,
             existing.map((entry) => entry.name),
           ),
-        origin: daemon,
-        fingerprint,
+        // A relay link pins the machine's relay host key; a direct one its TLS key, and its
+        // relay's host key when it names one.
+        ...(relayed ? {} : { origin: daemon, fingerprint }),
+        ...(relay ? { relay } : {}),
         deviceId: credential.device.id,
         token: credential.token,
         hostId: input.hostId,
@@ -154,7 +194,8 @@ export class FleetLinks {
   private async check(profile: RemoteProfile): Promise<FleetLink> {
     const base = {
       profile: profile.name,
-      origin: profile.origin,
+      // A relay-only link is shown at the relay it goes through.
+      origin: profile.origin ?? profile.relay?.url ?? profile.name,
       deviceId: profile.deviceId,
     };
     try {

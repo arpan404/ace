@@ -87,6 +87,21 @@ describe("a parcel tries every way to reach the machine, best first", () => {
     const relays = parcelRoutes(saved, paths).filter((route) => route.kind === "relay");
     expect(relays.map((route) => route.kind === "relay" && route.hosted)).toEqual([false, true]);
   });
+  it("tries the relay a machine was linked through before relays it only announced", () => {
+    const linked = { ...saved, relay: { url: "wss://own.example.com", relayHostId } };
+    const relays = parcelRoutes(linked, paths).filter((route) => route.kind === "relay");
+    expect(relays.map((route) => route.url)).toEqual([
+      "wss://own.example.com",
+      "wss://relay.example.com",
+      "wss://relay.acehq.dev",
+    ]);
+  });
+  it("reaches a machine linked through a relay only, and its announced addresses under their own key", () => {
+    const routes = parcelRoutes({ relay: { url: "wss://own.example.com", relayHostId } }, paths);
+    expect(routes[0]).toMatchObject({ kind: "direct", url: "https://192.168.1.4:7443" });
+    expect(routes.map((route) => route.url)).not.toContain("https://127.0.0.1:7443");
+    expect(routes.find((route) => route.kind === "relay")?.url).toBe("wss://own.example.com");
+  });
   it("still has the linked address when the machine never said what else it serves", () => {
     expect(parcelRoutes(saved, [])).toHaveLength(1);
   });

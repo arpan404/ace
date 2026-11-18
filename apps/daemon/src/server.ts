@@ -113,7 +113,15 @@ export async function startServer(options: ServerOptions): Promise<{
   let remoteOrigin: string | undefined;
   const pairing = (): PairingConnection | undefined =>
     options.remote && remoteOrigin
-      ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
+      ? {
+          origin: remoteOrigin,
+          fingerprint: options.remote.identity.fingerprint,
+          // The person's own relay from launch options, as a second way in (ADR 0182).
+          ...(options.relay &&
+          !isHostedRelay(options.relay.url, options.remoteConfig?.hostedRelayUrl)
+            ? { alsoRelay: relayPairing(options.relay).relay }
+            : {}),
+        }
       : dynamicRemote
         ? dynamicRemote.pairing()
         : // A relay from launch options (`ACE_RELAY_URL`) is self-hosted unless it is ace's.

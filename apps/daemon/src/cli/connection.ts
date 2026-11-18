@@ -1,4 +1,4 @@
-import { selectedProfile } from "./profiles.ts";
+import { directOf, selectedProfile } from "./profiles.ts";
 import { accessRequest, pinnedSocketTransport } from "../client-access.ts";
 import {
   Client,
@@ -111,20 +111,27 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
           () => lifetime.abort(new CliFailure("timeout", "Observation timed out")),
           duration,
         );
+  // The CLI reaches another machine only at its pinned TLS address.
+  const direct = profile ? directOf(profile) : undefined;
+  if (profile && !direct)
+    throw new CliFailure(
+      "refused",
+      `${profile.name} is linked through a relay only; the CLI reaches only machines it can address directly.`,
+    );
   const client = cliClient({
     deviceId: profile?.deviceId ?? DeviceId.parse(local.id),
     transport: () =>
-      profile
-        ? pinnedSocketTransport(profile.origin.replace("https:", "wss:"), profile.fingerprint)
+      direct
+        ? pinnedSocketTransport(direct.origin.replace("https:", "wss:"), direct.fingerprint)
         : webSocketTransport(() => new WebSocket(connection?.origin.replace("http:", "ws:") ?? "")),
-    credential: profile
+    credential: direct
       ? ticketCredential(
-          async () => profile.token,
+          async () => direct.token,
           (token) =>
-            accessRequest(profile.origin, "/v1/tickets", {
+            accessRequest(direct.origin, "/v1/tickets", {
               method: "POST",
               token,
-              fingerprint: profile.fingerprint,
+              fingerprint: direct.fingerprint,
             }),
         )
       : async () => connection?.token ?? "",

@@ -5,13 +5,14 @@ import {
   type MachineTransportOptions,
   type PinnedRequest,
 } from "../machines/transport.ts";
+import type { ConnectionProfile } from "../machines/connections.ts";
 import type { RelayLink } from "./relay-link.ts";
 import { parcelRoutes, type ParcelRoute } from "./rules.ts";
 
 export interface ParcelLinkDeps {
   /** One pinned HTTPS request to a direct address (`pinnedRequest`). */
   pinned(
-    profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
+    profile: ConnectionProfile,
     route: PinnedRequest,
     options: MachineTransportOptions,
   ): Promise<unknown>;
@@ -57,6 +58,40 @@ export class ParcelLink {
     if (first <= 0) return routes;
     const chosen = routes[first];
     return chosen ? [chosen, ...routes.slice(0, first), ...routes.slice(first + 1)] : routes;
+  }
+  /** The relay answered for this machine last, while that is still preferred. */
+  prefersRelay(profile: RemoteProfile): boolean {
+    const route = this.lastRoute(profile);
+    return route === "relay" || route === "account";
+  }
+  /**
+   * One call through the machine's relays only, for machine calls whose direct attempt never
+   * reached it. The same failures as a direct call; none at all is offline.
+   */
+  async relays(
+    profile: RemoteProfile,
+    body: MachineCallRequest,
+    options: { timeoutMs: number; signal?: AbortSignal },
+  ): Promise<unknown> {
+    let last: unknown = new MachineFailure("offline", undefined, "No relay to reach it through");
+    for (const route of parcelRoutes(profile, this.deps.paths(profile))) {
+      if (route.kind !== "relay") continue;
+      options.signal?.throwIfAborted();
+      try {
+        const answer = await this.once(profile, route, body, options);
+        this.preferred.set(profile.id, {
+          kind: kindOf(route),
+          url: route.url,
+          at: this.deps.now(),
+        });
+        return answer;
+      } catch (error) {
+        // A refusal is the machine's answer; a call that may have reached it isn't sent again.
+        if (error instanceof MachineFailure && error.kind !== "offline") throw error;
+        last = error;
+      }
+    }
+    throw last;
   }
   async call(
     profile: RemoteProfile,

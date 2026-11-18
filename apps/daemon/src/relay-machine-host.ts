@@ -3,8 +3,6 @@ import type { HostChannel } from "@ace/relay";
 import type { MachineTarget } from "./machines/target.ts";
 import type { PairedDevice } from "./devices.ts";
 
-/** Calls a machine takes through a relay (ADR 0182): parcels, and `describe` to learn paths. */
-const relayedOps: ReadonlySet<string> = new Set(["parcel", "describe"]);
 /** Calls answered at once on one stream; more wait for a free one. */
 const PARALLEL = 4;
 
@@ -59,15 +57,7 @@ export async function serveRelayMachineCalls(
         ? { status: 401, body: { error: "unauthorized" } }
         : !target
           ? { status: 503, body: { error: "unavailable" } }
-          : !relayedOps.has(call.request.call.op)
-            ? {
-                status: 501,
-                body: {
-                  error: "not_supported",
-                  message: "Through a relay this machine takes only parcels.",
-                },
-              }
-            : await target.handle(device, call.request, lifetime.signal);
+          : await target.handle(device, call.request, lifetime.signal);
       await channel
         .send({ type: "machine.answer", id: call.id, status: answer.status, body: answer.body })
         .catch(() => {});

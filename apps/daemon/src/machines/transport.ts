@@ -1,9 +1,10 @@
 import { request as httpsRequest } from "node:https";
 import { MachineRefusal, type MachineCallRequest } from "@ace/protocol";
 import { pinnedAgent } from "../client-access.ts";
-import type { RemoteProfile } from "../cli/profiles.ts";
+import { directOf, type RemoteProfile } from "../cli/profiles.ts";
 import type {
   AnswerHeaders,
+  ConnectionProfile,
   ConnectionLane,
   ConnectionLease,
   MachineConnections,
@@ -107,9 +108,13 @@ export function laneOf(call: MachineCallRequest["call"]): ConnectionLane {
  * for it. Unreachable before connecting is `offline`; a connection lost after the request was
  * sent is `disconnected`, because the target may have acted.
  */
-export const machineRequest: MachineTransport = (profile, body, options) =>
-  pinnedRequest(
-    profile,
+export const machineRequest: MachineTransport = async (profile, body, options) => {
+  const direct = directOf(profile);
+  // Linked through a relay only: nothing goes direct, and nothing was sent.
+  if (!direct)
+    throw new MachineNotSent("offline", undefined, "Machine linked through a relay only");
+  return pinnedRequest(
+    direct,
     {
       path: "/v1/machine-calls",
       method: "POST",
@@ -120,6 +125,7 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
     },
     options,
   );
+};
 
 /**
  * Whether the lease's pairing is still saved, asked inside a socket callback: nothing thrown may
@@ -134,7 +140,7 @@ function stillCurrent(lease: ConnectionLease): boolean {
 }
 
 /** A connection for this request alone, closed once it is answered. */
-function oneShot(profile: Pick<RemoteProfile, "fingerprint">): ConnectionLease {
+function oneShot(profile: { fingerprint: string }): ConnectionLease {
   const agent = pinnedAgent(profile.fingerprint);
   return { agent, release: () => agent.destroy() };
 }
@@ -158,7 +164,7 @@ const MIN_RESEND_MS = 250;
 
 /** A JSON answer from a paired machine's listener; refusals keep their authored words. */
 export async function pinnedRequest(
-  profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
+  profile: ConnectionProfile,
   route: PinnedRequest,
   options: MachineTransportOptions,
 ): Promise<unknown> {
@@ -180,7 +186,7 @@ export async function pinnedRequest(
 }
 
 function pinnedOnce(
-  profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
+  profile: ConnectionProfile,
   route: PinnedRequest,
   options: MachineTransportOptions,
   { fresh }: Attempt,
