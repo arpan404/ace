@@ -69,6 +69,21 @@ export class FakeSpadeApi implements FakeSpadeServer {
       held.resolve();
     };
   }
+  /** Settlements of question cards accepted while `holdQuestionSettles` holds them. */
+  private heldSettles: (() => void)[] | undefined;
+
+  /**
+   * Accepts a card's answer, deferral or dismissal at once but stores it only when the result is
+   * called, as a Spade slow to send the update would.
+   */
+  holdQuestionSettles(): () => void {
+    const held: (() => void)[] = [];
+    this.heldSettles = held;
+    return () => {
+      if (this.heldSettles === held) this.heldSettles = undefined;
+      for (const settle of held.splice(0)) settle();
+    };
+  }
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
@@ -883,24 +898,33 @@ export class FakeSpadeApi implements FakeSpadeServer {
       );
       if (!asked || settled || (body.defer === true && deferred))
         return problem(409, "That question isn't open.");
-      if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
-      else if (body.dismiss === true)
-        this.store(id, { type: "question_dismissed", call_id: subId, late: deferred || undefined });
-      else if (Array.isArray(body.answers))
-        this.store(id, {
-          type: "question_answered",
-          call_id: subId,
-          answers: body.answers,
-          late: deferred || undefined,
-        });
-      else return problem(400, "Send exactly one of answers, defer or dismiss.");
-      if (agent) {
-        const later =
-          (agent.questions_for_later ?? 0) +
-          (body.defer === true ? questions : deferred ? -questions : 0);
-        agent.questions_for_later = Math.max(0, later);
-        if (agent.waiting_for === "question") this.status(agent, "idle", null);
-      }
+      if (body.defer !== true && body.dismiss !== true && !Array.isArray(body.answers))
+        return problem(400, "Send exactly one of answers, defer or dismiss.");
+      const settle = () => {
+        if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
+        else if (body.dismiss === true)
+          this.store(id, {
+            type: "question_dismissed",
+            call_id: subId,
+            late: deferred || undefined,
+          });
+        else
+          this.store(id, {
+            type: "question_answered",
+            call_id: subId,
+            answers: body.answers,
+            late: deferred || undefined,
+          });
+        if (agent) {
+          const later =
+            (agent.questions_for_later ?? 0) +
+            (body.defer === true ? questions : deferred ? -questions : 0);
+          agent.questions_for_later = Math.max(0, later);
+          if (agent.waiting_for === "question") this.status(agent, "idle", null);
+        }
+      };
+      if (this.heldSettles) this.heldSettles.push(settle);
+      else settle();
       return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {

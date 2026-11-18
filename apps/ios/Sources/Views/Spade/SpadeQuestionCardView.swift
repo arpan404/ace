@@ -136,6 +136,8 @@ private struct SpadeOpenQuestionCard: View {
         .accessibilityLabel(card.label)
         .accessibilityIdentifier("spade.question")
         .onAppear { if drafts.count != count { drafts = card.questions.map(SpadeQuestionCard.Draft.empty) } }
+        // Sent, the card stays locked until Spade's update moves it on.
+        .onChange(of: card.standing) { sending = false }
     }
 
     private func draftBinding(_ index: Int) -> Binding<SpadeQuestionCard.Draft> {
@@ -203,8 +205,8 @@ private struct SpadeOpenQuestionCard: View {
         problem = nil
         Task {
             let outcome = await reply(body)
-            sending = false
             if outcome.ok { answered += 1; return }
+            sending = false
             problem = outcome.problem
             if let named = outcome.at, named >= 0, named < count { page = named }
         }

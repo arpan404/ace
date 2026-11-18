@@ -2,7 +2,8 @@ import XCTest
 
 /// Spade on the spike fixture (`scripts/spade-scenario.ts`): its tab after Chats while the
 /// machine shows it, the bots in web's order, a conversation streaming a reply, an approval
-/// answered and a message sent, a card of questions answered, and the tab gone once Settings ›
+/// answered and a message sent, a card of questions answered (and locked while Spade's update is
+/// on its way), and the tab gone once Settings ›
 /// Beta turns Spade off.
 @MainActor final class SpadeUITests: XCTestCase {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
@@ -130,6 +131,37 @@ import XCTest
         screenshot("spade-10-question-for-later")
         app.buttons["spade.question.later"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["spade.question.folded"].waitForExistence(timeout: 5))
+    }
+
+    func testASentCardStaysLockedUntilSpadesUpdateSettlesIt() async throws {
+        // Spade takes the answer at once but sends its update only on `release`.
+        try await stage("hold")
+        let app = launch()
+        _ = openSpade(app)
+        let planner = app.buttons["spade.bot.planner"]
+        XCTAssertTrue(planner.waitForExistence(timeout: 20))
+        planner.tap()
+        let porto = app.buttons["spade.question.option.1"]
+        XCTAssertTrue(porto.waitForExistence(timeout: 15))
+        porto.tap()
+        app.buttons["spade.question.next"].tap()
+        let nights = app.textFields["spade.question.number"]
+        XCTAssertTrue(nights.waitForExistence(timeout: 5))
+        nights.tap()
+        nights.typeText("5")
+        app.buttons["spade.question.numberDone"].tap()
+        let send = app.buttons["spade.question.send"]
+        send.tap()
+
+        // Taken but not yet settled: Send stays off, so a second tap can't post it again.
+        await fulfillment(of: [expectation(for: NSPredicate(format: "enabled == false"), evaluatedWith: send)], timeout: 5)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertTrue(send.exists)
+        XCTAssertFalse(send.isEnabled)
+        screenshot("spade-11-question-sending")
+
+        try await stage("release")
+        XCTAssertTrue(app.descendants(matching: .any)["You: 5 nights"].waitForExistence(timeout: 15))
     }
 
     func testTheTabGoesWhenBetaTurnsSpadeOff() async throws {

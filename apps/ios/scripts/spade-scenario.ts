@@ -5,17 +5,20 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
  * with Spade itself, a bot waiting on an approval, one on a card of questions (with another left
  * for later), one working and one that finished. `POST
  * /review/spade` stages the rest: `off` turns Beta's switch off (the tab goes), `on` back on,
- * `stream` has the finished bot start a reply and stream its first words. `on` also puts back
+ * `stream` has the finished bot start a reply and stream its first words, `hold` has Spade take a
+ * card's answer but send the update only on `release`. `on` also puts back
  * what earlier tests changed, so each starts from the seed whatever ran before it.
  */
 
-export type SpadeScenario = "off" | "on" | "stream";
+export type SpadeScenario = "off" | "on" | "stream" | "hold" | "release";
 
 let api: FakeSpadeApi | undefined;
 let asks = 0;
 /** Builder's open reply: the one asking, then answered and still open. */
 let asking = "r-builder-0";
 const tests = { command: "bun run test:fast apps/ios/bridge" };
+/** Lets held card settlements through (`hold`). */
+let release: (() => void) | undefined;
 /** Planner's waiting card, asked again once answered. */
 let planning = 0;
 const trip = [
@@ -63,6 +66,11 @@ export function seedSpade(daemon: FakeDaemon, now: number): void {
 }
 
 export function spadeScenario(daemon: FakeDaemon, scenario: SpadeScenario): void {
+  if (scenario === "hold" || scenario === "release" || scenario === "on") {
+    release?.();
+    release = scenario === "hold" ? api?.holdQuestionSettles() : undefined;
+    if (scenario !== "on") return;
+  }
   if (scenario === "off" || scenario === "on") {
     daemon.services.settings.write("beta.spade", scenario === "on");
     // Back on, Spade runs again, as the daemon starts it.
