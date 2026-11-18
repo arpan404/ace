@@ -38,6 +38,8 @@ export function spadeGrantSentence(grant: SpadeGrant): string {
       return grant.ownOnly
         ? `Comment on its own pull requests in ${grant.repo}`
         : `Comment on pull requests in ${grant.repo}`;
+    case "drive":
+      return `Act in ${grant.app}, each step reviewed`;
     case "other":
       return grant.name ? `Allowed: ${grant.name}` : "Allowed";
   }

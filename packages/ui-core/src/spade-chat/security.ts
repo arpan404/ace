@@ -50,6 +50,8 @@ export type SpadeGrantScope =
   | { kind: "tool"; tool: string; arguments: Record<string, string> }
   | { kind: "git_push"; repo: string; branch: string }
   | { kind: "pr_comment"; repo: string; ownOnly: boolean }
+  /** Driving one app or site (ADR 0171, amendment 3): its steps are reviewed without asking. */
+  | { kind: "drive"; app: string }
   | { kind: "other"; name: string };
 
 export type SpadeGrant = SpadeGrantScope & {
@@ -156,6 +158,7 @@ function scope(raw: Record<string, unknown>): SpadeGrantScope {
     return { kind, tool: word("tool"), arguments: argumentsShape.parse(raw.arguments) };
   if (kind === "git_push") return { kind, repo: word("repo"), branch: word("branch") };
   if (kind === "pr_comment") return { kind, repo: word("repo"), ownOnly: raw.own_only === true };
+  if (kind === "drive") return { kind, app: word("app") };
   return { kind: "other", name: kind };
 }
 

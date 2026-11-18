@@ -262,9 +262,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox",
+    ask: "undeclared" | "outside_sandbox" | "drive",
+    app?: string,
   ): void {
-    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask });
+    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });
   }
 
   private request(
@@ -276,6 +277,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       reply: string;
       reviewerReason?: string;
       ask?: string;
+      app?: string | undefined;
     },
   ): void {
     const { callId, name, args, reply: id } = call;
@@ -294,6 +296,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(args === undefined ? {} : { arguments: args }),
       ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
       ...(call.ask === undefined ? {} : { ask: call.ask }),
+      ...(call.app === undefined ? {} : { app: call.app }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }

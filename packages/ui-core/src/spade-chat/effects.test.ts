@@ -30,8 +30,20 @@ describe("what Spade asked about (ADR 0171)", () => {
   test.each([
     ["outside_sandbox", "outside_sandbox"],
     ["undeclared", "undeclared"],
+    ["drive", "drive"],
   ])("a request asked as %s carries it to its bubble", (ask, expected) => {
     expect(asked({ ask, arguments: { command: "ls" } })).toMatchObject({ ask: expected });
+  });
+
+  test("a driving step carries the app it offers to allow, and only a driving step does", () => {
+    expect(asked({ ask: "drive", app: "com.apple.TextEdit" })).toMatchObject({
+      ask: "drive",
+      app: "com.apple.TextEdit",
+    });
+    const outside = asked({ ask: "outside_sandbox", app: "com.apple.TextEdit" });
+    expect(outside && "app" in outside).toBe(false);
+    const sensitive = asked({ ask: "drive" });
+    expect(sensitive && "app" in sensitive).toBe(false);
   });
 
   test.each([[{}], [{ ask: null }], [{ ask: "something_new" }]])(

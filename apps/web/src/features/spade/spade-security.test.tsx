@@ -229,6 +229,9 @@ test("a bot's own network rule says so and goes back to the machine's", async ()
 const asks = [
   {
     ask: "outside_sandbox" as const,
+    name: "shell",
+    args: { command: "brew install jq" },
+    app: undefined,
     title: "Run this outside the sandbox?",
     buttons: ["Allow once", "Always for this bot", "Deny"],
     sends: [
@@ -239,6 +242,9 @@ const asks = [
   },
   {
     ask: "undeclared" as const,
+    name: "call_tool",
+    args: { tool: "sync_inbox" },
+    app: undefined,
     title: "Scout wants to use sync inbox",
     buttons: ["Allow", "Deny"],
     sends: [
@@ -246,30 +252,55 @@ const asks = [
       ["Deny", { allowed: false, always: false }],
     ],
   },
+  {
+    // A step in an app Spade may allow for the bot: its always is that app, never the tool.
+    ask: "drive" as const,
+    name: "screen_act",
+    args: { app: "TextEdit", actions: [{ type: "click", id: 3 }] },
+    app: "TextEdit",
+    title: undefined,
+    buttons: ["Allow TextEdit for this bot", "Deny", "Allow"],
+    sends: [
+      ["Allow", { allowed: true, always: false }],
+      ["Allow TextEdit for this bot", { allowed: true, always: true }],
+      ["Deny", { allowed: false, always: false }],
+    ],
+  },
+  {
+    // A step in Mail: allowed once or denied, nothing more.
+    ask: "drive" as const,
+    name: "screen_act",
+    args: { app: "Mail", actions: [{ type: "type", text: "hi" }] },
+    app: undefined,
+    title: undefined,
+    buttons: ["Deny", "Allow"],
+    sends: [
+      ["Allow", { allowed: true, always: false }],
+      ["Deny", { allowed: false, always: false }],
+    ],
+  },
 ] as const;
 
-for (const { ask, title, buttons, sends } of asks) {
+for (const { ask, name, args, app, title, buttons, sends } of asks) {
   for (const [button, body] of sends) {
-    test(`a request asked as ${ask}: ${button} sends ${JSON.stringify(body)}`, async () => {
+    test(`a request asked as ${ask}${app ? ` for ${app}` : ""}: ${button} sends ${JSON.stringify(body)}`, async () => {
       const { spade } = await spadeApp("/spade", (api) => {
         const scout = seed(api);
-        api.askAbout(
-          scout,
-          "k1",
-          ask === "outside_sandbox" ? "shell" : "call_tool",
-          ask === "outside_sandbox" ? { command: "brew install jq" } : { tool: "sync_inbox" },
-          ask,
-        );
+        api.askAbout(scout, "k1", name, args, ask, app);
       });
       await userEvent.click(await botRow("Scout"));
-      const card = within(await screen.findByRole("group", { name: title.replace(/[.?]$/, "") }));
+      const card = within(
+        title
+          ? await screen.findByRole("group", { name: title.replace(/[.?]$/, "") })
+          : await screen.findByRole("group", { name: /^Scout wants to/ }),
+      );
       expect(
         card.getAllByRole("button").map((each) => each.textContent?.replace(/Enter$/, "")),
       ).toEqual(expect.arrayContaining([...buttons]));
       expect(card.getAllByRole("button")).toHaveLength(buttons.length);
       if (ask === "outside_sandbox")
         expect(card.getByLabelText("Command").textContent).toBe("brew install jq");
-      await userEvent.click(card.getByRole("button", { name: new RegExp(`^${button}`) }));
+      await userEvent.click(card.getByRole("button", { name: new RegExp(`^${button}(Enter)?$`) }));
       await waitFor(() =>
         expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k1")).toHaveLength(1),
       );

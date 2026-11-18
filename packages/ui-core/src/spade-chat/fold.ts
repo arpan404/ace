@@ -194,15 +194,20 @@ export interface SpadeQuestionCard {
   askedForLater: boolean;
 }
 
-export type SpadeAskKind = "undeclared" | "outside_sandbox";
+export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive";
 
 export interface SpadeRequest {
   callId: string;
   name: string;
   arguments: unknown;
   reason: string | undefined;
-  /** Why Spade asked (ADR 0171): a tool with no declared effect, or a command outside the sandbox. */
+  /**
+   * Why Spade asked (ADR 0171): a tool with no declared effect, a command outside the sandbox, or
+   * a step that acts in a page or app.
+   */
   ask?: SpadeAskKind;
+  /** For a driving step, the app or site its "always" allows for the bot. */
+  app?: string;
   helper?: { job: string; task: string };
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
@@ -220,6 +225,7 @@ export interface SpadeApproval {
   /** Why the model review asked the person rather than let it run (ADR 0135). */
   reason: string | undefined;
   ask?: SpadeAskKind;
+  app?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
 }
@@ -477,6 +483,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
           ...(event.ask ? { ask: event.ask } : {}),
+          ...(event.ask === "drive" && event.app ? { app: event.app } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
@@ -491,6 +498,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           arguments: asked.arguments,
           reason: asked.reason,
           ...(asked.ask ? { ask: asked.ask } : {}),
+          ...(asked.app ? { app: asked.app } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
           answer: undefined,
           always: false,
