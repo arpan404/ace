@@ -11,19 +11,22 @@ struct FileTarget: Hashable, Identifiable {
 }
 
 /// A thread's checkout (or, from New thread, a project's own folder) as the web's Files tree:
-/// folders first, opened in place, each uncommitted change lettered as the web does, folders
-/// holding one open at first. The system search field finds any file through the computer's
-/// path index. A thread's files can be created, renamed, moved and deleted to Recently deleted.
+/// folders first, a folder listed when it opens and a page at a time, each uncommitted change
+/// lettered as the web does, folders holding one open at first, and open folders listed again
+/// when the computer says they changed. The system search field finds any file through the
+/// computer's path index. A thread's files can be created, renamed, moved and deleted to
+/// Recently deleted.
 struct FilesScreen: View {
     let model: ClientModel
     let scope: FilesScope
     let subtitle: String
     /// Puts `@path` into the message being written and goes back to it; nil where nothing is sent.
     let mention: ((ComposerMention) -> Void)?
-    @State private var tree: FileTree?
-    @State private var failure: String?
-    @State private var open: Set<String> = []
-    @State private var seeded = false
+    @Environment(\.scenePhase) private var scenePhase
+    /// Whether this Files screen is on screen (not covered by a pushed file or the background).
+    @State private var isPresented = false
+    /// Whether the bridge is counting this screen as showing the tree.
+    @State private var shown = false
     @State private var query = ""
     @State private var results: FileSearch?
     @State private var searchFailure: String?
@@ -56,14 +59,36 @@ struct FilesScreen: View {
         .background(AceTheme.Colours.background)
         .searchable(text: $query, prompt: "Search files")
         .autocorrectionDisabled().textInputAutocapitalization(.never)
-        .refreshable { await load() }
+        .refreshable { await refreshTree() }
         .modifier(PageTitle(title: "Files", subtitle: subtitle))
         .navigationBarTitleDisplayMode(.inline)
         .screenBar {
             OpenFilesButton(model: model, scope: scope) { opened = FileTarget(path: $0) }
             if actions.canChange { manageMenu }
         }
-        .onAppear { model.watchFileMemory(scope) }
+        .onAppear {
+            actions.changed = { prompt, change in changed(prompt, change) }
+            model.watchFileMemory(scope)
+            isPresented = true
+            // Opening this screen lists its tree; coming back from a pushed file keeps the rows.
+            if !shown {
+                shown = true
+                model.showFilesTree(scope)
+            }
+        }
+        .onDisappear { isPresented = false }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                // Only the background stops the tree: a pushed file leaves it warm for the return.
+                if shown {
+                    shown = false
+                    model.hideFilesTree(scope)
+                }
+            } else if phase == .active, isPresented, !shown {
+                shown = true
+                model.showFilesTree(scope)
+            }
+        }
         .sheet(item: Binding(get: { downloading.map { DownloadPick(folder: $0) } }, set: { downloading = $0?.folder })) { pick in
             if case .thread(let id) = scope { FolderDownloadSheet(model: model, threadId: id, folders: folders, folder: pick.folder) }
         }
@@ -74,14 +99,19 @@ struct FilesScreen: View {
         .alert("Couldn't add those files", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(importProblem ?? "") }
-        .readWhenConnected(model, id: model.files.revision) { await load() }
         .task(id: query) { await search() }
         .navigationDestination(item: $opened) { target in
             FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 })
         }
         .navigationDestination(isPresented: $showTrash) { RecentlyDeletedView(model: model, scope: scope) }
         .modifier(FileActionPrompts(actions: actions))
-        .onAppear { actions.changed = { prompt, change in changed(prompt, change) } }
+    }
+
+    /// The live tree the bridge lists for this scope; nil until its first rows arrive. Reading
+    /// `treesRevision` notices a new scope; each scope's own model keeps other patches away.
+    private var tree: FileTree? {
+        _ = model.files.treesRevision
+        return model.files.existingTree(scope.memoryKey)?.tree
     }
 
     // MARK: Tree
@@ -91,58 +121,59 @@ struct FilesScreen: View {
             if tree.rows.isEmpty {
                 EmptyState(systemImage: "folder", title: "No files").listRowSeparator(.hidden)
             }
-            ForEach(visible) { row in
-                Button { tap(row) } label: { FileTreeRowView(row: row, open: open.contains(row.path)) }
-                    .buttonStyle(.plain)
+            ForEach(tree.rows) { row in
+                switch row.kind {
+                case "loading":
+                    FileTreeNoteRow(row: row, text: "Loading…")
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AceTheme.Colours.background)
+                        .accessibilityIdentifier("files.loading.\(row.folder ?? "")")
+                case "more":
+                    Button { model.moreFilesFolder(scope, row.folder ?? "") } label: {
+                        FileTreeNoteRow(row: row, text: "Show more")
+                    }
+                    .buttonStyle(.textAction())
                     .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)
-                    // A tree reads by its indent, not lines: no hairline under every row.
                     .listRowSeparator(.hidden)
-                    .contextMenu { rowMenu(path: row.path, folder: row.folder) }
-                    .swipeActions(edge: .trailing) {
-                        if actions.canChange, row.mark != "D" {
-                            Button("Delete", role: .destructive) { actions.ask(.delete(path: row.path)) }
-                        }
+                    .accessibilityIdentifier("files.more.\(row.folder ?? "")")
+                case "error":
+                    Button { model.retryFilesFolder(scope, row.folder ?? "") } label: {
+                        FileTreeNoteRow(row: row, text: row.error ?? "Couldn't list this folder. Try again.")
                     }
-                    .accessibilityIdentifier("file.\(row.path)")
+                    .buttonStyle(.textAction())
+                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
+                    .listRowBackground(AceTheme.Colours.background)
+                    .listRowSeparator(.hidden)
+                    .accessibilityIdentifier("files.error.\(row.folder ?? "")")
+                    .accessibilityHint("Double-tap to try again")
+                default:
+                    Button { tap(row) } label: { FileTreeRowView(row: row) }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
+                        .listRowBackground(AceTheme.Colours.background)
+                        // A tree reads by its indent, not lines: no hairline under every row.
+                        .listRowSeparator(.hidden)
+                        .contextMenu { rowMenu(path: row.key, folder: row.isFolder) }
+                        .swipeActions(edge: .trailing) {
+                            if actions.canChange, row.mark != "D" {
+                                Button("Delete", role: .destructive) { actions.ask(.delete(path: row.key)) }
+                            }
+                        }
+                        .accessibilityIdentifier("file.\(row.key)")
+                }
             }
-            if tree.truncated {
-                Text("Showing the first 1,000 entries. Search by name to find more.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                    .accessibilityIdentifier("files.more")
-            }
-        } else if let failure {
-            EmptyState(icon: nil, title: "Couldn't read the files", line: failure, failed: true) {
-                Button("Try again") { Task { await load() } }
-            }
-            .listRowSeparator(.hidden)
         } else {
             SkeletonRows(label: "Loading files").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                 .listRowInsets(EdgeInsets())
         }
     }
 
-    /// The rows under open folders, in tree order.
-    private var visible: [FileTreeRow] {
-        var out: [FileTreeRow] = []
-        var closedDepth: Int?
-        for row in tree?.rows ?? [] {
-            if let depth = closedDepth {
-                if row.depth > depth { continue }
-                closedDepth = nil
-            }
-            out.append(row)
-            if row.folder, !open.contains(row.path) { closedDepth = row.depth }
-        }
-        return out
-    }
-
     private func tap(_ row: FileTreeRow) {
-        if row.folder {
-            if open.contains(row.path) { open.remove(row.path) } else { open.insert(row.path) }
+        if row.isFolder {
+            if row.expanded { model.closeFilesFolder(scope, row.key) } else { model.openFilesFolder(scope, row.key) }
         } else {
-            opened = FileTarget(path: row.path, changed: row.mark != nil)
+            opened = FileTarget(path: row.key, changed: row.mark != nil)
         }
     }
 
@@ -183,7 +214,7 @@ struct FilesScreen: View {
         var path = ""
         for part in folder.split(separator: "/") {
             path += "\(part)/"
-            open.insert(path)
+            model.openFilesFolder(scope, path)
         }
     }
 
@@ -204,26 +235,19 @@ struct FilesScreen: View {
         }
     }
 
-    private func load() async {
-        do {
-            let next = try await model.files(scope, ["op": "tree"], as: FileTree.self)
-            tree = next
-            failure = nil
-            if !seeded {
-                open = Set(next.open)
-                seeded = true
-            }
-        } catch is CancellationError {
-        } catch {
-            if tree == nil { failure = error.localizedDescription }
-        }
+    /// Pull to refresh lists what the tree shows and waits for the patch that draws it.
+    private func refreshTree() async {
+        let tree = model.files.tree(scope.memoryKey)
+        let revision = tree.revision
+        model.refreshFilesTree(scope)
+        await tree.nextPatch(after: revision)
     }
 
     // MARK: Transfers
 
     private struct DownloadPick: Identifiable { let folder: String; var id: String { folder } }
-    /// Every folder in the tree, the checkout itself first.
-    private var folders: [String] { [""] + (tree?.rows ?? []).filter(\.folder).map { Self.bare($0.path) } }
+    /// Every folder listed so far, the checkout itself first.
+    private var folders: [String] { [""] + (tree?.rows ?? []).filter(\.isFolder).map { Self.bare($0.key) } }
     private static func bare(_ path: String) -> String { path.hasSuffix("/") ? String(path.dropLast()) : path }
 
     /// Copy picked documents into the app's staging folder, then offer where they go.
@@ -280,10 +304,10 @@ struct FilesScreen: View {
         }
     }
 
-    /// After a change: the tree reads again, a new file opens (as on the web), and a new or
-    /// restored entry's folders open so it shows.
+    /// After a change: the tree lists its open folders again, a new file opens (as on the web),
+    /// and a new or restored entry's folders open so it shows.
     private func changed(_ prompt: FilePrompt?, _ change: FileChange) {
-        Task { await load() }
+        model.refreshFilesTree(scope)
         guard let path = change.destination ?? change.path else { return }
         let folder = path.hasSuffix("/") ? path : String(path[..<(path.lastIndex(of: "/") ?? path.startIndex)])
         switch prompt {
@@ -301,17 +325,16 @@ struct FilesScreen: View {
 /// A one-line tree row: indent, disclosure for a folder, its symbol, the name, and the change letter.
 struct FileTreeRowView: View {
     let row: FileTreeRow
-    let open: Bool
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
             RowCaret()
-                .rotationEffect(.degrees(open ? 90 : 0))
-                .animation(.default, value: open)
+                .rotationEffect(.degrees(row.expanded ? 90 : 0))
+                .animation(.default, value: row.expanded)
                 .foregroundStyle(AceTheme.Colours.decoration)
-                .frame(width: AceDesign.Size.caret).opacity(row.folder ? 1 : 0)
+                .frame(width: AceDesign.Size.caret).opacity(row.isFolder ? 1 : 0)
             Text(row.name).aceMonospace(AceDesign.TextRole.rowTitle)
-                .foregroundStyle(row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                .foregroundStyle(ink)
                 .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: AceTheme.Spacing.sm)
@@ -323,7 +346,29 @@ struct FileTreeRowView: View {
         }
         .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityValue(row.folder ? (open ? "Open" : "Closed") : "")
+        .accessibilityValue(row.isFolder ? (row.expanded ? "Open" : "Closed") : "")
+    }
+    /// Ignored entries and deleted files read quieter than the ones the checkout carries.
+    private var ink: Color {
+        row.ignored || row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground
+    }
+}
+
+/// A folder's Loading…, Show more or error row: one quiet line, indented under its folder.
+struct FileTreeNoteRow: View {
+    let row: FileTreeRow
+    let text: String
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
+            Text(text)
+                .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .lineLimit(2)
+            Spacer(minLength: AceTheme.Spacing.none)
+        }
+        .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 

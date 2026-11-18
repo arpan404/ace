@@ -1,56 +1,91 @@
-import type { GitStatusFile } from "@ace/protocol";
+import type { FolderEntry, FolderPage, GitStatusFile } from "@ace/protocol";
 import {
-  ancestorFolders,
-  buildFileTree,
   changeLetters,
-  checkoutTreeRows,
+  folderRows,
   fuzzyPositions,
+  parentPath,
   pathParts,
+  type FolderStates,
 } from "@ace/ui-core";
 
 /*
- * The Files screen's tree and quick-open rows, pure: the checkout's listed paths as a tree in
- * the web's order (folders first, by name), each row with its depth and the git status letter
- * the web shows for an uncommitted change. Files deleted since the last commit aren't on disk,
- * so git's list adds them. Folders holding a change start open.
+ * The Files screen's lazy tree as data: the rows the phone draws from the folders it has listed
+ * (the shared `@ace/ui-core` lazy tree), each uncommitted change lettered as the web letters it,
+ * and files git still reports as deleted though they are no longer on disk. Pure, so the bridge
+ * tests its rows without a daemon.
  */
 
+/** A row the phone draws. Entry rows carry the checkout path in `key` (folders end in "/"). */
 export interface TreeRow {
-  /** Folders end in "/". */
-  path: string;
+  key: string;
+  kind: "file" | "folder" | "loading" | "more" | "error";
   name: string;
   depth: number;
-  folder: boolean;
+  expanded: boolean;
+  /** Listed but excluded by the checkout's gitignore rules: shown, dimmed. */
+  ignored: boolean;
   /** "M", "A", "D", "R" or "U" for an uncommitted change. */
   mark?: string;
   /** The mark's word ("Modified"), for VoiceOver. */
   markLabel?: string;
+  /** The folder a loading, more or error row belongs to. */
+  folder?: string;
+  /** What an error row says. */
+  error?: string;
 }
 
-export function checkoutTree(
-  paths: readonly string[],
+/**
+ * `page` plus the deleted files `changes` names directly in `folder`, which a listing never
+ * returns because they are gone. They carry the "D" mark and stay until git stops naming them.
+ */
+export function withDeletedEntries(
+  folder: string,
+  page: FolderPage,
   changes: readonly GitStatusFile[],
-): { rows: TreeRow[]; open: string[] } {
-  const status = new Map(changes.map((change) => [change.path, change.status]));
-  const deleted = changes.filter((change) => change.status === "deleted").map((each) => each.path);
-  const tree = buildFileTree([...paths, ...deleted]);
-  const rows = checkoutTreeRows(tree, () => true).map(({ node, depth }): TreeRow => {
-    const row: TreeRow = {
-      path: node.path,
-      name: node.name,
-      depth,
-      folder: node.kind === "folder",
+): FolderPage {
+  const shown = new Set(page.entries.map((entry) => entry.path));
+  const missing: FolderEntry[] = [];
+  for (const change of changes) {
+    if (change.status !== "deleted" || shown.has(change.path)) continue;
+    if (parentPath(change.path) !== folder) continue;
+    missing.push({
+      name: pathParts(change.path).name,
+      path: change.path,
+      kind: "file",
+      size: 0,
+      mtimeMs: 0,
+      ignored: false,
+    });
+  }
+  return missing.length ? { ...page, entries: [...page.entries, ...missing] } : page;
+}
+
+/** The tree's rows, in order, with each entry's uncommitted change letter when it has one. */
+export function treeRows(
+  folders: FolderStates,
+  open: ReadonlySet<string>,
+  changes: readonly GitStatusFile[],
+): TreeRow[] {
+  const status = new Map(changes.map((change) => [change.path, change]));
+  return folderRows(folders, open).map((row) => {
+    // Only a file's path is a git status path; a folder's key ends in "/".
+    const change = row.kind === "file" ? status.get(row.key) : undefined;
+    const out: TreeRow = {
+      key: row.key,
+      kind: row.kind,
+      name: row.name,
+      depth: row.depth,
+      expanded: row.expanded,
+      ignored: row.ignored,
     };
-    const change = status.get(node.path);
     if (change) {
-      row.mark = changeLetters[change].letter;
-      row.markLabel = changeLetters[change].label;
+      out.mark = changeLetters[change.status].letter;
+      out.markLabel = changeLetters[change.status].label;
     }
-    return row;
+    if (row.folder !== undefined) out.folder = row.folder;
+    if (row.error !== undefined) out.error = row.error;
+    return out;
   });
-  const open = new Set<string>();
-  for (const change of changes) for (const folder of ancestorFolders(change.path)) open.add(folder);
-  return { rows, open: [...open] };
 }
 
 export interface SearchRow {
