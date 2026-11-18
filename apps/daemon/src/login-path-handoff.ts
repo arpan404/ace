@@ -48,6 +48,12 @@ export function receiveLoginPath(input: {
   timeout: () => Promise<void>;
   lookup: (pending: PendingLoginPath) => Promise<string>;
   log?: (message: string) => void;
+  /**
+   * The daemon stopping: `final` settles at once with the PATH unchanged, so nothing waits on it
+   * through shutdown, and no lookup starts. Whatever waited checks its own stop before reading
+   * a CLI. The lookup itself is stopped with the same signal by whoever started it.
+   */
+  signal?: AbortSignal;
 }): LoginPath | undefined {
   const { env } = input;
   const raw = env[loginPathPending];
@@ -87,6 +93,9 @@ export function receiveLoginPath(input: {
       settle(prefixedPath(pending.prefix, pending.inherited));
     });
   };
+  const stopping = () => settle(env.PATH ?? "");
+  if (input.signal?.aborted) stopping();
+  else input.signal?.addEventListener("abort", stopping, { once: true });
   input.read().then(
     (line) => {
       const path = line === undefined ? undefined : decodeLoginPathLine(line);

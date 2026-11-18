@@ -130,3 +130,23 @@ test("an environment that fails to take the PATH is reported, and the rest and p
   expect(healthy.PATH).toBe("/bundled:/login/bin");
   expect(reports).toEqual([expect.stringContaining("frozen copy")]);
 });
+
+test("a daemon that stops while waiting settles its PATH unchanged and starts no lookup", async () => {
+  const env = started();
+  const stop = new AbortController();
+  let lookups = 0;
+  const loginPath = receiveLoginPath({
+    env,
+    read: never,
+    timeout: never,
+    lookup: async () => {
+      lookups++;
+      return "/bundled:/login/bin";
+    },
+    signal: stop.signal,
+  });
+  stop.abort();
+  expect(await loginPath?.final).toBe(false);
+  expect(env.PATH).toBe("/bundled:/saved/bin");
+  expect(lookups).toBe(0);
+});

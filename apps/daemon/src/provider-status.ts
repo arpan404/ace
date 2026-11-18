@@ -231,11 +231,17 @@ export class ProviderStatuses {
     if (this.controller.signal.aborted) return Promise.resolve();
     const { pathReady } = this.options;
     if (pathReady && !this.pathFinal) {
-      this.flight = pathReady.then(() => {
-        this.pathFinal = true;
-        this.flight = undefined;
-        return this.refresh();
-      });
+      this.flight = pathReady.then(
+        () => {
+          this.pathFinal = true;
+          this.flight = undefined;
+          return this.refresh();
+        },
+        // Never ready (the daemon is stopping): no CLI is probed, and nothing waits on it.
+        () => {
+          this.flight = undefined;
+        },
+      );
       return this.flight;
     }
     this.cancelTimer?.();

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { DeviceId } from "@ace/protocol";
 import { z } from "zod";
 import { accessRequest } from "./client-access.ts";
@@ -365,6 +365,44 @@ it.skipIf(process.platform === "win32")(
     expect(performance.now() - stopping).toBeLessThan(3_000);
     // The login shell the daemon ran, and anything it started, are gone too.
     expect(await leftIn(root)).toEqual([]);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "a daemon stopped while its own login shell lookup is still waiting exits within its budget and leaves no shell behind",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-startup-slow-shell-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const shell = join(root, "shell");
+    const started = join(root, "started");
+    // A profile that starts something of its own and takes far longer than any shutdown.
+    await writeFile(
+      shell,
+      `#!/bin/sh\n/bin/sleep 60 &\necho $! > ${JSON.stringify(started)}\n/bin/sleep 60\n`,
+      { mode: 0o755 },
+    );
+    const index = new URL("./index.ts", import.meta.url).href;
+    const daemon = await launch(
+      `
+      import { startDaemon } from ${JSON.stringify(index)};
+      const daemon = await startDaemon();
+      process.stdout.write("ace daemon: " + daemon.url + "\\n");
+      process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+    `,
+      undefined,
+      undefined,
+      { ...startedOnSavedPath, SHELL: shell },
+    );
+    // The app quit before its shell answered: the daemon asks the slow shell itself.
+    daemon.child.stdin?.end();
+    await vi.waitFor(() => readFile(started, "utf8"), { timeout: 5_000 });
+    await daemon.client.close();
+    const stopping = performance.now();
+    daemon.child.kill("SIGTERM");
+    expect((await daemon.exited)[0]).toBe(0);
+    // Inside the daemon's 7 s stop deadline, with no lookup left to wait out.
+    expect(performance.now() - stopping).toBeLessThan(3_000);
+    await vi.waitFor(async () => expect(await leftIn(root)).toEqual([]), { timeout: 3_000 });
   },
 );
 

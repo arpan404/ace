@@ -122,3 +122,38 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "a lookup stopped while the shell is still starting answers at once and leaves nothing behind",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        [
+          "#!/bin/sh",
+          `/bin/sleep 30 & echo $! > ${JSON.stringify(pidFile)}`,
+          // A profile still loading: no answer for a long while.
+          "/bin/sleep 30",
+        ].join("\n"),
+      );
+      await chmod(shell, 0o755);
+      const stop = new AbortController();
+      const lookup = loginShellPath(
+        { SHELL: shell, PATH: "/usr/bin" },
+        { timeoutMs: 20_000, killGraceMs: 200, signal: stop.signal },
+      );
+      await vi.waitFor(() => readFile(pidFile, "utf8"));
+      const stopped = performance.now();
+      stop.abort();
+      expect(await lookup).toBe("/usr/bin");
+      expect(performance.now() - stopped).toBeLessThan(500);
+      const pid = Number(await readFile(pidFile, "utf8"));
+      await vi.waitFor(() => expect(running(pid)).toBe(false), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

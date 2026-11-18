@@ -140,6 +140,8 @@ export function startAccountManagement(context: ServiceContext): void {
   // only on the login shell's PATH (`login-path-handoff.ts`); "starting" until then.
   const initialized = repeatableWarmup(context, "accountManagement", async () => {
     await options.loginPath?.final;
+    // A stopping daemon's PATH is settled unchanged, never confirmed.
+    context.signal.throwIfAborted();
     await management.initialize();
   });
   // Re-read limits well within the staleness window while they matter (a held thread, working

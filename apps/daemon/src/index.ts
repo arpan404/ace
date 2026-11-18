@@ -112,12 +112,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const config = options.config ?? readConfig();
   // Started by the desktop app on last launch's PATH: the login shell's follows on stdin, or
   // the daemon asks the shell itself (`login-path-handoff.ts`).
+  // Aborted as the daemon stops (below): ends a lookup still waiting on a slow shell, and its
+  // processes, inside the shutdown budget.
+  const loginPathStop = new AbortController();
   if (!options.loginPath) {
     const loginPath = receiveLoginPath({
       env: process.env,
       read: () => firstLine(process.stdin),
       timeout: () => new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
-      lookup: (pending) => daemonLoginPath(pending, process.env),
+      lookup: (pending) => daemonLoginPath(pending, process.env, { signal: loginPathStop.signal }),
+      signal: loginPathStop.signal,
     });
     if (loginPath) options = { ...options, loginPath };
   }
@@ -325,6 +329,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   );
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
+  // After `lifetime`: whatever waited on the final PATH wakes to a stopping daemon.
+  resources.onShutdown(() => loginPathStop.abort());
   let initialized = false;
   const abortReason = (): StopReason => {
     const reason: unknown = options.signal?.reason;

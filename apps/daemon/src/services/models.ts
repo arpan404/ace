@@ -101,8 +101,11 @@ export async function startModels(context: ServiceContext): Promise<void> {
   const loginPath = options.loginPath;
   const pathFinal = Promise.resolve(loginPath?.final);
   const afterPath = (run: () => void) => {
-    if (loginPath) void loginPath.final.then(run);
-    else run();
+    if (!loginPath) return run();
+    // A stopping daemon's PATH is settled unchanged, never confirmed: register nothing on it.
+    void loginPath.final.then(() => {
+      if (!context.signal.aborted) run();
+    });
   };
   const stopConfiguration = context.services.providerConfigurations?.listen(() => {
     models.configurationChanged();
