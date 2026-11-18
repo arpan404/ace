@@ -22,8 +22,16 @@ import type { EditBatch } from "./use-editor.ts";
 /** Lines measured in one idle slice. */
 const slice = 2_000;
 
-/** Receives one applied edit's spans; installed by {@link useWrap}, called by the document. */
-export type WrapSink = RefObject<((batch: EditBatch) => void) | undefined>;
+/** What the wrap index needs to hear about an edit, around the moment the document changes. */
+export interface WrapEdits {
+  /** The view's top, read while the rows still describe the text before the edit. */
+  before(): void;
+  /** The edit's spans, applied before React renders the text it produced. */
+  after(batch: EditBatch): void;
+}
+
+/** Installed by {@link useWrap}, called by the document around every edit it applies. */
+export type WrapSink = RefObject<WrapEdits | undefined>;
 
 export function useWrap(options: {
   doc: EditorDocument | undefined;
@@ -62,11 +70,14 @@ export function useWrap(options: {
       appliedRef.current = undefined;
       return;
     }
-    appliedRef.current = (batch) => {
-      remember();
-      index.apply([batch]);
-      // oxlint-disable-next-line react-compiler/set-state-in-effect -- the index is an external store; a slice of rows changed under React.
-      setRevision((value) => value + 1);
+    appliedRef.current = {
+      before: remember,
+      after: (batch) => {
+        anchor.mapThrough(batch.spans);
+        index.apply([batch]);
+        // oxlint-disable-next-line react-compiler/set-state-in-effect -- the index is an external store; a slice of rows changed under React.
+        setRevision((value) => value + 1);
+      },
     };
     return () => {
       appliedRef.current = undefined;

@@ -14,7 +14,7 @@ import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
 import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
-import { useEditorDocument, type EditBatch } from "./use-editor.ts";
+import { useEditorDocument } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
@@ -23,7 +23,7 @@ import { useEditorFind } from "./use-editor-find.ts";
 import { editorWindow } from "./row-window.ts";
 import { ScrollAnchor } from "./use-anchor.ts";
 import { useVisibleLines } from "./use-visible-lines.ts";
-import { useWrap } from "./use-wrap.ts";
+import { useWrap, type WrapEdits } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
@@ -43,13 +43,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const readOnly = props.readOnly ?? false;
   const wrap = props.wrap ?? false;
   /** The wrap index hears each edit as the document applies it, before React renders it. */
-  const appliedRef = useRef<((batch: EditBatch) => void) | undefined>(undefined);
+  const appliedRef = useRef<WrapEdits | undefined>(undefined);
   const state = useEditorDocument({
     text: props.text,
     path: props.path,
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
-    onApplied: (batch) => appliedRef.current?.(batch),
+    onBeforeEdit: () => appliedRef.current?.before(),
+    onApplied: (batch) => appliedRef.current?.after(batch),
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
     ...(props.onTextDispose ? { onTextDispose: props.onTextDispose } : {}),
     ...(props.commitAfter === undefined ? {} : { commitAfter: props.commitAfter }),

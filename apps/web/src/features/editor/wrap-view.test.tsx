@@ -30,6 +30,14 @@ const rowTexts = () =>
     (row) => row.querySelector<HTMLElement>("[data-row-text]")?.textContent ?? "",
   );
 
+/** The row a line starts at, once every line above it has been measured. */
+const rowStart = (lines: readonly string[], line: number) =>
+  lines.slice(0, line).reduce((rows, one) => rows + wrapLine(one, columns).length, 0);
+
+/** The text one drawn row holds. */
+const rowText = (row: number) =>
+  document.querySelector<HTMLElement>(`[data-row="${row}"] [data-row-text]`)?.textContent;
+
 /** The content box inside the scroller; its height is the list's whole height. */
 const scrollerHost = () => document.querySelector<HTMLElement>("[data-editor-scroller] > div");
 
@@ -329,6 +337,78 @@ test("the idle slices of a re-wrap keep the top line at the top", async () => {
   } finally {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   }
+});
+
+test("a newline above the view keeps the same text at the top, and undoing it puts it back", async () => {
+  const text = Array.from({ length: 200 }, (_, at) => `line ${at} `.padEnd(300, "x")).join("\n");
+  const { ref } = await openView({ text, wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(document.querySelector('[data-line="1"]')).toBeTruthy());
+
+  const lines = text.split("\n");
+  const top = 50;
+  const start = rowStart(lines, top);
+  scroller.scrollTop = start * 22 + 11;
+  fireEvent.scroll(scroller);
+  expect(rowText(start)).toBe(`line ${top}`);
+
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  await userEvent.keyboard("{Enter}");
+
+  // The line that was on top is now numbered 51; the view keeps its text and its offset in it.
+  const after = ["", ...lines];
+  const moved = rowStart(after, top + 1);
+  await waitFor(() => expect(scroller.scrollTop).toBe(moved * 22 + 11));
+  expect(
+    document.querySelector<HTMLElement>(`[data-row="${moved}"]`)?.getAttribute("data-line"),
+  ).toBe(String(top + 1));
+  expect(rowText(moved)).toBe(`line ${top}`);
+
+  await userEvent.keyboard("{Meta>}z{/Meta}");
+  await waitFor(() => expect(scroller.scrollTop).toBe(start * 22 + 11));
+  expect(rowText(start)).toBe(`line ${top}`);
+});
+
+test("toggling wrap in the middle of a line keeps that line at the top", async () => {
+  const ref = createRef<EditorHandle>();
+  const text = Array.from({ length: 200 }, (_, at) => `line ${at} `.padEnd(300, "x")).join("\n");
+  function Wrapped() {
+    const [wrap, setWrap] = useState(true);
+    return (
+      <CodeEditor
+        ref={ref}
+        text={text}
+        path="notes.txt"
+        label="Editor"
+        highlightDelay={60_000}
+        wrap={wrap}
+        onToggleWrap={() => setWrap((value) => !value)}
+      />
+    );
+  }
+  render(<Wrapped />);
+  const box = await screen.findByRole("textbox");
+  await waitFor(() => expect(ref.current).toBeTruthy());
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(document.querySelector('[data-line="1"]')).toBeTruthy());
+  act(() => ref.current?.focus());
+
+  // Line 50's second visual row is at the top edge.
+  const lines = text.split("\n");
+  const start = lines.slice(0, 50).reduce((rows, one) => rows + wrapLine(one, columns).length, 0);
+  scroller.scrollTop = (start + 1) * 22;
+  fireEvent.scroll(scroller);
+  fireEvent.keyDown(box, { key: "z", code: "KeyZ", altKey: true });
+
+  await waitFor(() => expect(scroller.scrollTop).toBe(50 * 22));
+  expect(document.querySelector<HTMLElement>('[data-row="50"]')?.getAttribute("data-line")).toBe(
+    "50",
+  );
+  expect(
+    document.querySelector<HTMLElement>('[data-row="50"] [data-row-text]')?.textContent,
+  ).toContain("line 50 ");
 });
 
 test("Alt+Z keeps the line at the top when the file re-wraps around it", async () => {

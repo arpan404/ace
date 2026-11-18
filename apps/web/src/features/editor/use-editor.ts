@@ -55,6 +55,11 @@ export function useEditorDocument(options: {
   /** Called after each applied edit, with no text: ask `doc.text()` only when needed. */
   onEdit?: (() => void) | undefined;
   /**
+   * Called just before an edit is applied, while the document still holds the text the layout
+   * measured: the one moment a view can read its own rows without racing the new text.
+   */
+  onBeforeEdit?: (() => void) | undefined;
+  /**
    * Called with one batch of spans for every applied edit, synchronously, before React renders
    * the document that edit produced: a layout that reads text must hear about the edit while
    * its own rows still describe the text before it.
@@ -82,6 +87,7 @@ export function useEditorDocument(options: {
   const [marks, setMarks] = useState<ReadonlyMap<number, LineMark>>();
   const onEdit = useRef(options.onEdit);
   const onTextDispose = useRef(options.onTextDispose);
+  const onBeforeEdit = useRef(options.onBeforeEdit);
   const onApplied = useRef(options.onApplied);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const commitAfter = options.commitAfter ?? 1_000;
@@ -89,8 +95,9 @@ export function useEditorDocument(options: {
   useEffect(() => {
     onEdit.current = options.onEdit;
     onTextDispose.current = options.onTextDispose;
+    onBeforeEdit.current = options.onBeforeEdit;
     onApplied.current = options.onApplied;
-  }, [options.onEdit, options.onTextDispose, options.onApplied]);
+  }, [options.onEdit, options.onTextDispose, options.onBeforeEdit, options.onApplied]);
 
   useEffect(() => {
     let live = true;
@@ -174,6 +181,7 @@ export function useEditorDocument(options: {
   const edit = useCallback(
     (run: (target: EditorDocument) => Applied | undefined): boolean => {
       if (!doc || !editable) return false;
+      onBeforeEdit.current?.();
       const applied = run(doc);
       if (!applied) return false;
       after(applied);
@@ -185,6 +193,7 @@ export function useEditorDocument(options: {
   const replaceText = useCallback(
     (next: string) => {
       if (!doc || next === doc.text()) return;
+      onBeforeEdit.current?.();
       const before = doc.selections();
       const last = Math.max(0, doc.lenLines() - 1);
       const applied = doc.apply([
