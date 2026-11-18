@@ -168,11 +168,20 @@ fn new_subfolder_is_watched() {
 
 #[test]
 fn deleting_and_recreating_files_never_reports_deleted() {
-    let session = Session::start(options(), |root| {
-        for index in 0..20 {
-            std::fs::write(root.join(format!("file{index}.txt")), b"old").unwrap();
-        }
-    });
+    // A slow disk can stall between a removal and the write that recreates the file. The wide
+    // window keeps all twenty pairs in one batch, which is what the rule is about; split
+    // across windows, the removal is a truthful deletion and a later creation follows.
+    let session = Session::start(
+        WatchOptions {
+            debounce: Duration::from_secs(2),
+            ..options()
+        },
+        |root| {
+            for index in 0..20 {
+                std::fs::write(root.join(format!("file{index}.txt")), b"old").unwrap();
+            }
+        },
+    );
     for index in 0..20 {
         let path = session.path(&format!("file{index}.txt"));
         std::fs::remove_file(&path).unwrap();
