@@ -121,68 +121,96 @@ struct InboxView: View {
         return .search
     }
 
+    /// The tab bar, with the home screen's feedback, restore and toast around it. Each stage is
+    /// its own typed property and the tabs are typed `TabContent`: as one expression, Xcode 26's
+    /// compiler gave up type-checking it (issue #2261).
     private var tabs: some View {
+        tabBar
+            .onChange(of: threadsPath) { old, new in placeChanged(.threads, old: old, new: new) }
+            .onChange(of: chatsPath) { old, new in placeChanged(.chats, old: old, new: new) }
+            .task(id: restorable) { restorePlace() }
+            .environment(\.otherMachines, otherMachines)
+            .sensoryFeedback(.success, trigger: settles)
+            // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
+            .sensoryFeedback(.success, trigger: organize.feedback)
+            // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
+            // on, clear of the composer and the list's foot.
+            .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
+            .animation(.default, value: organize.undo?.serial)
+    }
+
+    /// The system tab bar and what choosing a tab does.
+    private var tabBar: some View {
         TabView(selection: tabChoice) {
-            Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
-                stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
-            }
-            .accessibilityIdentifier("tab.threads")
-            Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
-                stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
-            }
-            .accessibilityIdentifier("tab.chats")
-            // Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
-            if showsSpade {
-                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) { spade }
-                    .accessibilityIdentifier("tab.spade")
-            }
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
-                .accessibilityIdentifier("tab.review")
-            if HomeTabs.composeTab {
-                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
-                    .accessibilityIdentifier("tab.search")
-                if inbox.canStartThreads {
-                    Tab(tab == .chats ? "New chat" : "New thread", image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose,
-                        role: Self.composeRole) { Color.clear }
-                }
-            } else {
-                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
-                    .accessibilityIdentifier("tab.search")
-            }
+            listTabs
+            searchTabs
         }
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
-        .onChange(of: tab) { old, new in
-            // Coming back to a tab shows its page, never the drawer left out when it was left.
-            if new != .compose { threadsDrawer.close(); chatsDrawer.close() }
-            // The compose tab starts a chat from Chats, else a thread, and leaves the tab where it was.
-            guard new == .compose else { return }
-            tab = old == .compose ? .threads : old
-            compose(chat: tab == .chats)
+        .onChange(of: tab) { old, new in tabChanged(from: old, to: new) }
+    }
+
+    /// Threads, Chats, Spade while a machine shows it, and Code review.
+    @TabContentBuilder<InboxTab> private var listTabs: some TabContent<InboxTab> {
+        homeTab(.threads, id: "tab.threads", stack(.threads, path: $threadsPath, drawer: $threadsDrawer))
+        homeTab(.chats, id: "tab.chats", stack(.chats, path: $chatsPath, drawer: $chatsDrawer))
+        // Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
+        if showsSpade {
+            Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) { spade }
+                .accessibilityIdentifier("tab.spade")
         }
-        .onChange(of: threadsPath) { old, new in placeChanged(.threads, old: old, new: new) }
-        .onChange(of: chatsPath) { old, new in placeChanged(.chats, old: old, new: new) }
-        .task(id: restorable) {
-            // Once the restored thread's row is back (from this phone's copy or its machine).
-            guard !placeRestored, let key = InboxKey(place: lastPlace) else { placeRestored = true; return }
-            guard restorable else { return }
-            placeRestored = true
-            // Cleared first and written back once it shows, so a thread that cannot open sends
-            // the next launch to the inbox instead of into the same failure.
-            lastPlace = ""
-            if threadsPath.isEmpty && chatsPath.isEmpty { openThread(key) }
+        homeTab(.review, id: "tab.review", review)
+    }
+
+    /// Search, and compose beside it on iOS 27; before it, Search takes the detached slot.
+    @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
+        if HomeTabs.composeTab {
+            homeTab(.search, id: "tab.search", search)
+            if inbox.canStartThreads { composeTab }
+        } else {
+            Tab(HomeTabs.title(.search), image: searchImage, value: InboxTab.search, role: .search) { search }
+                .accessibilityIdentifier("tab.search")
         }
-        .environment(\.otherMachines, otherMachines)
-        .sensoryFeedback(.success, trigger: settles)
-        // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
-        .sensoryFeedback(.success, trigger: organize.feedback)
-        // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
-        // on, clear of the composer and the list's foot.
-        .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
-        .animation(.default, value: organize.undo?.serial)
+    }
+
+    /// The compose tab: tapping it starts a chat or a thread (`tabChanged`), never shows a page.
+    private var composeTab: some TabContent<InboxTab> {
+        let title: String = tab == .chats ? "New chat" : "New thread"
+        let image: String = HomeTabs.tabImage(.compose, chosen: false)
+        return Tab(title, image: image, value: InboxTab.compose, role: Self.composeRole) { Color.clear }
+    }
+
+    private var searchImage: String { HomeTabs.tabImage(.search, chosen: tab == .search) }
+
+    /// A home tab with its title, its symbol filled while chosen, and its identifier.
+    private func homeTab<Page: View>(_ which: InboxTab, id: String, _ page: Page) -> some TabContent<InboxTab> {
+        let title: String = HomeTabs.title(which)
+        let image: String = HomeTabs.tabImage(which, chosen: tab == which)
+        return Tab(title, image: image, value: which) { page }
+            .accessibilityIdentifier(id)
+    }
+
+    private func tabChanged(from old: InboxTab, to new: InboxTab) {
+        // Coming back to a tab shows its page, never the drawer left out when it was left.
+        if new != .compose { threadsDrawer.close(); chatsDrawer.close() }
+        // The compose tab starts a chat from Chats, else a thread, and leaves the tab where it was.
+        guard new == .compose else { return }
+        tab = old == .compose ? .threads : old
+        compose(chat: tab == .chats)
+    }
+
+    /// Once the restored thread's row is back (from this phone's copy or its machine).
+    private func restorePlace() {
+        guard !placeRestored, let key = InboxKey(place: lastPlace) else { placeRestored = true; return }
+        guard restorable else { return }
+        placeRestored = true
+        // Cleared first and written back once it shows, so a thread that cannot open sends
+        // the next launch to the inbox instead of into the same failure.
+        lastPlace = ""
+        if threadsPath.isEmpty && chatsPath.isEmpty { openThread(key) }
     }
 
     /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. Tapping
