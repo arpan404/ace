@@ -681,6 +681,9 @@
         "zod": "^4.1.11",
       },
     },
+    "packages/editor": {
+      "name": "@ace/editor",
+    },
     "packages/engine-api": {
       "name": "@ace/engine-api",
       "dependencies": {
@@ -737,6 +740,13 @@
         "@ace/secure-channel": "workspace:*",
         "@types/tar-stream": "^3.1.4",
         "@types/ws": "^8.18.1",
+      },
+    },
+    "packages/files-native": {
+      "name": "@ace/files-native",
+      "dependencies": {
+        "@ace/service": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/forge": {
@@ -1302,11 +1312,15 @@
 
     "@ace/diagnostics": ["@ace/diagnostics@workspace:packages/diagnostics"],
 
+    "@ace/editor": ["@ace/editor@workspace:packages/editor"],
+
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
 
     "@ace/fake-daemon": ["@ace/fake-daemon@workspace:packages/fake-daemon"],
 
     "@ace/files": ["@ace/files@workspace:packages/files"],
+
+    "@ace/files-native": ["@ace/files-native@workspace:packages/files-native"],
 
     "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
