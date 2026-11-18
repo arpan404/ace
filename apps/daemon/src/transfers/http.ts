@@ -38,7 +38,7 @@ function assertMayTransfer(device: Device): void {
   if (!allows(device, "operate") || !allows(device, "projects"))
     throw new TargetRefusal(
       "machine_forbidden",
-      "This machine's link doesn't allow moving projects here. Link the machines again with Projects allowed.",
+      "This machine's link doesn't allow moving projects here. Allow projects for it in Settings › Fleet.",
     );
 }
 

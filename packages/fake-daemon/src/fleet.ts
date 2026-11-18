@@ -29,6 +29,10 @@ function slug(name: string, taken: readonly string[]): string {
  */
 export class FakeFleet {
   private entries: FleetLink[] = [];
+  /** What each link's other machine says now, read at `links` (its device record there). */
+  private live = new Map<string, () => Partial<FleetLink>>();
+  /** `scope` outcomes by command id, so a retry answers the first one. */
+  private receipts = new Map<string, FleetOutcome | { code: string; message: string }>();
   /** Levels set per paired device; the rest are this fake's fixed starting levels. */
   private chosen = new Map<string, Partial<MachineGrants>>();
   private linked = 0;
@@ -36,13 +40,21 @@ export class FakeFleet {
   constructor(access: FakeAccess) {
     this.access = access;
   }
-  /** Stage a link to another machine, as `link` would keep it (tests and the dev world). */
-  seed(link: FleetLink): void {
+  /**
+   * Stage a link to another machine, as `link` would keep it (tests and the dev world). `live`
+   * reads what that machine says about the link each time links are read.
+   */
+  seed(link: FleetLink, live?: () => Partial<FleetLink>): void {
     this.entries = [...this.entries.filter((entry) => entry.hostId !== link.hostId), link];
+    if (link.hostId && live) this.live.set(link.hostId, live);
+    else if (link.hostId) this.live.delete(link.hostId);
   }
   /** This machine's links, as `links` answers them. */
   links(): FleetLink[] {
-    return [...this.entries];
+    return this.entries.map((entry) => {
+      const live = entry.hostId ? this.live.get(entry.hostId) : undefined;
+      return live ? { ...entry, ...live() } : entry;
+    });
   }
   private run(
     operation: FleetOperation,
@@ -110,6 +122,19 @@ export class FakeFleet {
           : { code: "not_found", message: "That device isn't paired anymore." };
       case "revokeOthers":
         return { kind: "revoked", count: this.access.revokeOthers(device) };
+      case "scope": {
+        const kept = this.receipts.get(operation.commandId);
+        if (kept) return kept;
+        const changed = this.access.setScope(
+          operation.deviceId,
+          operation.scope,
+          operation.allowed,
+        );
+        const outcome: FleetOutcome | { code: string; message: string } =
+          "code" in changed ? changed : { kind: "scoped", device: changed };
+        this.receipts.set(operation.commandId, outcome);
+        return outcome;
+      }
       case "remoteStatus":
         return { kind: "remoteStatus", status: this.access.remoteStatus() };
       case "grant":

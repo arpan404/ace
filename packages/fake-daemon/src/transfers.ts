@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { continueBlocked, transferCancellable } from "@ace/client";
 import {
+  Device,
   FleetLink,
   ProviderKind,
   ThreadContinuedOn,
@@ -66,6 +67,11 @@ export interface PeerMachine {
       reused: boolean;
     };
   };
+  /** Its paired devices, where this machine's link credential is one. */
+  access?: {
+    get(id: string): Device | undefined;
+    seedDevice(device: Device): void;
+  };
   createThread(init: {
     id: string;
     workspaceId: string;
@@ -82,8 +88,8 @@ export interface TransferPorts {
   name(): string;
   broadcast(message: ServerMessage): void;
   links(): readonly FleetLink[];
-  /** Stores a link, as Settings › Fleet would. */
-  seedLink(link: FleetLink): void;
+  /** Stores a link, as Settings › Fleet would; `live` reads what the other machine says now. */
+  seedLink(link: FleetLink, live?: () => Partial<FleetLink>): void;
   /** `remote.transferIgnoredFiles`, for a transfer that doesn't say. */
   ignoredByDefault(): boolean;
   project(id: string): { name: string; git: boolean; origin?: string } | undefined;
@@ -134,18 +140,47 @@ export class FakeTransfers {
    * `link` overrides the stored link: `{ status: "offline" }`, `{ projects: false }`.
    */
   link(other: PeerMachine, link: Partial<FleetLink> = {}): void {
+    const stored = FleetLink.parse({
+      hostId: other.hostId,
+      profile: other.hostId,
+      name: other.displayName,
+      origin: `https://${other.hostId}.local:5870/`,
+      deviceId: `fleet-${this.ports.hostId()}-on-${other.hostId}`,
+      status: "online",
+      access: "operate",
+      projects: true,
+      ...link,
+    });
+    // The other machine holds this one's link credential as a paired device; whether it allows
+    // projects is that record's, so changing it there shows here.
+    const access = other.access;
+    if (access) {
+      const at = this.ports.clock();
+      access.seedDevice(
+        Device.parse({
+          id: stored.deviceId,
+          name: this.ports.name(),
+          scopes: [
+            "read",
+            ...(stored.access === "operate" ? (["operate"] as const) : []),
+            ...(stored.projects === false ? [] : (["projects"] as const)),
+          ],
+          createdAt: at,
+          lastSeenAt: at,
+          revokedAt: null,
+        }),
+      );
+    }
     this.ports.seedLink(
-      FleetLink.parse({
-        hostId: other.hostId,
-        profile: other.hostId,
-        name: other.displayName,
-        origin: `https://${other.hostId}.local:5870/`,
-        deviceId: `fleet-device-${other.hostId}`,
-        status: "online",
-        access: "operate",
-        projects: true,
-        ...link,
-      }),
+      stored,
+      access
+        ? () => {
+            const device = access.get(stored.deviceId);
+            return device && device.revokedAt === null
+              ? { projects: device.scopes.includes("projects") }
+              : {};
+          }
+        : undefined,
     );
     this.peers.set(other.hostId, transferPeer(other));
   }
@@ -198,7 +233,7 @@ export class FakeTransfers {
     if (link.projects === false)
       return refuse(
         "machine_forbidden",
-        `${link.name} doesn't let this machine move projects there. Link the machines again with Projects allowed.`,
+        `${link.name} doesn't let this machine move projects there. Allow projects for it on ${link.name} in Settings › Fleet.`,
       );
     const now = this.ports.clock();
     const includeIgnored = payload.includeIgnored ?? this.ports.ignoredByDefault();
@@ -384,7 +419,10 @@ export interface TransferHost {
   readonly hostId: string;
   readonly displayName: string;
   readonly services: {
-    fleet: { links(): readonly FleetLink[]; seed(link: FleetLink): void };
+    fleet: {
+      links(): readonly FleetLink[];
+      seed(link: FleetLink, live?: () => Partial<FleetLink>): void;
+    };
     settings: { get(key: "remote.transferIgnoredFiles"): unknown };
   };
   readonly projects: { source(id: string): ReturnType<TransferPorts["project"]> };
@@ -400,7 +438,7 @@ export function fakeTransfers(
     hostId: () => host.hostId,
     name: () => host.displayName,
     links: () => host.services.fleet.links(),
-    seedLink: (link) => host.services.fleet.seed(link),
+    seedLink: (link, live) => host.services.fleet.seed(link, live),
     ignoredByDefault: () => host.services.settings.get("remote.transferIgnoredFiles") !== false,
     project: (id) => host.projects.source(id),
   });

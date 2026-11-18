@@ -1,5 +1,6 @@
 import {
   Device,
+  type DeviceScope,
   PairingRedemption,
   PairingRequest,
   PendingPairing,
@@ -135,6 +136,34 @@ export class FakeAccess {
     const latest = [...this.pending].at(-1);
     if (latest) this.pending.delete(latest[0]);
     return this.admit(latest?.[1] ?? { scopes: ["read", "operate"] }, name);
+  }
+  /** A paired device by id, revoked or not. */
+  get(id: string): Device | undefined {
+    return this.devices.find((device) => device.id === id);
+  }
+  /** Stage a paired device (another fake machine's link credential, as linking would pair it). */
+  seedDevice(device: Device): void {
+    this.devices = [...this.devices.filter((each) => each.id !== device.id), device];
+  }
+  /** `scope` allowed or not for an active paired device, as the daemon's `fleet.request` sets it. */
+  setScope(
+    id: string,
+    scope: DeviceScope,
+    allowed: boolean,
+  ): Device | { code: string; message: string } {
+    const held = this.list().find((device) => device.id === id);
+    if (!held) return { code: "not_found", message: "That device isn't paired anymore." };
+    const scopes = allowed
+      ? [...new Set([...held.scopes, scope])]
+      : held.scopes.filter((each) => each !== scope);
+    if (scopes.length === 0)
+      return {
+        code: "invalid",
+        message: "A device keeps at least one kind of access. Remove it instead.",
+      };
+    const device = Device.parse({ ...held, scopes });
+    this.seedDevice(device);
+    return device;
   }
   revoke(id: string): boolean {
     const at = this.clock();
