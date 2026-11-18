@@ -640,7 +640,7 @@ struct ConversationFeed: View {
     }
     private func disappeared() {
         settle.cancel()
-        surface.stop()
+        surface.stopAll()
         surface.thaw()
         saveSession()
         reading.cancel(model: model)
@@ -678,7 +678,7 @@ struct ConversationFeed: View {
         let intent = intent
         let started = CACurrentMediaTime()
         var settle = TranscriptSettle(at: started)
-        surface.untilSettled({ time in
+        surface.untilSettled(.reveal, { time in
             let metrics = intent.metrics
             let placed = !pinned || metrics.bottom <= 1
             return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
@@ -693,15 +693,17 @@ struct ConversationFeed: View {
     /// feed while its rows land and measure; each frame the row on top is put back at its height
     /// on screen from its own measured frame, then the feed thaws (`TranscriptSurface`).
     private func holdOlderPage() {
-        guard intent.olderPage, !surface.holding, let top = currentTopRow(),
-              let held = anchor.keeper.frames.inContent(top.rowID) else { return }
+        guard intent.olderPage else { return }
         intent.olderPage = false
+        // A hidden feed has nothing to hold: the reveal waits for it to settle.
+        guard revealed, !surface.holding, let top = currentTopRow(),
+              let held = anchor.keeper.frames.inContent(top.rowID) else { return }
         let onScreen = Double(held.minY) - surface.offset
         guard surface.freeze() else { return }
         TranscriptJumpHooks.covered(true)
         let anchor = anchor, intent = intent, surface = surface
         var settle = TranscriptSettle(at: CACurrentMediaTime())
-        surface.untilSettled({ time in
+        surface.untilSettled(.page, { time in
             guard let frame = anchor.keeper.frames.inContent(top.rowID) else {
                 return settle.frame([], placed: false, at: time)
             }
@@ -716,7 +718,7 @@ struct ConversationFeed: View {
     }
     /// The reader took the feed mid-hold: it's theirs as it is.
     private func endPageHold() {
-        surface.stop()
+        surface.stop(.page)
         surface.thaw()
         TranscriptJumpHooks.covered(false)
     }

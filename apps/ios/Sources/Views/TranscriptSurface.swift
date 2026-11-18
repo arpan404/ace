@@ -13,9 +13,13 @@ import UIKit
 /// A thin shell: it reads and moves the scroll view and ticks with the display; what holds still
 /// is the feed's to say, through the closures it passes.
 @MainActor final class TranscriptSurface {
+    /// What waits for the feed to settle. Each runs on its own: an older page landing while a
+    /// thread's opening is still hidden doesn't cancel the reveal.
+    enum Run: Hashable, Sendable { case reveal, page }
+
     private weak var scroller: UIScrollView?
     private var link: CADisplayLink?
-    private var tick: ((CFTimeInterval) -> Bool)?
+    private var ticks: [Run: (CFTimeInterval) -> Bool] = [:]
     private var frozen: UIView?
 
     /// The scroll view's offset from its content's top, in points.
@@ -32,29 +36,49 @@ import UIKit
     }
 
     /// Calls `settle` with each drawn frame's time until it says the feed has settled, then
-    /// `done`. A run already going ends first, without its `done`.
-    func untilSettled(_ settle: @escaping (CFTimeInterval) -> TranscriptSettle.Outcome,
+    /// `done`. The same `run` already going ends first, without its `done`; the other run is
+    /// left alone.
+    func untilSettled(_ run: Run, _ settle: @escaping (CFTimeInterval) -> TranscriptSettle.Outcome,
                       done: @escaping (TranscriptSettle.Outcome) -> Void) {
-        stop()
-        tick = { time in
+        ticks[run] = { time in
             let outcome = settle(time)
             if outcome == .waiting { return true }
             done(outcome)
             return false
         }
+        guard link == nil else { return }
         let link = CADisplayLink(target: SurfaceTicker(surface: self), selector: #selector(SurfaceTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
     }
 
-    fileprivate func ticked(_ time: CFTimeInterval) {
-        guard let tick, tick(time) else { stop(); return }
+    /// Whether `run` is still waiting for the feed to settle.
+    func running(_ run: Run) -> Bool { ticks[run] != nil }
+
+    /// One drawn frame at `time`: each run waiting is asked whether the feed has settled. The
+    /// display link calls it.
+    func drawn(at time: CFTimeInterval) {
+        for (run, tick) in ticks where !tick(time) {
+            ticks[run] = nil
+        }
+        if ticks.isEmpty { stopLink() }
     }
 
-    func stop() {
+    /// Ends `run` without its `done`.
+    func stop(_ run: Run) {
+        ticks[run] = nil
+        if ticks.isEmpty { stopLink() }
+    }
+
+    /// Ends every run without their `done`: the feed went away.
+    func stopAll() {
+        ticks = [:]
+        stopLink()
+    }
+
+    private func stopLink() {
         link?.invalidate()
         link = nil
-        tick = nil
     }
 
     /// Freezes what is drawn now over the feed, under the header and the composer. False when
@@ -90,7 +114,7 @@ import UIKit
     init(surface: TranscriptSurface) { self.surface = surface }
     @objc func tick(_ link: CADisplayLink) {
         guard let surface else { link.invalidate(); return }
-        surface.ticked(link.timestamp)
+        surface.drawn(at: link.timestamp)
     }
 }
 
