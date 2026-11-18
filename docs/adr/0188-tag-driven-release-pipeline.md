@@ -81,7 +81,9 @@ installed runtime and daemon, and answering `--version`), and the AppImage's con
    (size, and GitHub's SHA-256 digest when reported), and the notes. It adds `SHA256SUMS` and
    makes the release live for everyone at once: a stable release is marked latest, a beta is a
    prerelease that only the Beta line picks up (ADR 0177). Then it removes the staged manifests.
-9. **notify** (omarchy, always) tells the owner the release is live or which step stopped it.
+9. **refresh-marketing** (omarchy, stable only, never fails the release) asks Pages to rebuild
+   acehq.dev (below).
+10. **notify** (omarchy, always) tells the owner the release is live or which step stopped it.
 
 Betas now ship every platform too: `betaHostProblem` accepts darwin-arm64, linux-x64,
 linux-arm64 and win32-x64.
@@ -92,12 +94,16 @@ off. The deploy-web job builds `apps/web` from the release's commit with the exi
 script and `ACE_VERSION=<version>`, so the app names itself `web/<version>` to ace cloud
 ([ADR 0189](0189-cloud-features-gated-by-client-version.md)), and runs `wrangler pages deploy`
 with the commit and the message `ace <tag>`. A stable tag deploys to the production branch
-(`main`, app.acehq.dev); a beta to the Pages branch `beta` (beta.ace-web.pages.dev), leaving
-app.acehq.dev alone. `webDeployPlan` (`web-deploy.ts`) skips the deploy when a later release of
-the same line is already published. A rerun deploys again rather than reading what Pages
-serves: Pages uploads only files it lacks, so it is cheap and serves the same build. Only the
-deploy step holds the Cloudflare token, which needs Pages edit. Setup and rollback:
-`docs/release/web.md`.
+(`main`, app.acehq.dev) and to the Pages branch `beta` (beta.app.acehq.dev), so the beta site
+never trails stable; a beta deploys to `beta` only, leaving app.acehq.dev alone.
+`webDeployPlan` (`web-deploy.ts`) skips a branch that already serves a later published release
+(`main` counts stable releases, `beta` both lines). A rerun deploys again rather than reading
+what Pages serves: Pages uploads only files it lacks, so it is cheap and serves the same build.
+Only the deploy step holds the Cloudflare token, which needs Pages edit. ace cloud and the
+daemon allow `https://beta.app.acehq.dev` as a web origin beside app.acehq.dev, so the beta web
+app signs in and pairs. After a stable release publishes, **refresh-marketing** POSTs the
+`ace-marketing` Pages deploy hook (`MARKETING_DEPLOY_HOOK`) so acehq.dev rebuilds against the
+new latest release; it never fails the release. Setup and rollback: `docs/release/web.md`.
 
 **Resumable.** Every step checks what the tag's release already holds before acting. A
 platform whose manifest is on the draft, from the tag's commit, with all its files, is not
