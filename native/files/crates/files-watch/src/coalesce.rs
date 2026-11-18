@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::batch::{Batch, Change};
 use crate::observed::{Observed, parent};
-use crate::translate::Notice;
+use crate::translate::{Notice, Presence};
 
 /// Collects events into windows and turns them into batches.
 pub(crate) struct Coalescer {
@@ -137,7 +137,7 @@ impl Coalescer {
     pub(crate) fn settle(
         &mut self,
         now: Instant,
-        look: &dyn Fn(&str) -> Option<bool>,
+        look: &dyn Fn(&str) -> Presence,
     ) -> Option<Batch> {
         let rescanning = self.rescan.clone();
         let activity = std::mem::take(&mut self.activity);
@@ -235,7 +235,7 @@ fn narrowest<'a>(folders: impl Iterator<Item = &'a str>) -> Option<String> {
 mod tests {
     use super::Coalescer;
     use crate::batch::{Batch, Change, ChangeKind};
-    use crate::translate::Notice;
+    use crate::translate::{Notice, Presence};
     use std::time::{Duration, Instant};
 
     const DEBOUNCE: Duration = Duration::from_millis(75);
@@ -264,12 +264,12 @@ mod tests {
         }
     }
 
-    fn exists(_: &str) -> Option<bool> {
-        Some(false)
+    fn exists(_: &str) -> Presence {
+        Presence::Here(false)
     }
 
-    fn gone(_: &str) -> Option<bool> {
-        None
+    fn gone(_: &str) -> Presence {
+        Presence::Gone
     }
 
     #[test]
