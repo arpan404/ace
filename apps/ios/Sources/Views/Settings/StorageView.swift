@@ -28,8 +28,12 @@ struct StorageView: View {
 
     var body: some View {
         List {
+            if page?.usage == nil, let message = page?.usageProblem ?? problem {
+                ProblemRow(message, id: "storage.problem") { model.retry(); Task { await refresh() } }
+            }
             Group {
                 usage
+                if model.canOperate, page?.usage != nil { actions }
                 if let plan { planSection(plan).transition(.opacity) }
                 if let settings = page?.settings {
                     Group {
@@ -84,27 +88,31 @@ struct StorageView: View {
                     }
                     .font(AceDesign.Typeface.meta)
                 }
-            } else if let message = page?.usageProblem ?? problem {
-                ServiceProblem(message: message)
-                Button("Retry") { Task { await refresh() } }
-            } else {
+            } else if page?.usageProblem == nil, problem == nil {
                 ForEach(0..<4, id: \.self) { _ in LabeledContent("Threads and transcripts", value: "0.0 MB").redacted(reason: .placeholder) }
             }
             if page?.usage != nil { ServiceProblem(message: problem) }
-            if model.canOperate, page?.usage != nil {
-                Button("Preview cleanup") { preview(worktrees: false) }
-                    .disabled(busy).accessibilityIdentifier("storage.preview")
-                if let pending = compaction?.pendingId {
-                    Button("Resume compaction") { compact(nil) }.disabled(busy)
-                    Button("Stop compaction") { compact(pending) }.disabled(busy)
-                } else {
-                    Button("Compact database") { compact(nil) }.disabled(busy).accessibilityIdentifier("storage.compact")
-                }
-            }
-            ServiceProblem(message: actionProblem)
         } header: {
             HStack { InsetHeader("Usage"); Spacer(); if busy { WorkingMark() } }
         }
+    }
+
+    /// Cleanup and compaction as row actions in a group of their own, under what they act on, so
+    /// they read as things to tap rather than more rows of usage.
+    private var actions: some View {
+        Section {
+            Button("Preview cleanup") { preview(worktrees: false) }
+                .buttonStyle(.rowAction)
+                .disabled(busy || model.connection != "ready").accessibilityIdentifier("storage.preview")
+            if let pending = compaction?.pendingId {
+                Button("Resume compaction") { compact(nil) }.buttonStyle(.rowAction).disabled(busy)
+                Button("Stop compaction") { compact(pending) }.buttonStyle(.rowAction).disabled(busy)
+            } else {
+                Button("Compact database") { compact(nil) }.buttonStyle(.rowAction)
+                    .disabled(busy || model.connection != "ready").accessibilityIdentifier("storage.compact")
+            }
+            ServiceProblem(message: actionProblem)
+        } footer: { Text("Nothing is removed until you confirm.") }
     }
 
     private func planSection(_ plan: StoragePlanView) -> some View {
@@ -117,9 +125,10 @@ struct StorageView: View {
             }
             if let outcome = plan.outcome { Text(outcome).accessibilityIdentifier("storage.outcome") }
             if !forced.isEmpty {
-                Button("Preview with selected worktrees") { preview(worktrees: worktreePreview) }.disabled(busy)
+                Button("Preview with selected worktrees") { preview(worktrees: worktreePreview) }.buttonStyle(.rowAction).disabled(busy)
             } else if let action = plan.action, model.canOperate {
                 Button(action, role: .destructive) { confirming = true }
+                    .buttonStyle(.rowAction)
                     .disabled(busy).accessibilityIdentifier("storage.remove")
             }
         } header: { InsetHeader(plan.title) }

@@ -28,6 +28,7 @@ struct StorageWorktreeSection: View {
                 get: { settings.backupWorktrees },
                 set: { on in write(["key": "backupWorktrees", "on": on]) }))
             Button("Delete all settled worktrees", role: .destructive, action: previewAll)
+                .buttonStyle(.rowAction)
                 .disabled(busy).accessibilityIdentifier("storage.worktrees.deleteAll")
             ServiceProblem(message: problem)
         } header: { InsetHeader("Worktrees") } footer: {
@@ -87,7 +88,7 @@ struct StorageKindsSection: View {
                 .accessibilityIdentifier("storage.daily")
             ServiceProblem(message: problem)
         } header: { InsetHeader("Retention") } footer: {
-            Text("Days to keep archived threads and unused data, by kind. Empty keeps it; pins and live work always stay. Daily cleanup runs every day; worktrees have their own setting.")
+            Text("Leave a limit blank to keep that data. Cleanup skips pinned and active work. Set worktree retention separately.")
         }
         .sensoryFeedback(.selection, trigger: settings.scheduledCleanup)
     }
