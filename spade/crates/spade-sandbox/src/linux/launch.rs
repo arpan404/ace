@@ -58,6 +58,11 @@ pub fn main(args: &[OsString]) -> ExitCode {
     else {
         return refused("the plan doesn't parse");
     };
+    // An offline or read-only run starts with its stdio alone: nothing the process that started
+    // the launcher left open without close-on-exec reaches it (ADR 0171, amendment 4).
+    if plan.offline {
+        crate::fds::seal_inherited();
+    }
     if namespaced && rustix::process::getpid().as_raw_nonzero().get() != 1 {
         return refused("the signal supervisor must be the private PID namespace's init");
     }

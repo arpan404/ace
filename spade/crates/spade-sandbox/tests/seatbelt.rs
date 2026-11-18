@@ -303,3 +303,207 @@ fn only_system_folders_are_readable_outside_what_the_policy_opens() {
     );
     assert!(text.contains("42") && text.contains("fine"), "{text}");
 }
+
+/// The machine's sandbox with Spade's own program known, as Spade runs it: an offline run needs
+/// it to drop what the run would inherit.
+fn offline_runner() -> Runner {
+    let runner = Runner::probe(Some(PathBuf::from(env!(
+        "CARGO_BIN_EXE_spade-sandbox-launcher"
+    ))));
+    assert!(runner.holds_offline(), "{:?}", runner.status());
+    runner
+}
+
+/// Runs `launch` from `workspace`: its exit code and what it printed.
+fn launched(launch: &spade_sandbox::Launch, workspace: &Path) -> (i32, String) {
+    let out = Command::new(&launch.program)
+        .args(&launch.args)
+        .current_dir(workspace)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", workspace)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap_or_else(|error| panic!("{error}"));
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (out.status.code().unwrap_or(-1), text)
+}
+
+fn sh(script: &str) -> [OsString; 2] {
+    [OsString::from("-c"), OsString::from(script)]
+}
+
+#[test]
+fn a_descriptor_left_open_in_the_parent_never_reaches_an_offline_run() {
+    use nix::fcntl::{FcntlArg, FdFlag, fcntl};
+    use std::os::fd::AsRawFd;
+    let world = world();
+    let runner = offline_runner();
+    let leaked = std::fs::File::open("/dev/null").unwrap_or_else(|e| panic!("{e}"));
+    let fd = leaked.as_raw_fd();
+    fcntl(fd, FcntlArg::F_SETFD(FdFlag::empty())).unwrap_or_else(|e| panic!("{e}"));
+    let check = format!("if (: <&{fd}) 2>/dev/null; then echo open; else echo closed; fi");
+    let policy = policy(&world, None);
+    let normal = runner
+        .wrap(&policy, Path::new("/bin/sh"), &sh(&check))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(launched(&normal, &world.workspace).1.trim(), "open");
+    let offline = runner
+        .wrap_offline(&policy, Path::new("/bin/sh"), &sh(&check))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(launched(&offline, &world.workspace).1.trim(), "closed");
+    drop(leaked);
+}
+
+#[test]
+fn an_offline_run_refuses_loopback_a_workspace_socket_and_the_internet() {
+    let world = world();
+    let runner = offline_runner();
+    let port = listener();
+    let policy = policy(&world, None);
+    for script in [
+        format!("curl -sS -m 5 http://127.0.0.1:{port}/"),
+        "curl -sS -m 5 https://example.com/".to_owned(),
+        "python3 -c 'import socket; s=socket.socket(); s.bind((\"127.0.0.1\", 0))'".to_owned(),
+        "python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.bind(\"s\")'".to_owned(),
+    ] {
+        let launch = runner
+            .wrap_offline(&policy, Path::new("/bin/sh"), &sh(&script))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let (code, text) = launched(&launch, &world.workspace);
+        assert_ne!(code, 0, "`{script}` should be refused: {text}");
+    }
+}
+
+/// An HTTP listener on loopback that counts the requests it gets, answering 404.
+fn counting_listener() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let socket = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|_| std::process::abort());
+    let port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
+    let count = std::sync::Arc::new(AtomicUsize::new(0));
+    let counted = count.clone();
+    std::thread::spawn(move || {
+        for mut stream in socket.incoming().flatten() {
+            counted.fetch_add(1, Ordering::SeqCst);
+            let mut buffer = [0u8; 1024];
+            let _ = stream.read(&mut buffer);
+            let _ = stream.write_all(b"HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        }
+    });
+    (port, count)
+}
+
+/// A CA nobody trusts and a leaf it issued, in `dir`, whose issuer and revocation URLs point at
+/// `port` on loopback: checking the leaf makes `trustd` fetch from there.
+fn certificate(dir: &Path, port: u16) {
+    let write = |name: &str, text: String| {
+        std::fs::write(dir.join(name), text).unwrap_or_else(|e| panic!("{e}"));
+    };
+    write(
+        "ca.cnf",
+        "[req]\ndistinguished_name=dn\n[dn]\n[ca]\nbasicConstraints=critical,CA:TRUE\n\
+         keyUsage=critical,keyCertSign,cRLSign\n"
+            .to_owned(),
+    );
+    write(
+        "leaf.cnf",
+        format!(
+            "authorityInfoAccess=caIssuers;URI:http://127.0.0.1:{port}/ca.crt,\
+             OCSP;URI:http://127.0.0.1:{port}/ocsp\n\
+             crlDistributionPoints=URI:http://127.0.0.1:{port}/ca.crl\n\
+             subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n"
+        ),
+    );
+    let openssl = |args: &[&str]| {
+        let ran = Command::new("/usr/bin/openssl")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            ran.status.success(),
+            "{}",
+            String::from_utf8_lossy(&ran.stderr)
+        );
+    };
+    openssl(&[
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        "ca.key",
+        "-out",
+        "ca.pem",
+        "-subj",
+        "/CN=Spade test CA",
+        "-days",
+        "2",
+        "-config",
+        "ca.cnf",
+        "-extensions",
+        "ca",
+    ]);
+    openssl(&[
+        "req",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        "leaf.key",
+        "-out",
+        "leaf.csr",
+        "-subj",
+        "/CN=localhost",
+    ]);
+    openssl(&[
+        "x509",
+        "-req",
+        "-in",
+        "leaf.csr",
+        "-CA",
+        "ca.pem",
+        "-CAkey",
+        "ca.key",
+        "-CAcreateserial",
+        "-out",
+        "leaf.pem",
+        "-days",
+        "2",
+        "-extfile",
+        "leaf.cnf",
+    ]);
+}
+
+#[test]
+fn an_offline_run_cant_have_trustd_fetch_a_certificates_issuer_for_it() {
+    use std::sync::atomic::Ordering;
+    let world = world();
+    let runner = offline_runner();
+    let check = "/usr/bin/security verify-cert -c leaf.pem -p ssl -s localhost";
+    let policy = policy(&world, None);
+    // A normal run may look up trustd, which fetches the issuer: the check reaches the listener.
+    let (port, count) = counting_listener();
+    certificate(&world.workspace, port);
+    let normal = runner
+        .wrap(&policy, Path::new("/bin/sh"), &sh(check))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let (_, said) = launched(&normal, &world.workspace);
+    assert!(
+        count.load(Ordering::SeqCst) > 0,
+        "trustd should fetch for a normal run (the check's premise): {said}"
+    );
+    // An offline run can't look trustd up, so nothing is fetched on its behalf.
+    let (port, count) = counting_listener();
+    certificate(&world.workspace, port);
+    let offline = runner
+        .wrap_offline(&policy, Path::new("/bin/sh"), &sh(check))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let (_, said) = launched(&offline, &world.workspace);
+    assert_eq!(count.load(Ordering::SeqCst), 0, "{said}");
+}

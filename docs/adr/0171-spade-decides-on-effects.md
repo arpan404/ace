@@ -339,12 +339,33 @@ send, post or pay as the person, and nothing looked.
     may still make connected `socketpair(AF_UNIX)` pairs, which reach nothing outside the run and
     which runtimes need (Python's asyncio, libuv). The launcher refuses to start an offline plan
     it can't apply, and descendants inherit the filter.
-  - **macOS:** the normal Seatbelt profile with no network rule at all (`profile_offline`).
+  - **macOS:** the normal Seatbelt profile with no network rule at all (`profile_offline`), and
+    none of the Mach services that can reach the network on the run's behalf: no `trustd` or
+    `trustd.agent` (certificate checks fetch issuers, OCSP and CRLs) and no `opendirectoryd`
+    lookups (a Mac bound to a directory sends them to its LDAP or Active Directory servers), as a
+    read-only run has none. It keeps only the system log (`com.apple.system.logger`) and
+    `notifyd` (`com.apple.system.notification_center`), which stay on the machine and which the
+    runtimes a server uses expect at start.
   - **Windows**, and any machine whose sandbox is partial: no offline launch, so no plugin
     server is sealed there.
 
+  An offline run, like a read-only one, starts with its stdio alone: every descriptor the
+  process starting it holds above stdio is marked close-on-exec first (`spade_sandbox::fds`), on
+  Linux by the launcher, on macOS by Spade's own program run in front of `sandbox-exec`, so no
+  socket or pipe Spade happened to leave open can carry a sealed server's calls out. Where Spade's
+  own program isn't known, macOS holds nothing offline.
+
   Only a sealed server's tools keep decision 1's rule: the sandbox decides, with no classifier
   and no reviewer. Connectors are never sealed: they are remote.
+
+- **Outside the sealing guarantee: the workspace as a channel.** A sealed server can still write
+  in the bot's workspace, so a process outside it that can reach the network and reads that
+  folder (polling a file, a FIFO) could relay for it. Sealing doesn't cover that: it takes a
+  cooperating process that isn't sealed and that the bot already controls (its own command, its
+  terminal, a service, another plugin's server), and that process is decided by the gate on its
+  own terms, its network calls by its sandbox and policy, and its outward effects by this ADR's
+  rules. Sealing promises that the sealed server's own calls reach nothing outside the machine,
+  not that nothing else on the machine does.
 
 - **Full access** ([ADR 0163](0163-spade-auto-review-only.md), amendment 2) applies the same
   rule, then its own: the classifier required for an app's write, the reviewer under untrusted
@@ -362,7 +383,10 @@ and its network on asks on an undeclared tool's first call and has its declared 
 in both modes; one sealed offline with no token runs, in both modes), and in the real Linux
 sandbox in `spade-server/tests/sealed_plugin_offline.rs` (a sealed server can't reach a workspace
 Unix socket that forwards to a TCP listener; a server with its network on reaches it and isn't
-sealed). `spade-sandbox` tests the offline plan and profile.
+sealed). `spade-sandbox` tests the offline plan and profile (the offline profile looks up no
+service that can reach the network), and, with real processes, that a descriptor left open in
+the parent reaches neither an offline nor a read-only run (`inherited_fds.rs` on Linux,
+`seatbelt.rs` on macOS, which also checks `trustd` fetches nothing for an offline run).
 
 ## Note: Full access (2026-11-18)
 
