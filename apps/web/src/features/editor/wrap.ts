@@ -3,12 +3,14 @@
  * where a caret or a click lands among them.
  *
  * Rows never split a grapheme cluster. A row breaks after the last run of spaces or tabs that
- * fits, at the run's first space, and drops that run from its text so the next row resumes at the
- * word; a word longer than the row hard-breaks. The line's leading whitespace is never treated
- * as a break and is repeated as the indent of continuation rows. Whitespace after the last word
- * stays on the last row past the row's edge, so the caret can move through it. Lines longer than
- * `longLine` wrap by code unit, so a generated file never pays for measuring each character.
- * Nothing here reads the document or the DOM: the view can call it during a render.
+ * fits, at the run's first space, and keeps that run at its own end past the row's edge so that
+ * every column in it has its own x; the next row resumes at the word. A word longer than the row
+ * hard-breaks. One set of ranges serves drawing, selection, hit testing and navigation alike. The
+ * line's leading whitespace is never treated as a break and is repeated as the indent of
+ * continuation rows, and whitespace after the last word stays on the last row past the row's
+ * edge, so the caret can move through it. Plain ASCII over `longLine` wraps by code unit, so a
+ * generated file never pays for measuring each character. Nothing here reads the document or the
+ * DOM: the view can call it during a render.
  */
 
 import {
@@ -155,7 +157,8 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
       end = text.length;
       resume = parts.length;
     } else if (breakAt > start && resumeAt > at) {
-      end = breakAt;
+      // The run stays on the row it broke, past the row's edge: every column in it keeps its x.
+      end = parts[resumeAt]?.start ?? text.length;
       resume = resumeAt;
     } else {
       end = fit > start ? fit : (parts[at]?.end ?? text.length);
@@ -183,10 +186,10 @@ function wrapCodeUnits(text: string, width: number): WrapRow[] {
     const room = rows.length === 0 ? width : Math.max(leastRowCells, width - indent);
     let end = Math.min(text.length, start + room);
     if (end < text.length) {
-      if (isLowSurrogate(text.charCodeAt(end)) && isHighSurrogate(text.charCodeAt(end - 1))) end--;
       if (hasTextAfter(text, end)) {
         const space = text.lastIndexOf(" ", end - 1);
-        if (space > start && space >= indentEnd) end = space;
+        // The space is kept at this row's end, past its edge, so the caret has a column for it.
+        if (space > start && space >= indentEnd) end = space + 1;
       } else {
         end = text.length;
       }
@@ -194,7 +197,6 @@ function wrapCodeUnits(text: string, width: number): WrapRow[] {
     if (end <= start) end = Math.min(text.length, start + 2);
     rows.push({ start, end, indent: rows.length === 0 ? 0 : indent });
     start = end;
-    while (start < text.length && text[start] === " ") start++;
   }
   return rows;
 }
@@ -217,12 +219,4 @@ function hasTextAfter(text: string, at: number): boolean {
 
 function isBreak(cluster: string): boolean {
   return cluster === " " || cluster === "\t";
-}
-
-function isHighSurrogate(code: number): boolean {
-  return code >= 0xd800 && code <= 0xdbff;
-}
-
-function isLowSurrogate(code: number): boolean {
-  return code >= 0xdc00 && code <= 0xdfff;
 }

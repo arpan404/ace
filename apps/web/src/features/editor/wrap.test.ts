@@ -18,8 +18,8 @@ import {
 const slices = (text: string, columns: number) =>
   wrapLine(text, columns).map((row) => rowText(text, row));
 
-test("a long line wraps at the spaces that fit, dropping the space at each break", () => {
-  expect(slices("one two three four", 8)).toEqual(["one two", "three", "four"]);
+test("a long line wraps at the spaces that fit, each break's run staying at its row's end", () => {
+  expect(slices("one two three four", 8)).toEqual(["one two ", "three ", "four"]);
 });
 
 test("a word wider than the row breaks between graphemes, never inside one", () => {
@@ -36,14 +36,14 @@ test("a word wider than the row breaks between graphemes, never inside one", () 
   }
 });
 
-test("a run of spaces is dropped whole, leaving no stray space at the row's end", () => {
-  expect(slices("aa  bbbbbbbb", 8)).toEqual(["aa", "bbbbbbbb"]);
+test("a run of spaces stays with the row it broke, so every column in it has its own x", () => {
+  expect(slices("aa  bbbbbbbb", 8)).toEqual(["aa  ", "bbbbbbbb"]);
 });
 
 test("continuation rows repeat the line's leading whitespace as indent", () => {
   const text = "    one two three";
   const rows = wrapLine(text, 12);
-  expect(rows.map((row) => rowText(text, row))).toEqual(["    one two", "three"]);
+  expect(rows.map((row) => rowText(text, row))).toEqual(["    one two ", "three"]);
   expect(rows.map((row) => row.indent)).toEqual([0, 4]);
   expect(leadingIndent("\t  text")).toBe(4);
 });
@@ -70,14 +70,14 @@ test("a generated line over ten thousand characters wraps by code unit, never by
 });
 
 test("a width narrower than a row's least text is raised to it", () => {
-  expect(slices("aaaa bbbb", 4)).toEqual(["aaaa", "bbbb"]);
+  expect(slices("aaaa bbbb", 4)).toEqual(["aaaa ", "bbbb"]);
   expect(wrapLine("aaaa bbbb", 4)).toEqual(wrapLine("aaaa bbbb", 8));
 });
 
 test("a column in the space between rows belongs to the row before it", () => {
   const text = "aaa bbbbb";
   const rows = wrapLine(text, 8);
-  expect(rows.map((row) => rowText(text, row))).toEqual(["aaa", "bbbbb"]);
+  expect(rows.map((row) => rowText(text, row))).toEqual(["aaa ", "bbbbb"]);
   expect(rowOfColumn(rows, 0)).toBe(0);
   expect(rowOfColumn(rows, 3)).toBe(0);
   expect(rowOfColumn(rows, 4)).toBe(1);
@@ -105,6 +105,25 @@ test("a row's cells measure from its own left edge, indent included", () => {
   expect(rowOffset(text, second, second.start)).toBe(4);
   expect(rowOffset(text, second, second.start + 3)).toBe(7);
   expect(columnOnRow(text, second, (4 + 3) * cell + 1, cell)).toBe(second.start + 3);
+});
+
+test("every column of a wrapped line keeps its own x, the spaces at a break included", () => {
+  const text = "one two   three four five";
+  const rows = wrapLine(text, 10);
+  const cell = 8;
+  const taken = new Map<string, number>();
+  for (let column = 0; column <= text.length; column++) {
+    const at = rowOfColumn(rows, column);
+    const row = rows[at];
+    if (!row) throw new Error(`Column ${column} fell outside the line`);
+    const x = rowOffset(text, row, column);
+    const key = `${at}:${x}`;
+    const other = taken.get(key);
+    if (other !== undefined) throw new Error(`Columns ${other} and ${column} both draw at ${x}`);
+    taken.set(key, column);
+    // Hit testing comes back to the same column through the same range.
+    if (column < text.length) expect(columnOnRow(text, row, x * cell + 1, cell)).toBe(column);
+  }
 });
 
 test("a line narrower than the row stays on one row, whatever it holds", () => {

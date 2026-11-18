@@ -306,8 +306,8 @@ test("a selection that ends at a row's start leaves a sliver on the caret's row 
   );
 
   const boxes = [...document.querySelectorAll<HTMLElement>("[data-selection]")];
-  // Row 0 reaches its own edge (the dropped spaces are not drawn); row 1 is the caret's row.
-  expect(boxes.map((box) => box.style.width)).toEqual([`${120 * cell}px`, "2px"]);
+  // Row 0 holds the spaces the break kept; row 1 is the caret's own row, left as a sliver.
+  expect(boxes.map((box) => box.style.width)).toEqual([`${122 * cell}px`, "2px"]);
   expect(boxes.map((box) => box.style.top)).toEqual(["0px", "22px"]);
 });
 
@@ -351,7 +351,7 @@ test("a newline above the view keeps the same text at the top, and undoing it pu
   const start = rowStart(lines, top);
   scroller.scrollTop = start * 22 + 11;
   fireEvent.scroll(scroller);
-  expect(rowText(start)).toBe(`line ${top}`);
+  expect(rowText(start)).toBe(`line ${top} `);
 
   act(() => ref.current?.setSelections([caret(0, 0)]));
   await userEvent.keyboard("{Enter}");
@@ -363,11 +363,11 @@ test("a newline above the view keeps the same text at the top, and undoing it pu
   expect(
     document.querySelector<HTMLElement>(`[data-row="${moved}"]`)?.getAttribute("data-line"),
   ).toBe(String(top + 1));
-  expect(rowText(moved)).toBe(`line ${top}`);
+  expect(rowText(moved)).toBe(`line ${top} `);
 
   await userEvent.keyboard("{Meta>}z{/Meta}");
   await waitFor(() => expect(scroller.scrollTop).toBe(start * 22 + 11));
-  expect(rowText(start)).toBe(`line ${top}`);
+  expect(rowText(start)).toBe(`line ${top} `);
 });
 
 test("toggling wrap in the middle of a line keeps that line at the top", async () => {
