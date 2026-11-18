@@ -469,6 +469,8 @@ async fn model_step(
             }
             next = stream.next() => match next {
                 Some(Ok(Delta::Text(piece))) => {
+                    // Told before the words, so no client shows them under "Thinking".
+                    engine.writing(id);
                     text.push_str(&piece);
                     {
                         // Updated and sent under one lock, which `subscribe` also takes, so a
