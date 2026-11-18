@@ -37,7 +37,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, INFINITE, ResetEvent, SetEvent, WaitForMultipleObjects,
+    CreateEventW, INFINITE, ResetEvent, SetEvent, WaitForMultipleObjects, WaitForSingleObject,
 };
 
 use crate::error::Error;
@@ -197,26 +197,37 @@ fn run(
     events: Events,
     started: SyncSender<Result<(), String>>,
 ) {
-    let mut buffer = vec![0u8; BUFFER_BYTES];
+    // The kernel documents a four-byte-aligned buffer for its records, so the bytes live in
+    // `u32`s rather than a byte vector. Both it and `overlapped` are locals: this thread never
+    // returns while a read it issued may still write into either, because every exit path waits
+    // for the completion or cancels the read and drains the cancellation.
+    let mut buffer = vec![0u32; BUFFER_BYTES / 4];
     let mut overlapped = OVERLAPPED {
         hEvent: completion.0,
         ..OVERLAPPED::default()
     };
     let mut armed = false;
     loop {
-        let mut returned = 0u32;
+        // A status the kernel keeps returning without a completion (a directory that cannot be
+        // read any more, say) would otherwise spin here, and the join in `Watch::drop` would
+        // never finish. The owner's stop ends the thread before the next read is issued.
+        if stopping(stop) {
+            break;
+        }
         // SAFETY: the directory handle stays open until this thread returns; the buffer is
-        // writable for its whole length and is not touched again until the operation below
-        // completes; `overlapped` is a valid structure whose event stays open until then; and
-        // a null completion routine is what an overlapped caller passes.
+        // writable for its whole length and four-byte aligned (it is `u32`s), and it is not
+        // touched again until the operation below completes; `overlapped` is a valid structure
+        // whose event stays open until then; the byte count is unused for an overlapped read, so
+        // a null pointer is what the call expects; and a null completion routine is what an
+        // overlapped caller passes.
         let read = unsafe {
             ReadDirectoryChangesW(
                 directory.0,
                 buffer.as_mut_ptr().cast(),
-                buffer.len() as u32,
+                BUFFER_BYTES as u32,
                 1,
                 FILTER,
-                &mut returned,
+                std::ptr::null_mut(),
                 &mut overlapped,
                 None,
             )
@@ -230,12 +241,12 @@ fn run(
             }
             // A queued overlapped read is a success that has not completed yet; wait for it.
             if code != Some(ERROR_IO_PENDING as i32) {
-                let message = format!("cannot watch {}: {error}", root.display());
-                if armed {
-                    events.failed(&message);
-                } else {
-                    let _ = started.send(Err(message));
-                }
+                fail(
+                    &started,
+                    armed,
+                    format!("cannot watch {}: {error}", root.display()),
+                    &events,
+                );
                 break;
             }
         }
@@ -267,10 +278,14 @@ fn run(
         let finished = unsafe { GetOverlappedResult(directory.0, &overlapped, &mut bytes, 1) };
         if finished == 0 {
             let error = std::io::Error::last_os_error();
-            if error.raw_os_error() == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
+            let code = error.raw_os_error();
+            if code == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
                 events.lost_events();
             } else {
-                if error.raw_os_error() != Some(ERROR_OPERATION_ABORTED as i32) {
+                // An abort is the owner stopping the watch; any other status means the native
+                // watch is gone for good, and the worker must hear it and fall back.
+                let aborted = code == Some(ERROR_OPERATION_ABORTED as i32);
+                if !(aborted && stopping(stop)) {
                     events.failed(&format!("cannot watch {}: {error}", root.display()));
                 }
                 break;
@@ -279,7 +294,12 @@ fn run(
             // A completion with nothing in it is the kernel saying its buffer ran out.
             events.lost_events();
         } else {
-            emit(root, &buffer[..bytes as usize], &events);
+            // SAFETY: this is the completed read's byte count, inside the buffer this thread
+            // owns; the buffer is alive because the thread waits on every operation before it
+            // returns.
+            let filled =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), bytes as usize) };
+            emit(root, filled, &events);
         }
         // SAFETY: this resets this thread's own manual-reset completion event before the next
         // read; the event stays open until the thread returns.
@@ -287,6 +307,22 @@ fn run(
     }
     completion.close();
     directory.close();
+}
+
+/// Reports a dead watch to the worker, or to the caller while it is still starting one.
+fn fail(started: &SyncSender<Result<(), String>>, armed: bool, message: String, events: &Events) {
+    if armed {
+        events.failed(&message);
+    } else {
+        let _ = started.send(Err(message));
+    }
+}
+
+/// Whether the owner asked the watch to stop.
+fn stopping(stop: Handle) -> bool {
+    // SAFETY: the stop event is open for the whole thread, and a zero-timeout wait only reads
+    // its state.
+    unsafe { WaitForSingleObject(stop.0, 0) == WAIT_OBJECT_0 }
 }
 
 /// Opens a folder for change notifications, recursively.
