@@ -4,10 +4,11 @@ import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { contextScope } from "./context-scope.ts";
+import { daemonQuickOpen, quickOpenPaths } from "../files-tool/quick-open.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { ContextService, summarizeThreadReference } from "@ace/context";
-import { ThreadId, WorkspaceId } from "@ace/protocol";
+import { ThreadId, WorkspaceId, type ServerMessage } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
@@ -132,12 +133,35 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
 }
 
-import type { SocketContext, SocketService } from "./socket.ts";
+import type { SocketContext, SocketMessage, SocketService } from "./socket.ts";
 export function createContextSession(context: SocketContext): SocketService {
   const { options, authorize, canReadThread, send, tasks, connected } = context;
   // At most eight bounded protocol requests wait on this socket. Chunk bodies are <=64 KiB.
   let pending = 0;
   let tail = Promise.resolve();
+  /**
+   * Quick open from ace-files' index once it can answer, keeping the reply's shape. Undefined
+   * means the daemon's existing path index answers instead, so results never disappear.
+   */
+  const nativeQuickOpen = async (
+    message: Extract<SocketMessage, { type: "context.request" }>,
+  ): Promise<Extract<ServerMessage, { type: "context.result" }> | undefined> => {
+    const native = options.filesNative;
+    if (!native || message.operation.op !== "mention.complete") return undefined;
+    const operation = message.operation;
+    const paths = await quickOpenPaths(
+      daemonQuickOpen(options.store, native.tool),
+      operation.threadId,
+      operation.query,
+      operation.limit,
+    );
+    if (paths === undefined) return undefined;
+    return {
+      type: "context.result",
+      requestId: message.requestId,
+      result: { kind: "completion", paths },
+    };
+  };
   return {
     async handle(message, device) {
       switch (message.type) {
@@ -171,8 +195,10 @@ export function createContextSession(context: SocketContext): SocketService {
           const service = options.context;
           pending++;
           const task = tail
-            .then(() =>
-              service.handle(
+            .then(async () => {
+              const quick = await nativeQuickOpen(message);
+              if (quick) return quick;
+              return service.handle(
                 device,
                 message,
                 (thread) =>
@@ -180,8 +206,8 @@ export function createContextSession(context: SocketContext): SocketService {
                   authorize(scope) &&
                   (thread === undefined || canReadThread(ThreadId.parse(thread))) &&
                   (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
-              ),
-            )
+              );
+            })
             .then(send)
             .catch((error: unknown) => {
               options.log?.(error);

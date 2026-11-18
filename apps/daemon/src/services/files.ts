@@ -1,12 +1,14 @@
 import { startSupportFiles } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
-import { projectFilesBinding } from "../project-files-binding.ts";
-import type { ThreadId } from "@ace/protocol";
+import { filesScope } from "../files-scope.ts";
+import { listFolderPage } from "../files-tool/list-folder.ts";
+import type { FilesFoldersChanged, ThreadId } from "@ace/protocol";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { repeatableWarmup } from "./warmup.ts";
 import { backgroundFailure } from "./background.ts";
+import { startFilesNative, sweepFilesRoots } from "../files-tool/wiring.ts";
+import { filesErrorCode } from "../files-tool/tool.ts";
 import {
-  FileError,
   FilesService,
   attachFilesSocket,
   chunkFilesChannel,
@@ -19,7 +21,7 @@ import { daemonArtifacts } from "../files-artifacts.ts";
 import { supportBundleWriter } from "../files-support.ts";
 import { loadHostId } from "../local-files.ts";
 import type { ServiceContext } from "./types.ts";
-import type { SocketContext, SocketService } from "./socket.ts";
+import type { SocketContext, SocketMessage, SocketService } from "./socket.ts";
 export async function startFiles(owner: ServiceContext): Promise<void> {
   await startSupportFiles(owner);
   const { config, store, now, id, log, resources, services } = owner;
@@ -29,6 +31,15 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
   const scoped = new FilesWorkspaces(owner);
   services.threadFiles = scoped;
   resources.own(() => scoped.close());
+  const native = startFilesNative(owner);
+  services.filesNative = native;
+  resources.own(() => native.tool.close());
+  resources.own(() => native.folders.close());
+  const idle = setInterval(() => {
+    void sweepFilesRoots(native, owner).catch(backgroundFailure(owner, "File root cleanup failed"));
+  }, 60_000);
+  idle.unref();
+  resources.own(() => clearInterval(idle));
   if (config.workspaceRoot) {
     const eventStore = store;
     const workspaceRoot = await realpath(config.workspaceRoot);
@@ -158,74 +169,21 @@ export function createFilesSession(context: SocketContext): SocketService {
   const readableSource = (source: ThreadId | undefined) =>
     source === undefined ||
     (context.canReadThread(source) && context.options.store.hasLiveThread(source));
+  const resolve = filesScope(context);
+  const native = context.options.filesNative;
+  const watcher = {
+    id: context.sessionId,
+    canSend: () => context.connected() && context.authorize("read"),
+    send: (message: FilesFoldersChanged) => {
+      if (!context.connected() || !context.authorize("read")) return;
+      if (!context.canReadThread(message.threadId)) return;
+      context.send(message);
+    },
+  };
   const getChunks = () => {
     const device = context.device();
-    const files = context.options.threadFiles;
     if (!device) return undefined;
-    chunks ??= chunkFilesChannel({
-      device,
-      send: context.send,
-      async resolve(threadId, scope, operation, workspaceId) {
-        if (workspaceId !== undefined) {
-          if (!files) throw new Error("Project files unavailable");
-          return projectFilesBinding(
-            files,
-            workspaceId,
-            operation,
-            () => context.connected() && context.authorize("read"),
-          );
-        }
-        if (scope === "support") {
-          const service = context.options.supportFiles;
-          if (!service) throw new Error("Support export unavailable");
-          return { service, allowed: (access) => context.connected() && context.authorize(access) };
-        }
-        if (!threadId || !files || !context.canReadThread(threadId))
-          throw new Error("File thread unavailable");
-        if (operation?.op === "link.download")
-          return files.linkedFiles.bind(
-            threadId,
-            operation,
-            () =>
-              context.connected() && context.authorize("read") && context.canReadThread(threadId),
-          );
-        if (operation?.op === "artifact.download" && operation.artifactId.startsWith("browser-")) {
-          const artifacts = files.browserArtifacts;
-          if (!artifacts.owns(threadId, operation.artifactId))
-            throw new Error("Artifact is not readable by this thread");
-          return {
-            service: await artifacts.get(),
-            allowed: (access) =>
-              access === "read" &&
-              context.connected() &&
-              context.authorize("read") &&
-              context.canReadThread(threadId) &&
-              artifacts.owns(threadId, operation.artifactId),
-          };
-        }
-        const root = files.root(threadId);
-        const { service, release } = await files.acquire(threadId);
-        let source: ThreadId | undefined;
-        try {
-          source = fileExportSource(service, context.options.store, operation);
-          if (source !== undefined && (source !== threadId || !readableSource(source)))
-            throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
-        } catch (error) {
-          release();
-          throw error;
-        }
-        return {
-          service,
-          release,
-          allowed: (access) =>
-            context.connected() &&
-            context.authorize(access) &&
-            context.canReadThread(threadId) &&
-            files.matches(threadId, root) &&
-            readableSource(source),
-        };
-      },
-    });
+    chunks ??= chunkFilesChannel({ device, send: context.send, resolve });
     return chunks;
   };
   const getChannel = () => {
@@ -242,6 +200,60 @@ export function createFilesSession(context: SocketContext): SocketService {
     );
     return channel;
   };
+  /** Run a files task under the socket's budget, so a slow listing cannot pile up. */
+  const background = (task: Promise<void>) => {
+    context.tasks.add(task);
+    void task.finally(() => context.tasks.delete(task));
+  };
+  /** One folder from ace-files, authorized exactly as the old `list` is. */
+  const listFolder = (message: Extract<SocketMessage, { type: "files.request" }>) => {
+    const operation = message.operation;
+    if (operation.op !== "list.folder") return;
+    const requestId = message.requestId;
+    background(
+      listFolderPage(resolve, native?.tool, {
+        threadId: message.threadId,
+        scope: message.scope,
+        workspaceId: message.workspaceId,
+        operation,
+      }).then(
+        (page) => context.send({ type: "files.result", requestId, value: page }),
+        (error: unknown) =>
+          context.send({
+            type: "files.error",
+            requestId,
+            code: filesErrorCode(error),
+            message: error instanceof Error ? error.message : "Folder listing failed",
+          }),
+      ),
+    );
+  };
+  /**
+   * Replace this client's watched folders of a thread. A socket that may not read the thread, or
+   * a machine without ace-files, is simply not watching: the message carries no request id, and
+   * the next re-list tries again.
+   */
+  const watchFolders = (message: Extract<SocketMessage, { type: "files.watch" }>) => {
+    const threadId = message.threadId;
+    if (!context.authorize("read") || !context.canReadThread(threadId)) return;
+    const folders = message.folders;
+    if (!native) return;
+    background(
+      (async () => {
+        try {
+          const binding = await resolve(threadId, undefined, undefined, undefined);
+          try {
+            if (!binding.allowed("read") || binding.root === undefined) return;
+            await native.folders.watch(watcher, threadId, binding.root, folders);
+          } finally {
+            binding.release?.();
+          }
+        } catch (error) {
+          context.options.log?.(error);
+        }
+      })(),
+    );
+  };
   return {
     authenticated() {
       getChannel();
@@ -249,6 +261,11 @@ export function createFilesSession(context: SocketContext): SocketService {
     close() {
       channel?.close();
       chunks?.close();
+      if (native) {
+        const dropping = native.folders.disconnect(context.sessionId).catch(() => {});
+        context.tasks.add(dropping);
+        void dropping.finally(() => context.tasks.delete(dropping));
+      }
       if (attachments) {
         const closing = attachments.close().catch(() => {});
         context.tasks.add(closing);
@@ -263,6 +280,14 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (!message.type.startsWith("files.")) return false;
+      if (message.type === "files.watch") {
+        watchFolders(message);
+        return true;
+      }
+      if (message.type === "files.request" && message.operation.op === "list.folder") {
+        listFolder(message);
+        return true;
+      }
       const attachment =
         message.type === "files.request" && message.operation.op === "attachment.download"
           ? getAttachments()

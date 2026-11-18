@@ -11,6 +11,9 @@ import {
   attachmentChannel,
   type FilesService,
 } from "@ace/files";
+import { listFolderPage, type ListingScope } from "../files-tool/list-folder.ts";
+import { filesErrorCode } from "../files-tool/tool.ts";
+import { daemonQuickOpen, quickOpenPaths } from "../files-tool/quick-open.ts";
 import {
   BrowserClientMessage,
   AgentId,
@@ -36,6 +39,8 @@ export interface RelayServices {
   supportFiles?: FilesService | undefined;
   context?: import("../server-options.ts").ServerOptions["context"] | undefined;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces | undefined;
+  /** The daemon's ace-files: folder listings, quick open and folder watches (ADR 0178). */
+  filesNative?: import("../files-tool/wiring.ts").FilesNative | undefined;
   appDevices?:
     | import("@ace/devices").DevicesService
     | import("../lazy-devices.ts").LazyDevices
@@ -248,6 +253,76 @@ export function attachRelayService(
         },
       })
     : undefined;
+  /** The binding every scoped file request on this channel resolves to. */
+  const resolve: ListingScope = async (
+    threadId: ThreadId | undefined,
+    scope: "support" | undefined,
+    operation: import("@ace/protocol").FileOperation | undefined,
+    workspaceId: import("@ace/protocol").WorkspaceId | undefined,
+  ) => {
+    if (workspaceId !== undefined) {
+      if (!options.threadFiles) throw new Error("Project files unavailable");
+      return projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
+        authorize("read"),
+      );
+    }
+    if (scope === "support" && options.supportFiles)
+      return {
+        service: options.supportFiles,
+        allowed: (access: "read" | "operate") => authorize(access),
+      };
+    const files = options.threadFiles;
+    if (!threadId || !files || !threadAccess(threadId)) throw new Error("File thread unavailable");
+    if (operation?.op === "link.download")
+      return files.linkedFiles.bind(
+        threadId,
+        operation,
+        () => authorize("read") && threadAccess(threadId),
+      );
+    if (operation?.op === "artifact.download" && operation.artifactId.startsWith("browser-")) {
+      const artifacts = files.browserArtifacts;
+      if (!artifacts.owns(threadId, operation.artifactId))
+        throw new Error("Artifact is not readable by this thread");
+      return {
+        service: await artifacts.get(),
+        allowed: (access: "read" | "operate") =>
+          access === "read" &&
+          authorize("read") &&
+          threadAccess(threadId) &&
+          artifacts.owns(threadId, operation.artifactId),
+      };
+    }
+    const root = files.root(threadId);
+    const { service, release } = await files.acquire(threadId);
+    let source: ThreadId | undefined;
+    try {
+      source = fileExportSource(service, options.store, operation);
+      if (source !== undefined && (source !== threadId || !threadAccess(source)))
+        throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
+    } catch (error) {
+      release();
+      throw error;
+    }
+    return {
+      root,
+      service,
+      release,
+      allowed: (access: "read" | "operate") =>
+        authorize(access) &&
+        threadAccess(threadId) &&
+        files.matches(threadId, root) &&
+        (source === undefined || threadAccess(source)),
+    };
+  };
+  /** Pushes on this channel are bounded like the chunk channel's, never gated on admin. */
+  const push = (message: Parameters<HostChannel["send"]>[0]) => {
+    if (!authorize("read")) return;
+    if (channel.bufferedBytes > 256 * 1024) {
+      channel.close();
+      return;
+    }
+    void channel.send(message).catch(() => channel.close());
+  };
   const chunks =
     options.threadFiles || options.supportFiles
       ? chunkFilesChannel({
@@ -259,68 +334,57 @@ export function attachRelayService(
             }
             void channel.send(message).catch(() => channel.close());
           },
-          async resolve(threadId, scope, operation, workspaceId) {
-            if (workspaceId !== undefined) {
-              if (!options.threadFiles) throw new Error("Project files unavailable");
-              return projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
-                authorize("read"),
-              );
-            }
-            if (scope === "support" && options.supportFiles)
-              return {
-                service: options.supportFiles,
-                allowed: (access) => authorize(access),
-              };
-            const files = options.threadFiles;
-            if (!threadId || !files || !threadAccess(threadId))
-              throw new Error("File thread unavailable");
-            if (operation?.op === "link.download")
-              return files.linkedFiles.bind(
-                threadId,
-                operation,
-                () => authorize("read") && threadAccess(threadId),
-              );
-            if (
-              operation?.op === "artifact.download" &&
-              operation.artifactId.startsWith("browser-")
-            ) {
-              const artifacts = files.browserArtifacts;
-              if (!artifacts.owns(threadId, operation.artifactId))
-                throw new Error("Artifact is not readable by this thread");
-              return {
-                service: await artifacts.get(),
-                allowed: (access) =>
-                  access === "read" &&
-                  authorize("read") &&
-                  threadAccess(threadId) &&
-                  artifacts.owns(threadId, operation.artifactId),
-              };
-            }
-            const root = files.root(threadId);
-            const { service, release } = await files.acquire(threadId);
-            let source: ThreadId | undefined;
-            try {
-              source = fileExportSource(service, options.store, operation);
-              if (source !== undefined && (source !== threadId || !threadAccess(source)))
-                throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
-            } catch (error) {
-              release();
-              throw error;
-            }
-            return {
-              service,
-              release,
-              allowed: (access) =>
-                authorize(access) &&
-                threadAccess(threadId) &&
-                files.matches(threadId, root) &&
-                (source === undefined || threadAccess(source)),
-            };
-          },
+          resolve,
         })
       : undefined;
   return {
     async accept(message: ClientMessage) {
+      if (message.type === "files.watch") {
+        const native = options.filesNative;
+        if (!native || !authorize("read")) return;
+        try {
+          const binding = await resolve(message.threadId, undefined, undefined, undefined);
+          try {
+            if (!binding.allowed("read") || binding.root === undefined) return;
+            await native.folders.watch(
+              {
+                id: sessionId,
+                canSend: () => authorize("read"),
+                send: (update) => {
+                  if (threadAccess(update.threadId)) push(update);
+                },
+              },
+              message.threadId,
+              binding.root,
+              message.folders,
+            );
+          } finally {
+            binding.release?.();
+          }
+        } catch (error) {
+          options.warn?.("Folder watch could not start over the relay", { error: String(error) });
+        }
+        return;
+      }
+      if (message.type === "files.request" && message.operation.op === "list.folder") {
+        try {
+          const page = await listFolderPage(resolve, options.filesNative?.tool, {
+            threadId: message.threadId,
+            scope: message.scope,
+            workspaceId: message.workspaceId,
+            operation: message.operation,
+          });
+          push({ type: "files.result", requestId: message.requestId, value: page });
+        } catch (error) {
+          push({
+            type: "files.error",
+            requestId: message.requestId,
+            code: filesErrorCode(error),
+            message: error instanceof Error ? error.message : "Folder listing failed",
+          });
+        }
+        return;
+      }
       if (attachments?.accept(message)) return;
       if (message.type === "files.request" && message.operation.op === "attachment.download") {
         await channel.send({
@@ -353,6 +417,25 @@ export function attachRelayService(
             },
           });
           return;
+        }
+        // Quick open from ace-files' index once it can answer; otherwise the existing index.
+        const native = options.filesNative;
+        const store = options.store;
+        if (native && store && op.op === "mention.complete") {
+          const paths = await quickOpenPaths(
+            daemonQuickOpen(store, native.tool),
+            op.threadId,
+            op.query,
+            op.limit,
+          );
+          if (paths !== undefined) {
+            await channel.send({
+              type: "context.result",
+              requestId: message.requestId,
+              result: { kind: "completion", paths },
+            });
+            return;
+          }
         }
         await channel.send(await options.context.handle(device, message, access));
         return;
@@ -387,6 +470,7 @@ export function attachRelayService(
       chunks?.close();
       legacy?.close();
       void attachments?.close().catch(() => {});
+      void options.filesNative?.folders.disconnect(sessionId).catch(() => {});
     },
   };
 }
