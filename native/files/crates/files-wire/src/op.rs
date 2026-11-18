@@ -14,6 +14,8 @@ pub(crate) const TAGS: &[&str] = &[
     "list",
     "stat",
     "describe",
+    "describeEntry",
+    "checkMutation",
     "measure",
     "read",
     "write",
@@ -69,6 +71,20 @@ pub enum Op {
     },
     /// One path's version, size, kind and mode, with the daemon's folder digest for a folder.
     Describe {
+        /// The root's number.
+        root: u64,
+        /// Root-relative path.
+        path: String,
+    },
+    /// The entry itself: its own version, never a folder's tree digest, so a guard is cheap.
+    DescribeEntry {
+        /// The root's number.
+        root: u64,
+        /// Root-relative path.
+        path: String,
+    },
+    /// Check that a path is a legal mutation target: nothing on the way may be a link.
+    CheckMutation {
         /// The root's number.
         root: u64,
         /// Root-relative path.
@@ -200,6 +216,14 @@ mod tests {
                 path: String::new(),
             },
             Op::Describe {
+                root: 0,
+                path: String::new(),
+            },
+            Op::DescribeEntry {
+                root: 0,
+                path: String::new(),
+            },
+            Op::CheckMutation {
                 root: 0,
                 path: String::new(),
             },

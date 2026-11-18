@@ -34,6 +34,8 @@ pub enum Reply {
     Measure {
         /// The sum of the sizes of the files the path holds.
         bytes: u64,
+        /// True when a walk budget stopped the count, so `bytes` is a lower bound.
+        shallow: bool,
     },
     /// The metadata of a `read`; the bytes arrive in a body frame when `body` is true.
     Read(ReadMeta),

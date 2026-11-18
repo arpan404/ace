@@ -11,6 +11,7 @@ use std::io::ErrorKind;
 use files_safe::Root;
 
 use crate::Error;
+use crate::describe::Walks;
 use crate::handle::{self, Noclobber};
 use crate::version;
 
@@ -75,7 +76,7 @@ pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), 
             }
             Err(Error::Conflict {
                 path: to.to_owned(),
-                current: version::entry_version(root, &to_dir, &to_name, to)?,
+                current: version_of(root, &to_dir, &to_name, to)?,
             })
         }
         Noclobber::Unsupported => {
@@ -83,7 +84,7 @@ pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), 
             match to_dir.symlink_metadata(&to_name) {
                 Ok(_) => Err(Error::Conflict {
                     path: to.to_owned(),
-                    current: version::entry_version(root, &to_dir, &to_name, to)?,
+                    current: version_of(root, &to_dir, &to_name, to)?,
                 }),
                 Err(error) if error.kind() == ErrorKind::NotFound => {
                     from_dir.rename(&from_name, &to_dir, &to_name)?;
@@ -95,6 +96,19 @@ pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), 
             }
         }
     }
+}
+
+/// The version a conflict reports for the destination, without walking a folder for a digest.
+fn version_of(
+    root: &Root,
+    dir: &cap_std::fs::Dir,
+    name: &str,
+    path: &str,
+) -> Result<Option<String>, Error> {
+    Ok(
+        crate::version::entry_version(root, dir, name, path, &Walks::unbounded())?
+            .map(|found| found.version),
+    )
 }
 
 /// The root itself is never created, renamed or removed.

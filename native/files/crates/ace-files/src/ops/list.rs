@@ -8,6 +8,7 @@ use files_wire::Reply;
 use crate::convert;
 use crate::dispatch::Shared;
 use crate::error::Error;
+use crate::hidden;
 
 /// The largest page the contract allows.
 const MAX_LIMIT: usize = 5_000;
@@ -32,10 +33,18 @@ pub fn list(
     let entry = shared.roots.get(root)?;
     let limit = usize::try_from(limit)
         .map_err(|_| Error::InvalidArgument(format!("limit {limit} is out of range")))?;
+    // The daemon's transfer temporaries are never listed, and neither is anything inside one.
+    if hidden::temporary(dir) {
+        return Ok(Reply::Page(convert::page(files_list::Page {
+            entries: Vec::new(),
+            next_cursor: None,
+            total: 0,
+        })));
+    }
     let options = ListOptions {
         limit,
         cursor,
-        hide,
+        hide: hidden::listing_hide(hide),
     };
     let page = entry.lister().list(dir, &options)?;
     Ok(Reply::Page(convert::page(page)))

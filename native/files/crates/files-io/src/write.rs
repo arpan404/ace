@@ -13,6 +13,7 @@ use cap_std::fs::{Dir, Metadata, Permissions};
 use files_safe::Root;
 
 use crate::Error;
+use crate::describe::Walks;
 use crate::handle::{self, Noclobber, Staged};
 use crate::version;
 
@@ -71,12 +72,20 @@ fn save(
     if published == Published::Conflict {
         return Err(Error::Conflict {
             path: path.to_owned(),
-            current: version::entry_version(root, &dir, &name, path)?,
+            current: version_of(root, &dir, &name, path)?,
         });
     }
     handle::sync(&dir)?;
     let metadata = dir.symlink_metadata(&name)?;
     version::version_of_entry(&dir, &name, &metadata)
+}
+
+/// The version a conflict reports, without walking a folder for a digest.
+fn version_of(root: &Root, dir: &Dir, name: &str, path: &str) -> Result<Option<String>, Error> {
+    Ok(
+        version::entry_version(root, dir, name, path, &Walks::unbounded())?
+            .map(|found| found.version),
+    )
 }
 
 /// Checks the destination against the caller's expectation and returns its metadata, if any.
@@ -94,7 +103,7 @@ fn guard(
     };
     match (expected, found) {
         (Some(expected), Some(metadata)) => {
-            let current = version::entry_version(root, dir, name, path)?.unwrap_or_default();
+            let current = version_of(root, dir, name, path)?.unwrap_or_default();
             if current != expected {
                 return Err(Error::Conflict {
                     path: path.to_owned(),

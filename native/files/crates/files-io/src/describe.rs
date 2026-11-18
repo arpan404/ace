@@ -7,6 +7,11 @@
 //! A link is described as itself (kind and size) but its version is its target's, in or out of the
 //! root, because that is the entry a read or a save acts on. A link that leaves the root is
 //! `PATH_ESCAPE`, as the daemon's confinement refuses it.
+//!
+//! Walks a request triggers are bounded twice: the request's cancel flag stops them when the daemon
+//! gave up, and a budget stops a tree too large to digest in the time one answer should take.
+//! Neither failure is an error: a stopped folder digest falls back to the folder's own version and
+//! says `shallow`, so a huge `node_modules` is described rather than refused.
 
 use std::io::ErrorKind;
 
@@ -15,6 +20,64 @@ use cap_std::fs::{Dir, Metadata};
 use files_safe::Root;
 
 use crate::Error;
+
+/// One walk's limits, passed by the caller so a request's cancel flag reaches every entry.
+///
+/// Time and cancellation are injected, never read globally: `cancel` is whatever the request's
+/// owner uses, and a test can stop after any number of entries.
+pub struct Walks<'a> {
+    cancel: &'a dyn Fn() -> bool,
+    max_entries: usize,
+}
+
+impl<'a> Walks<'a> {
+    /// How many entries a request's walk reads before it reports a shallow answer.
+    pub const DEFAULT_ENTRIES: usize = 200_000;
+
+    /// A walk bound to a request's cancel flag, with the default budget.
+    pub fn new(cancel: &'a dyn Fn() -> bool) -> Walks<'a> {
+        Walks {
+            cancel,
+            max_entries: Self::DEFAULT_ENTRIES,
+        }
+    }
+
+    /// The same walk with a smaller or larger budget; tests use small ones.
+    pub fn with_budget(cancel: &'a dyn Fn() -> bool, max_entries: usize) -> Walks<'a> {
+        Walks {
+            cancel,
+            max_entries,
+        }
+    }
+
+    /// A walk nobody cancels, for the version a conflict reports: bounded, but never stopped.
+    pub fn unbounded() -> Walks<'static> {
+        Walks {
+            cancel: &never,
+            max_entries: Self::DEFAULT_ENTRIES,
+        }
+    }
+
+    /// Whether this walk must stop, or `ABORTED` when the request was cancelled.
+    ///
+    /// `visited` counts entries read so far; the budget check comes after the cancel check, so a
+    /// cancelled request always reports the cancellation rather than a shallow answer.
+    pub(crate) fn stopped(&self, visited: usize) -> Result<bool, Error> {
+        if (self.cancel)() {
+            return Err(Error::Aborted);
+        }
+        Ok(visited > self.max_entries)
+    }
+}
+
+fn never() -> bool {
+    false
+}
+
+/// The entry vanished while it was being described.
+fn missing() -> Error {
+    Error::Io(std::io::Error::from(std::io::ErrorKind::NotFound))
+}
 
 /// What a path is, without following a final link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +93,10 @@ pub enum Kind {
 pub struct Description {
     /// The daemon's version string: identity and times, or a folder's tree digest.
     pub version: String,
+    /// A folder's own version, before its digest; `None` for a file.
+    pub own_version: Option<String>,
+    /// True when a walk budget stopped the digest, so `version` is the folder's own version.
+    pub shallow: bool,
     /// The entry's own size, before any link is followed.
     pub size: u64,
     pub kind: Kind,
@@ -37,13 +104,24 @@ pub struct Description {
     pub mode: u64,
 }
 
+/// The bytes a walk counted and whether it read the whole tree.
+#[derive(Debug, Clone, Copy)]
+pub struct Measurement {
+    pub bytes: u64,
+    /// True when a walk budget stopped the count, so `bytes` is a lower bound.
+    pub shallow: bool,
+}
+
 /// Describe the entry at `path`; the empty path is the checkout itself.
-pub fn describe(root: &Root, path: &str) -> Result<Description, Error> {
+pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, Error> {
     if path.is_empty() {
         let dir = root.dir();
         let metadata = dir.dir_metadata()?;
+        let tree = crate::tree::version(root, path, &dir.try_clone()?, walks)?;
         return Ok(Description {
-            version: crate::tree::version(root, path, &dir.try_clone()?)?,
+            version: tree.version,
+            own_version: Some(tree.own),
+            shallow: tree.shallow,
             size: metadata.len(),
             kind: Kind::Directory,
             mode: permissions(&metadata),
@@ -54,8 +132,12 @@ pub fn describe(root: &Root, path: &str) -> Result<Description, Error> {
     let mode = permissions(&own);
     let kind = kind_of(own.file_type());
     if kind != Kind::Symlink {
+        let versioned =
+            crate::version::entry_version(root, &dir, &name, path, walks)?.ok_or_else(missing)?;
         return Ok(Description {
-            version: crate::version::entry_version(root, &dir, &name, path)?.unwrap_or_default(),
+            version: versioned.version,
+            own_version: versioned.own,
+            shallow: versioned.shallow,
             size: own.len(),
             kind,
             mode,
@@ -68,21 +150,99 @@ pub fn describe(root: &Root, path: &str) -> Result<Description, Error> {
         .ok_or_else(|| files_safe::Error::PathEscape(path.to_owned()))?;
     let (target_dir, target_name) = crate::handle::target_parent(root, &inside)?;
     let target = target_dir.symlink_metadata(&target_name)?;
+    let versioned = crate::version::entry_version(root, &target_dir, &target_name, &inside, walks)?
+        .ok_or_else(missing)?;
     Ok(Description {
-        version: crate::version::entry_version(root, &target_dir, &target_name, &inside)?
-            .unwrap_or_default(),
+        version: versioned.version,
+        own_version: versioned.own,
+        shallow: versioned.shallow,
         size: target.len(),
         kind,
         mode: permissions(&target),
     })
 }
 
-/// The version of the entry at `path` without a folder digest, so a walk can stamp every entry
-/// with the change marker the daemon stores in an archive preview.
+/// Describe the entry itself: its own version, never a folder's tree digest.
+///
+/// This is the cheap guard a queued mutation re-checks before it acts, so a folder's identity and
+/// times decide whether it moved, without walking everything below it again.
+pub fn describe_entry(root: &Root, path: &str) -> Result<Description, Error> {
+    if path.is_empty() {
+        let metadata = root.dir().dir_metadata()?;
+        return Ok(Description {
+            version: root_version(root.dir())?,
+            own_version: None,
+            shallow: false,
+            size: metadata.len(),
+            kind: Kind::Directory,
+            mode: permissions(&metadata),
+        });
+    }
+    let (dir, name) = root.open_parent(path)?;
+    describe_here(&dir, &name)
+}
+
+/// The entry's own details, from the folder that holds it: never a tree digest.
+fn describe_here(dir: &Dir, name: &str) -> Result<Description, Error> {
+    let metadata = dir.symlink_metadata(name)?;
+    Ok(Description {
+        version: crate::version::version_of_entry(dir, name, &metadata)?,
+        own_version: None,
+        shallow: false,
+        size: metadata.len(),
+        kind: kind_of(metadata.file_type()),
+        mode: permissions(&metadata),
+    })
+}
+
+/// The checkout's own version, before any tree digest.
+fn root_version(dir: &Dir) -> Result<String, Error> {
+    let metadata = dir.dir_metadata()?;
+    #[cfg(unix)]
+    let handle = None;
+    #[cfg(windows)]
+    let handle = Some(crate::handle::dir_handle(&dir.try_clone()?)?);
+    crate::version::version_of(handle.as_ref(), &metadata)
+}
+
+/// Check that `path` may be a mutation target under the daemon's rule: no link on the way and no
+/// link as the leaf, because a mutation must never be redirected by one.
+///
+/// The last segment may be missing (a create); every segment before it must be a real folder. This
+/// mirrors what the daemon's own confinement checked before ace-files answered these writes.
+pub fn check_mutation(root: &Root, path: &str) -> Result<(), Error> {
+    if path.is_empty() {
+        return Err(Error::InvalidArgument("the checkout itself".to_owned()));
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    let mut dir = root.dir().try_clone()?;
+    for (index, part) in parts.iter().enumerate() {
+        let last = index + 1 == parts.len();
+        let metadata = match dir.symlink_metadata(part) {
+            Ok(metadata) => metadata,
+            Err(error) if last && error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(Error::Path(files_safe::Error::PathEscape(path.to_owned())));
+        }
+        if !last {
+            if !metadata.is_dir() {
+                return Err(Error::Path(files_safe::Error::NotDirectory(
+                    path.to_owned(),
+                )));
+            }
+            dir = dir.open_dir_nofollow(part).map_err(Error::Io)?;
+        }
+    }
+    Ok(())
+}
+
+/// The version of the entry at `path` without a folder digest, so a conflict reply never walks a
+/// tree to name what it found.
 pub fn entry_version(root: &Root, path: &str) -> Result<String, Error> {
     let (dir, name) = crate::handle::target_parent(root, path)?;
-    let metadata = dir.symlink_metadata(&name)?;
-    crate::version::version_of_entry(&dir, &name, &metadata)
+    Ok(describe_here(&dir, &name)?.version)
 }
 
 /// What kind of entry a file type names.
@@ -115,20 +275,28 @@ fn permissions(metadata: &Metadata) -> u64 {
 ///
 /// Everything a move would carry counts, git's object store and the daemon's transfer temporaries
 /// included: the trash holds the whole entry. A link is followed only where it stays inside the
-/// root and counts its target's size; a file counts as itself; anything else counts nothing.
-pub fn measure(root: &Root, path: &str) -> Result<u64, Error> {
+/// root and counts its target's size; a file counts as itself; anything else counts nothing. A
+/// walk that hits its budget reports a lower bound instead of failing, so a huge folder can still
+/// be deleted.
+pub fn measure(root: &Root, path: &str, walks: &Walks) -> Result<Measurement, Error> {
     if path.is_empty() {
-        return measure_folder(root, path, root.dir(), 0);
+        return measure_folder(root, path, root.dir(), walks);
     }
     let (dir, name) = root.open_parent(path)?;
     let own = dir.symlink_metadata(&name)?;
     if own.is_dir() {
-        return measure_folder(root, path, &dir.open_dir(&name)?, 0);
+        return measure_folder(root, path, &dir.open_dir(&name)?, walks);
     }
     if own.file_type().is_symlink() {
-        return Ok(followed_size(root, path)?.unwrap_or(0));
+        return Ok(Measurement {
+            bytes: followed_size(root, path)?.unwrap_or(0),
+            shallow: false,
+        });
     }
-    Ok(if own.is_file() { own.len() } else { 0 })
+    Ok(Measurement {
+        bytes: if own.is_file() { own.len() } else { 0 },
+        shallow: false,
+    })
 }
 
 /// The size of a link's target, or `None` when the link leaves the root or is dangling.
@@ -158,7 +326,14 @@ struct Folder {
     next: usize,
 }
 
-fn measure_folder(root: &Root, relative: &str, dir: &Dir, mut bytes: u64) -> Result<u64, Error> {
+fn measure_folder(
+    root: &Root,
+    relative: &str,
+    dir: &Dir,
+    walks: &Walks,
+) -> Result<Measurement, Error> {
+    let mut bytes = 0;
+    let mut visited = 0usize;
     let mut stack = vec![Folder {
         relative: relative.to_owned(),
         dir: dir.try_clone()?,
@@ -177,6 +352,13 @@ fn measure_folder(root: &Root, relative: &str, dir: &Dir, mut bytes: u64) -> Res
         } else {
             format!("{base}/{name}")
         };
+        visited += 1;
+        if walks.stopped(visited)? {
+            return Ok(Measurement {
+                bytes,
+                shallow: true,
+            });
+        }
         let folder = &stack[index].dir;
         let metadata = match folder.symlink_metadata(&name) {
             Ok(metadata) => metadata,
@@ -200,7 +382,10 @@ fn measure_folder(root: &Root, relative: &str, dir: &Dir, mut bytes: u64) -> Res
             }
         }
     }
-    Ok(bytes)
+    Ok(Measurement {
+        bytes,
+        shallow: false,
+    })
 }
 
 /// The names in one folder.
@@ -229,12 +414,17 @@ fn transient_kind(kind: ErrorKind) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::{Kind, describe, entry_version, measure};
+    use super::{Kind, Walks, check_mutation, describe, describe_entry, entry_version, measure};
     use crate::Error;
 
     fn root(dir: &std::path::Path) -> files_safe::Root {
         files_safe::Root::open(dir).expect("open root")
+    }
+
+    fn unbounded() -> Walks<'static> {
+        Walks::unbounded()
     }
 
     #[test]
@@ -249,10 +439,15 @@ mod tests {
         }
         let root = root(temp.path());
 
-        let description = describe(&root, "notes.md").expect("describe");
+        let description = describe(&root, "notes.md", &unbounded()).expect("describe");
 
         assert_eq!(description.kind, Kind::File);
         assert_eq!(description.size, 6);
+        assert!(!description.shallow);
+        assert!(
+            description.own_version.is_none(),
+            "a file is its own version"
+        );
         assert_eq!(
             description.version,
             entry_version(&root, "notes.md").expect("version")
@@ -268,25 +463,136 @@ mod tests {
         fs::write(temp.path().join("docs/a.md"), b"a").expect("write");
         let root = root(temp.path());
 
-        let description = describe(&root, "docs").expect("describe");
-        let plain = entry_version(&root, "docs").expect("version");
+        let description = describe(&root, "docs", &unbounded()).expect("describe");
+        let plain = describe_entry(&root, "docs").expect("entry");
 
         assert_eq!(description.kind, Kind::Directory);
         assert!(description.version.starts_with("tree:"), "{description:?}");
+        assert_eq!(
+            description.own_version.as_deref(),
+            Some(plain.version.as_str()),
+            "a folder names its own version beside the digest"
+        );
+        assert!(!description.shallow);
         assert_ne!(
-            description.version, plain,
-            "a folder digest is not its own version"
+            description.version, plain.version,
+            "a digest is not its own version"
         );
         fs::write(temp.path().join("docs/b.md"), b"b").expect("write");
         assert_ne!(
-            describe(&root, "docs").expect("describe").version,
+            describe(&root, "docs", &unbounded())
+                .expect("describe")
+                .version,
             description.version,
             "a changed folder gets a new digest"
         );
     }
 
     #[test]
-    fn a_link_is_described_as_itself_and_versioned_by_its_target() {
+    fn a_folder_over_the_walk_budget_is_described_by_its_own_version() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("huge")).expect("folder");
+        for index in 0..25 {
+            fs::write(temp.path().join("huge").join(format!("{index}.md")), b"x").expect("write");
+        }
+        let root = root(temp.path());
+        let never = || false;
+
+        let description =
+            describe(&root, "huge", &Walks::with_budget(&never, 10)).expect("describe");
+
+        assert!(description.shallow, "{description:?}");
+        assert!(
+            !description.version.starts_with("tree:"),
+            "a stopped walk does not guess a digest: {}",
+            description.version
+        );
+        assert_eq!(
+            description.version,
+            describe_entry(&root, "huge").expect("entry").version,
+            "so a huge folder is never refused"
+        );
+    }
+
+    #[test]
+    fn a_walk_stops_when_the_request_is_cancelled() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("huge")).expect("folder");
+        for index in 0..25 {
+            fs::write(temp.path().join("huge").join(format!("{index}.md")), b"x").expect("write");
+        }
+        let root = root(temp.path());
+        let checks = AtomicUsize::new(0);
+        let cancel = || checks.fetch_add(1, Ordering::Relaxed) >= 2;
+
+        let error = describe(&root, "huge", &Walks::new(&cancel)).expect_err("cancelled");
+
+        assert_eq!(error.code(), "ABORTED");
+    }
+
+    #[test]
+    fn measures_every_file_a_delete_would_carry() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::create_dir_all(temp.path().join("docs/nested")).expect("folders");
+        fs::create_dir_all(temp.path().join(".git/objects")).expect("git");
+        fs::write(temp.path().join("docs/a.md"), b"aaaa").expect("write");
+        fs::write(temp.path().join("docs/nested/b.md"), b"bb").expect("write");
+        fs::write(temp.path().join(".git/objects/blob"), b"git bytes").expect("write");
+        fs::write(temp.path().join(".ace-upload-1"), b"private").expect("write");
+        let root = root(temp.path());
+
+        assert_eq!(
+            measure(&root, "docs", &unbounded()).expect("measure").bytes,
+            6
+        );
+        assert_eq!(
+            measure(&root, "docs/a.md", &unbounded())
+                .expect("measure")
+                .bytes,
+            4
+        );
+        assert_eq!(
+            measure(&root, "", &unbounded()).expect("measure").bytes,
+            6 + 9 + 7,
+            "git's objects and the transfer temporaries move into the trash too"
+        );
+    }
+
+    #[test]
+    fn a_measure_over_the_budget_reports_a_lower_bound_not_an_error() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("huge")).expect("folder");
+        for index in 0..25 {
+            fs::write(temp.path().join("huge").join(format!("{index}.md")), b"xy").expect("write");
+        }
+        let root = root(temp.path());
+        let never = || false;
+
+        let measured = measure(&root, "huge", &Walks::with_budget(&never, 10)).expect("measure");
+
+        assert!(measured.shallow);
+        assert_eq!(measured.bytes, 20, "ten two-byte files were counted");
+    }
+
+    #[test]
+    fn a_dangling_link_measures_nothing() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("gone.md", temp.path().join("link.md")).expect("link");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file("gone.md", temp.path().join("link.md")).expect("link");
+        let root = root(temp.path());
+
+        assert_eq!(
+            measure(&root, "link.md", &unbounded())
+                .expect("measure")
+                .bytes,
+            0
+        );
+    }
+
+    #[test]
+    fn describes_a_link_by_its_target_and_its_own_kind() {
         let temp = tempfile::tempdir().expect("temp dir");
         fs::write(temp.path().join("real.md"), b"target bytes\n").expect("write");
         #[cfg(unix)]
@@ -295,12 +601,16 @@ mod tests {
         std::os::windows::fs::symlink_file("real.md", temp.path().join("link.md")).expect("link");
         let root = root(temp.path());
 
-        let link = describe(&root, "link.md").expect("describe");
-        let target = describe(&root, "real.md").expect("describe");
+        let link = describe(&root, "link.md", &unbounded()).expect("describe");
 
         assert_eq!(link.kind, Kind::Symlink);
-        assert_eq!(link.version, target.version, "a link reads as its target");
-        assert_eq!(link.size, target.size);
+        assert_eq!(
+            link.version,
+            describe(&root, "real.md", &unbounded())
+                .expect("describe")
+                .version,
+            "a link reads as its target"
+        );
     }
 
     #[test]
@@ -319,7 +629,8 @@ mod tests {
         .expect("link");
         let root = root(temp.path());
 
-        let error = describe(&root, "escape").expect_err("an escaping link is refused");
+        let error =
+            describe(&root, "escape", &unbounded()).expect_err("an escaping link is refused");
 
         assert_eq!(error.code(), "PATH_ESCAPE");
     }
@@ -330,10 +641,11 @@ mod tests {
         fs::write(temp.path().join("a.md"), b"a").expect("write");
         let root = root(temp.path());
 
-        let description = describe(&root, "").expect("describe");
+        let description = describe(&root, "", &unbounded()).expect("describe");
 
         assert_eq!(description.kind, Kind::Directory);
         assert!(description.version.starts_with("tree:"), "{description:?}");
+        assert!(description.own_version.is_some());
     }
 
     #[test]
@@ -341,41 +653,9 @@ mod tests {
         let temp = tempfile::tempdir().expect("temp dir");
         let root = root(temp.path());
 
-        let error = describe(&root, "missing.md").expect_err("nothing is there");
+        let error = describe(&root, "missing.md", &unbounded()).expect_err("nothing is there");
 
         assert_eq!(error.code(), "NOT_FOUND");
-    }
-
-    #[test]
-    fn measures_every_file_a_delete_would_carry() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        fs::create_dir_all(temp.path().join("docs/nested")).expect("folders");
-        fs::create_dir_all(temp.path().join(".git/objects")).expect("git");
-        fs::write(temp.path().join("docs/a.md"), b"aaaa").expect("write");
-        fs::write(temp.path().join("docs/nested/b.md"), b"bb").expect("write");
-        fs::write(temp.path().join(".git/objects/blob"), b"git bytes").expect("write");
-        fs::write(temp.path().join(".ace-upload-1"), b"private").expect("write");
-        let root = root(temp.path());
-
-        assert_eq!(measure(&root, "docs").expect("measure"), 6);
-        assert_eq!(measure(&root, "docs/a.md").expect("measure"), 4);
-        assert_eq!(
-            measure(&root, "").expect("measure"),
-            6 + 9 + 7,
-            "git's objects and the transfer temporaries move into the trash too"
-        );
-    }
-
-    #[test]
-    fn a_dangling_link_measures_nothing() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink("gone.md", temp.path().join("link.md")).expect("link");
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_file("gone.md", temp.path().join("link.md")).expect("link");
-        let root = root(temp.path());
-
-        assert_eq!(measure(&root, "link.md").expect("measure"), 0);
     }
 
     #[test]
@@ -383,7 +663,31 @@ mod tests {
         let temp = tempfile::tempdir().expect("temp dir");
         let root = root(temp.path());
 
-        let error = describe(&root, "../etc/passwd").expect_err("refused");
+        let error = describe(&root, "../etc/passwd", &unbounded()).expect_err("refused");
         assert!(matches!(error, Error::Path(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_mutation_may_create_a_leaf_but_never_follow_a_link() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("docs")).expect("folder");
+        fs::write(temp.path().join("docs/a.md"), b"a").expect("write");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("docs", temp.path().join("alias")).expect("link");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir("docs", temp.path().join("alias")).expect("link");
+        let root = root(temp.path());
+
+        check_mutation(&root, "docs/new.md").expect("a new leaf in a real folder");
+        check_mutation(&root, "docs/a.md").expect("an existing file");
+
+        let through = check_mutation(&root, "alias/new.md").expect_err("a link on the way");
+        assert_eq!(through.code(), "PATH_ESCAPE");
+        let onto = check_mutation(&root, "alias").expect_err("a link as the leaf");
+        assert_eq!(onto.code(), "PATH_ESCAPE");
+        let missing = check_mutation(&root, "gone/new.md").expect_err("a missing parent");
+        assert_eq!(missing.code(), "NOT_FOUND");
+        let over = check_mutation(&root, "docs/a.md/below").expect_err("a file on the way");
+        assert_eq!(over.code(), "NOT_DIRECTORY");
     }
 }

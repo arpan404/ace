@@ -235,15 +235,148 @@ fn measures_the_bytes_a_delete_would_reserve() {
         path: "docs".to_owned(),
     });
     let measured = client.reply(request);
-    let Reply::Measure { bytes } = measured else {
+    let Reply::Measure { bytes, shallow } = measured else {
         panic!("measure answered {measured:?}");
     };
     assert_eq!(bytes, 8);
+    assert!(!shallow);
 
     let request = client.request(Op::Measure {
         root,
         path: "docs/a.md".to_owned(),
     });
     let file = client.reply(request);
-    assert_eq!(file, Reply::Measure { bytes: 5 });
+    assert_eq!(
+        file,
+        Reply::Measure {
+            bytes: 5,
+            shallow: false
+        }
+    );
+}
+
+#[test]
+fn describes_an_entry_without_walking_its_folder() {
+    let checkout = checkout(&[("docs/a.md", "aaaa\n"), ("docs/nested/b.md", "bb\n")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "docs".to_owned(),
+    });
+    let Reply::Description(folder) = client.reply(request) else {
+        panic!("describe answered");
+    };
+    let request = client.request(Op::DescribeEntry {
+        root,
+        path: "docs".to_owned(),
+    });
+    let Reply::Description(entry) = client.reply(request) else {
+        panic!("describeEntry answered");
+    };
+
+    assert!(folder.version.starts_with("tree:"));
+    assert_eq!(folder.own_version.as_deref(), Some(entry.version.as_str()));
+    assert_eq!(entry.version, folder.own_version.expect("an own version"));
+    assert!(!entry.shallow);
+    assert!(entry.own_version.is_none());
+}
+
+// The budget comes from the binary's `test-hooks` feature, so this test runs only with it.
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_describe_over_the_walk_budget_says_it_is_shallow() {
+    // The budget comes from the binary's test hook, so a small tree shows the fallback a huge
+    // folder like node_modules takes.
+    let checkout = checkout(&[]);
+    for index in 0..25 {
+        common::write_file(checkout.path(), &format!("big/{index}.md"), "x");
+    }
+    let mut client = Client::launch(&[("ACE_FILES_WALK_BUDGET", "10")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "big".to_owned(),
+    });
+    let Reply::Description(description) = client.reply(request) else {
+        panic!("describe answered");
+    };
+    assert!(description.shallow, "{description:?}");
+    assert!(!description.version.starts_with("tree:"));
+    assert_eq!(
+        description.own_version.as_deref(),
+        Some(description.version.as_str()),
+        "the own version stands in for the digest it did not take"
+    );
+
+    let request = client.request(Op::Measure {
+        root,
+        path: "big".to_owned(),
+    });
+    let Reply::Measure { bytes, shallow } = client.reply(request) else {
+        panic!("measure answered");
+    };
+    assert!(shallow);
+    assert_eq!(bytes, 10, "ten one-byte files were counted before the stop");
+}
+
+#[test]
+fn cancel_stops_a_describe_of_a_large_folder() {
+    // Enough entries that the walk outlasts the round trip of the cancel that follows it.
+    let checkout = checkout(&[]);
+    for index in 0..2_000 {
+        common::write_file(checkout.path(), &format!("many/file{index:04}.md"), "");
+    }
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let id = client.request(Op::Describe {
+        root,
+        path: "many".to_owned(),
+    });
+    client.send(&Message::Cancel { id });
+
+    assert_eq!(client.error(id).code, "ABORTED");
+}
+
+#[test]
+fn a_mutation_check_refuses_a_link_on_the_way() {
+    let checkout = checkout(&[("docs/a.md", "a\n")]);
+    let outside = tempfile::tempdir().expect("outside dir");
+    std::fs::write(outside.path().join("secret"), "secret").expect("write");
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("docs", checkout.path().join("alias")).expect("link");
+        std::os::unix::fs::symlink(outside.path().join("secret"), checkout.path().join("away"))
+            .expect("link");
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_dir("docs", checkout.path().join("alias")).expect("link");
+    }
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    for (path, code) in [
+        ("alias/new.md", "PATH_ESCAPE"),
+        ("away", "PATH_ESCAPE"),
+        ("gone/new.md", "NOT_FOUND"),
+        ("docs/a.md/below", "NOT_DIRECTORY"),
+    ] {
+        let id = client.request(Op::CheckMutation {
+            root,
+            path: path.to_owned(),
+        });
+        assert_eq!(client.error(id).code, code, "{path}");
+    }
+    for path in ["docs/new.md", "docs/a.md"] {
+        let id = client.request(Op::CheckMutation {
+            root,
+            path: path.to_owned(),
+        });
+        assert_eq!(client.reply(id), Reply::Done, "{path}");
+    }
 }

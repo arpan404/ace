@@ -233,7 +233,7 @@ fn perform(shared: &Shared, id: u64, cancel: Cancel, op: Op) {
             if cancel.cancelled() {
                 return Err(Error::Aborted);
             }
-            ops::perform(&inner, op)
+            ops::perform(&inner, &cancel, op)
         });
         job.respond(id, joined(work.await)).await;
     });

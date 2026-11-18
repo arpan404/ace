@@ -45,6 +45,8 @@ fn kind(entry_kind: &Kind) -> files_wire::Kind {
 pub fn description(description: files_io::Description) -> files_wire::Description {
     files_wire::Description {
         version: description.version,
+        own_version: description.own_version,
+        shallow: description.shallow,
         size: description.size,
         kind: io_kind(description.kind),
         mode: description.mode,

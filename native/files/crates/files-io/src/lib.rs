@@ -18,7 +18,10 @@ mod tree;
 mod version;
 mod write;
 
-pub use describe::{Description, Kind, describe, entry_version, measure};
+pub use describe::{
+    Description, Kind, Measurement, Walks, check_mutation, describe, describe_entry, entry_version,
+    measure,
+};
 pub use error::Error;
 pub use mutate::{create_dir, remove, rename};
 pub use read::{Read, ReadRange, read};
