@@ -1,4 +1,11 @@
-import { beforeInputOperation, dispatched } from "./place-guard.ts";
+import {
+  beforeInputOperation,
+  currentHold,
+  dispatched,
+  held,
+  pageLocation,
+  within,
+} from "./place-guard.ts";
 import { consoleEntry } from "./console-entry.ts";
 import { pageStatus } from "./page-status.ts";
 import { mkdir } from "node:fs/promises";
@@ -161,19 +168,33 @@ export class EmbeddedBackend implements BrowserBackend {
     operation: BrowserBackendOperation,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    const run = (next: BrowserBackendOperation) =>
-      this.slots.run(() => this.dispatch(sessionId, next, signal), signal);
-    // Every operation for the desktop's pages leaves here, a tab's CDP inside `ace.tabs.cdp`
-    // too: a command held to a place checks it at each input (place-guard.ts).
+    const scope = currentHold();
+    return this.slots.run(
+      () => within(scope, () => this.leave(sessionId, operation, signal)),
+      signal,
+    );
+  }
+  /**
+   * Sends an operation for the desktop's pages, a tab's CDP inside `ace.tabs.cdp` too, with its
+   * slot in hand: a command held to a place checks it right before the send (place-guard.ts).
+   */
+  private leave(
+    sessionId: string,
+    operation: BrowserBackendOperation,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
+    const send = (next: BrowserBackendOperation) => this.dispatch(sessionId, next, signal);
     if (operation.kind === "press" || operation.kind === "navigate") {
-      try {
-        beforeInputOperation();
-      } catch (error) {
-        return Promise.reject(error);
-      }
-      return run(operation);
+      if (!held()) return send(operation);
+      // Where the page is, asked of the page right before the input, as for CDP input.
+      return pageLocation((method, params) =>
+        send({ kind: "cdp", method, ...(params ? { params } : {}) }),
+      ).then((url) => {
+        beforeInputOperation(url);
+        return send(operation);
+      });
     }
-    if (operation.kind !== "cdp") return run(operation);
+    if (operation.kind !== "cdp") return send(operation);
     const tab = operation.method === "ace.tabs.cdp" ? tabCdp(operation.params) : undefined;
     if (operation.method === "ace.tabs.cdp" && !tab)
       return Promise.reject(new Error("A tab's CDP command names no method"));
@@ -181,7 +202,7 @@ export class EmbeddedBackend implements BrowserBackend {
       tab?.method ?? operation.method,
       tab ? tab.params : operation.params,
       (method, params) =>
-        run(
+        send(
           tab
             ? {
                 kind: "cdp",

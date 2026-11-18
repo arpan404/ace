@@ -790,9 +790,10 @@ export class TabRuntime {
     const epoch = this.access.epoch;
     const host = this.host;
     const held = expected;
+    // The page's own report of where it is when the transport has one, else the backend's.
     const place = held
-      ? () => {
-          if (!atPlace(held, this.id, this.page.url()))
+      ? (url?: string) => {
+          if (!atPlace(held, this.id, url ?? this.page.url()))
             throw new BrowserActionError("place_changed");
         }
       : () => {};

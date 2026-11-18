@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
 import { installOriginGuard } from "./origin-guard.ts";
-import { beforeInputOperation, dispatched } from "./place-guard.ts";
+import { LOCATION_PROBE, beforeInputOperation, dispatched } from "./place-guard.ts";
 import type { CarriedCookie } from "./cookie-carry.ts";
 import { BrowserBackendClientMessage, BrowserBackendServerMessage } from "@ace/protocol";
 import {
@@ -50,6 +50,8 @@ export class FakePage {
       return { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1280, clientHeight: 720 } };
     if (method === "Runtime.evaluate" && params?.["expression"] === "window.devicePixelRatio")
       return { result: { value: 1 } };
+    if (method === "Runtime.evaluate" && params?.["expression"] === LOCATION_PROBE)
+      return { result: { value: this.url } };
     if (method === "Page.captureScreenshot") return { data: "AA==" };
     if (method === "Memory.getDOMCounters") return { nodes: 1 };
     if (method === "ace.cookies") return { cookies: this.signIns };
