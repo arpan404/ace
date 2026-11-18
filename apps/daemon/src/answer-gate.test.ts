@@ -54,7 +54,7 @@ describe("agents never answer the person's requests", () => {
 });
 
 const facts = (input: { host: boolean; market: boolean; fresh: boolean }) => ({
-  hostCredential: input.host,
+  unproven: input.host,
   personOnlyMarket: () => input.market,
   fresh: async () => input.fresh,
 });
@@ -97,7 +97,7 @@ describe("a person-only market request answered with the host token", () => {
 const write = (input: { key: string; device: string; host: boolean; fresh: boolean }) =>
   settingWriteRefusal(input.key, {
     device: input.device,
-    hostCredential: input.host,
+    unproven: input.host,
     fresh: async () => input.fresh,
   });
 

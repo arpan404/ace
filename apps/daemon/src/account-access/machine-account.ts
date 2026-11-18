@@ -1,18 +1,23 @@
 import { aceAccountClient, AceAccountError } from "@ace/client/ace-account";
 import { MachineAccountStatus, MachineCode, type MachineCodeRefusal } from "@ace/protocol";
-import type { AceAccount } from "@ace/protocol/ace-account";
+import type { AceAccount, AceAccountGrant } from "@ace/protocol/ace-account";
 import { AccessError } from "../remote-auth.ts";
 import { accountBackend } from "./backend.ts";
-import { deviceGrantVerdict } from "./device-grant.ts";
+import { deviceGrantVerdict, personStanding } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
 import type { GrantKeySet } from "@ace/account-grant";
+import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
 import { readSession, writeSession, type StoredSession } from "./session-file.ts";
 
 export type DeviceAdmission =
-  /** `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then. */
-  | { admitted: true; account: string; expiresAt: number }
+  /**
+   * `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then.
+   * `person`: the hello's standing grant says person and a key this build pins signed it (ADR
+   * 0189); without it the device has a machine's standing.
+   */
+  | { admitted: true; account: string; expiresAt: number; person: boolean }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
 
 const refusals: Record<MachineCodeRefusal, string> = {
@@ -57,6 +62,16 @@ export function machineAccount(options: {
   delay: (run: () => void, milliseconds: number) => () => void;
   /** Where `ace login` signs in when it names no origin (ACE_ACCOUNT_URL). */
   defaultOrigin?: string | undefined;
+  /**
+   * This machine's host id on ace's relay (`relayHostIdFor`): its machine credential is bound to
+   * it (ADR 0189).
+   */
+  relayHostId: () => Promise<string>;
+  /**
+   * The grant keys whose standing grants give an account device the person's standing (ADR
+   * 0189); `shippedGrantKeys` unless a test injects its own. Never read from the environment.
+   */
+  personKeys?: GrantKeySet | undefined;
   log?: (error: Error) => void;
 }) {
   const backend = accountBackend({ fetch: options.fetch });
@@ -64,6 +79,10 @@ export function machineAccount(options: {
   /** In memory only: a restart gives the session a new id, so no decision outlives it. */
   let sessionId: string | null = null;
   let login: { url: string; expiresAt: number; stop(): void } | undefined;
+  /** The backend answered that it has no machine credentials (an older one): sessions stay. */
+  let noCredentials = false;
+  // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
+  const personKeys = options.personKeys ?? shippedGrantKeys;
   let stopRenewing: () => void = noop;
   let closed = false;
   // Closing gives up every request still out to the backend: shutdown never waits on it.
@@ -96,7 +115,18 @@ export function machineAccount(options: {
     return next;
   };
   const newId = () => options.randomBytes(16).toString("base64url");
-  /** `before` runs in turn with every other write, so a condition it checks holds for this one. */
+  const client = (origin: string) => aceAccountClient({ origin, fetch: options.fetch });
+  /** Gives a machine credential this daemon no longer keeps back to the backend, best effort. */
+  const giveBack = (replaced: StoredSession | undefined) => {
+    if (replaced?.kind !== "machine") return;
+    void client(replaced.origin)
+      .logout(replaced.token, request())
+      .catch(() => {});
+  };
+  /**
+   * `before` runs in turn with every other write, so a condition it checks holds for this one.
+   * A machine credential it replaces is given back.
+   */
   const adopt = (next: StoredSession | undefined, before: () => void = noop) =>
     serial(async () => {
       before();
@@ -104,14 +134,99 @@ export function machineAccount(options: {
       sessionId = next ? newId() : null;
       const changed = session?.account.id !== next?.account.id || session?.origin !== next?.origin;
       if (session?.origin !== next?.origin) keys.reset();
+      const replaced = session;
       session = next;
+      if (replaced?.token !== next?.token) giveBack(replaced);
       if (changed) notify();
     });
   const stopLogin = () => {
     login?.stop();
     login = undefined;
   };
-  const client = (origin: string) => aceAccountClient({ origin, fetch: options.fetch });
+  /**
+   * This machine's credential for an ace session (ADR 0189), or undefined from a backend that
+   * has none (404). `sole`: this daemon was the session's only holder, so the backend retires
+   * its token.
+   */
+  async function exchange(
+    origin: string,
+    token: string,
+    sole: boolean,
+    signal: AbortSignal,
+  ): Promise<AceAccountGrant | undefined> {
+    try {
+      const credential = await client(origin).machineCredential(
+        token,
+        { hostId: await options.relayHostId(), sole },
+        signal,
+      );
+      noCredentials = false;
+      return credential;
+    } catch (error) {
+      if (!(error instanceof AceAccountError) || error.status !== 404) throw error;
+      noCredentials = true;
+      return undefined;
+    }
+  }
+  const asCredential = (
+    origin: string,
+    credential: AceAccountGrant,
+    source: StoredSession["source"],
+  ): StoredSession => ({
+    origin,
+    token: credential.token,
+    account: credential.account,
+    expiresAt: credential.expiresAt,
+    source,
+    kind: "machine",
+  });
+  /** The backend no longer knows `current`: the machine is signed out, unless it changed since. */
+  const forget = (current: StoredSession) =>
+    serial(async () => {
+      if (session !== current || current.expiresAt <= options.now()) return;
+      await writeSession(options.dataDir, null);
+      session = undefined;
+      sessionId = null;
+      notify();
+    });
+
+  /**
+   * A session file from before machine credentials (ADR 0189) holds an ace session. Exchanged
+   * once for this machine's credential, the file then holds only that. Until it is, the daemon
+   * keeps working with it (its grants have a machine's standing at the backend) and tries again
+   * on the next renewal round; a session the backend no longer knows signs the machine out.
+   * False when the backend has no machine credentials: the session is renewed as before.
+   */
+  async function migrate(current: StoredSession): Promise<boolean> {
+    let credential;
+    try {
+      credential = await exchange(
+        current.origin,
+        current.token,
+        current.source === "login",
+        request(),
+      );
+    } catch (error) {
+      if (closed) return true;
+      if (error instanceof AceAccountError && error.status === 401) await forget(current);
+      return true;
+    }
+    if (!credential) return false;
+    await serial(async () => {
+      // Signed in afresh meanwhile: the credential made for the old session goes back.
+      if (session !== current) {
+        giveBack(asCredential(current.origin, credential, current.source));
+        return;
+      }
+      const next = asCredential(current.origin, credential, current.source);
+      // Written even as the account closes: the session's token may be retired already.
+      await writeSession(options.dataDir, next);
+      // The same sign-in, now as a credential: decisions read before this still apply.
+      session = next;
+      notify();
+    });
+    return true;
+  }
 
   async function obtainGrant(
     hostId: string,
@@ -147,19 +262,15 @@ export function machineAccount(options: {
   async function renew(): Promise<void> {
     const current = session;
     if (!current) return;
+    // Exchanging the session reads it at the backend too, which renews it.
+    if (current.kind !== "machine" && (await migrate(current))) return;
     let checked;
     try {
       checked = await client(current.origin).session(current.token, request());
     } catch (error) {
       if (closed) return;
       if (error instanceof AceAccountError && error.status === 401 && session === current)
-        await serial(async () => {
-          if (session !== current || current.expiresAt <= options.now()) return;
-          await writeSession(options.dataDir, null);
-          session = undefined;
-          sessionId = null;
-          notify();
-        });
+        await forget(current);
       return;
     }
     if (checked.account.id !== current.account.id) return;
@@ -188,7 +299,12 @@ export function machineAccount(options: {
   /** The grant's verdict under `published`, then the machine code, one check at a time. */
   async function admitWith(
     published: GrantKeySet,
-    hello: { grant: string; deviceId: string; machineCode?: string | undefined },
+    hello: {
+      grant: string;
+      standing?: string | undefined;
+      deviceId: string;
+      machineCode?: string | undefined;
+    },
   ): Promise<DeviceAdmission> {
     const verdict = deviceGrantVerdict(hello.grant, {
       keys: published,
@@ -199,6 +315,12 @@ export function machineAccount(options: {
     if (!verdict.accepted) return unauthorized();
     const account = verdict.claims.account;
     const expiresAt = verdict.claims.exp;
+    const person = personStanding(hello.standing, {
+      keys: personKeys,
+      now: options.now(),
+      account,
+      deviceId: hello.deviceId,
+    });
     // One code check at a time, so concurrent wrong codes all count toward the lock.
     const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
       const code = options.codes.current();
@@ -209,10 +331,10 @@ export function machineAccount(options: {
         lock: options.codes.lock(),
         now: options.now(),
       });
-      if (step.kind === "admit") return { admitted: true, account, expiresAt };
+      if (step.kind === "admit") return { admitted: true, account, expiresAt, person };
       if (step.kind === "refuse")
         return { admitted: false, code: step.reason, message: refusals[step.reason] };
-      if (!code) return { admitted: true, account, expiresAt };
+      if (!code) return { admitted: true, account, expiresAt, person };
       const correct = await machineCodeMatches(step.code, code.hash);
       // The code changed while it was checked: the device enters the new one.
       if (options.codes.current()?.version !== code.version)
@@ -226,7 +348,7 @@ export function machineAccount(options: {
       if (next.step.kind === "refuse")
         return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
       options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-      return { admitted: true, account, expiresAt };
+      return { admitted: true, account, expiresAt, person };
     });
     codeChecks = run.catch(() => {});
     return run;
@@ -259,6 +381,10 @@ export function machineAccount(options: {
             }
           : {}),
         sessionId,
+        // A session from before machine credentials that couldn't be exchanged yet.
+        ...(session && session.kind !== "machine" && !noCredentials
+          ? { signInAgain: true as const }
+          : {}),
         ...(login && login.expiresAt > options.now()
           ? { login: { url: login.url, expiresAt: login.expiresAt } }
           : {}),
@@ -275,31 +401,47 @@ export function machineAccount(options: {
       return active()?.account;
     },
     /**
-     * Take over a session another ace app on this machine holds, after the backend vouches for
-     * it. With `condition`, only while the daemon still holds that session and no sign-in from
-     * this machine is under way (412 otherwise), so a decision made on an older read never
-     * replaces the person's own sign-in.
+     * Take over the ace sign-in of another ace app on this machine: the daemon exchanges the
+     * app's session for this machine's credential (ADR 0189) and keeps only that; the session
+     * itself stays in memory for the exchange and is never written. A backend without machine
+     * credentials vouches for the session, which is kept as before. With `condition`, only while
+     * the daemon still holds that session and no sign-in from this machine is under way (412
+     * otherwise), so a decision made on an older read never replaces the person's own sign-in.
      */
     async handover(
       origin: string,
       token: string,
       condition?: SessionCondition,
     ): Promise<MachineAccountStatus> {
-      let checked;
+      let taken: StoredSession;
       try {
-        checked = await client(origin).session(token, request());
+        const credential = await exchange(origin, token, false, request());
+        taken = credential
+          ? asCredential(origin, credential, "handover")
+          : {
+              origin,
+              token,
+              ...(await client(origin).session(token, request())),
+              source: "handover",
+            };
       } catch (error) {
         throw new AccessError(
           error instanceof AceAccountError && error.status === 401 ? 401 : 502,
           error instanceof AceAccountError ? error.message : "Couldn't reach your ace account.",
         );
       }
-      await adopt({ origin, token, ...checked, source: "handover" }, () => {
-        // Closed while the backend vouched for it: the session isn't taken up or written.
-        if (closed) throw unreachable();
-        if (condition && (condition.session !== sessionId || login)) throw accountChanged();
-        stopLogin();
-      });
+      try {
+        await adopt(taken, () => {
+          // Closed while the backend answered: nothing is taken up or written.
+          if (closed) throw unreachable();
+          if (condition && (condition.session !== sessionId || login)) throw accountChanged();
+          stopLogin();
+        });
+      } catch (error) {
+        // Not taken up: the credential made for it goes back.
+        giveBack(taken);
+        throw error;
+      }
       return this.status();
     },
     /** Start signing in from this machine; the sign-in finishes when the person opens the URL. */
@@ -345,7 +487,21 @@ export function machineAccount(options: {
               if (result.status === "pending") return poll();
               login = undefined;
               const { token, account: who, expiresAt } = result.session;
-              await adopt({ origin, token, account: who, expiresAt, source: "login" });
+              // This daemon is the session's only holder: it keeps this machine's credential
+              // instead, and the session's token is retired (ADR 0189). If that fails, the
+              // sign-in ends without writing the session; the person signs in again.
+              let credential;
+              try {
+                credential = await exchange(origin, token, true, signal);
+              } catch {
+                await account.logout(token, request()).catch(() => {});
+                return;
+              }
+              await adopt(
+                credential
+                  ? asCredential(origin, credential, "login")
+                  : { origin, token, account: who, expiresAt, source: "login" },
+              );
             })
             .catch((error: unknown) => {
               if (closed || login !== current) return;
@@ -371,7 +527,8 @@ export function machineAccount(options: {
         ended.session = session;
       });
       const ending = ended.session;
-      if (ending?.source === "login")
+      // A machine credential went back as it was dropped; a session `ace login` made ends too.
+      if (ending?.kind !== "machine" && ending?.source === "login")
         await client(ending.origin)
           .logout(ending.token, request())
           .catch(() => {});
@@ -409,6 +566,7 @@ export function machineAccount(options: {
     /** Admit a hello's device grant, asking for the machine code when one is set. */
     async admitDevice(hello: {
       grant: string;
+      standing?: string | undefined;
       deviceId: string;
       machineCode?: string | undefined;
     }): Promise<DeviceAdmission> {
@@ -426,7 +584,11 @@ export function machineAccount(options: {
      * `admitDevice` that never waits on the network (an NK first message, ADR 0155): a grant
      * whose key isn't cached is refused now, and the key is fetched for the next attempt.
      */
-    async admitDeviceCached(hello: { grant: string; deviceId: string }): Promise<DeviceAdmission> {
+    async admitDeviceCached(hello: {
+      grant: string;
+      standing?: string | undefined;
+      deviceId: string;
+    }): Promise<DeviceAdmission> {
       if (!active()) return unauthorized();
       const published = keys.cached(hello.grant);
       return published ? admitWith(published, hello) : unauthorized();

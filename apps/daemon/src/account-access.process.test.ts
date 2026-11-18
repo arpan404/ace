@@ -37,6 +37,7 @@ async function signedInDaemon() {
   cleanup.push(() => store.close());
   const auth = new RemoteAuth(store.devices, "f".repeat(64), { now, secret: randomUUID });
   const account = machineAccount({
+    relayHostId: async () => "A".repeat(52),
     dataDir: root,
     codes: store.machineCodes,
     fetch: globalThis.fetch,
@@ -233,6 +234,7 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   const store = new Store(join(root, "store.sqlite"));
   cleanup.push(() => store.close());
   const options = {
+    relayHostId: async () => "A".repeat(52),
     dataDir: root,
     codes: store.machineCodes,
     fetch: globalThis.fetch,
@@ -279,6 +281,7 @@ it("a sign-in or sign-out decided on an older read never replaces the machine's 
   const store = new Store(join(root, "store.sqlite"));
   cleanup.push(() => store.close());
   const account = machineAccount({
+    relayHostId: async () => "A".repeat(52),
     dataDir: root,
     codes: store.machineCodes,
     fetch: globalThis.fetch,
@@ -331,6 +334,7 @@ it("the host signs the machine in and sets its code over the local API; others a
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({}, (store, home) => {
     account = machineAccount({
+      relayHostId: async () => "A".repeat(52),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -412,6 +416,7 @@ it("a restarted machine whose session lapsed here but lives at the backend is si
   daemon.advance(2 * 86_400_000);
   expect(daemon.account.status().signedIn).toBe(false);
   const restarted = machineAccount({
+    relayHostId: async () => "A".repeat(52),
     dataDir: daemon.root,
     codes: daemon.store.machineCodes,
     fetch: globalThis.fetch,
@@ -438,6 +443,7 @@ async function signedInServer() {
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({}, (store, home) => {
     account = machineAccount({
+      relayHostId: async () => "A".repeat(52),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -604,6 +610,7 @@ async function clockedServer() {
   // The idle timeout reads the same clock: keep it out of the way of the jumps below.
   const f = await fixture({ now, idleTimeoutMs: 24 * 60 * 60_000 }, (store, home) => {
     account = machineAccount({
+      relayHostId: async () => "A".repeat(52),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -753,6 +760,7 @@ it("closing during the first sign-in request gives it up: no polling starts and 
   cleanup.push(() => store.close());
   let timers = 0;
   const account = machineAccount({
+    relayHostId: async () => "A".repeat(52),
     dataDir: root,
     codes: store.machineCodes,
     fetch: slowFetch,

@@ -4,7 +4,12 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AceAccount, AceAccountGrant, StoredAceAccountOrigin } from "@ace/protocol/ace-account";
 
-/** The daemon's one ace session (ADR 0111). Only the daemon reads it; it is never logged. */
+/**
+ * The daemon's one ace sign-in (ADR 0111): its machine credential (ADR 0189), bound to this
+ * machine's host id, whose grants never speak for the person. A file from before machine
+ * credentials holds an ace session instead (no `kind`); the daemon exchanges it for a credential
+ * and rewrites the file. Only the daemon reads it; it is never logged.
+ */
 export const StoredSession = z.object({
   /** A session stored on a former address of ace's backend reads as the current one. */
   origin: StoredAceAccountOrigin,
@@ -13,6 +18,8 @@ export const StoredSession = z.object({
   expiresAt: z.number().int().positive(),
   /** `login`: `ace login` created it, so signing out ends it at the backend too. */
   source: z.enum(["handover", "login"]),
+  /** `machine`: `token` is this machine's credential. Absent: an ace session, still to exchange. */
+  kind: z.literal("machine").optional(),
 });
 export type StoredSession = z.infer<typeof StoredSession>;
 

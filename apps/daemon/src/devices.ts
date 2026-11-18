@@ -39,7 +39,16 @@ export type PairedDevice = Device & { generation: string };
  * Who a socket or channel speaks for. A revocable actor is a paired device and carries the
  * generation of the credential that opened it; the host and account devices are not revocable.
  */
-export type SessionActor = Device & { revocable: boolean; generation?: string | undefined };
+export type SessionActor = Device & {
+  revocable: boolean;
+  generation?: string | undefined;
+  /**
+   * For an account device: its standing grant said person and verified against a key this build
+   * pins (ADR 0189). An account device without it has a machine's standing: person-only actions
+   * need a fresh sign-in, as over the host token.
+   */
+  person?: boolean | undefined;
+};
 const generationOf = (row: Record<string, SQLOutputValue>) =>
   hash(`generation:${String(row.token_hash)}`).slice(0, 32);
 

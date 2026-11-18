@@ -210,6 +210,7 @@ it("an allowed web app can set and clear this machine's code with an admin token
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await setup({ webOrigins: [page] }, (store, home) => {
     account = machineAccount({
+      relayHostId: async () => "A".repeat(52),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,

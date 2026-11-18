@@ -14,6 +14,8 @@ export type RelayAdmission =
       account?: string;
       /** For an account device: when its grant runs out, unless the socket refreshes it. */
       grantExpiresAt?: number;
+      /** For an account device: its standing grant said person (ADR 0189). */
+      person?: boolean;
       refusal?: undefined;
     }
   | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
@@ -53,13 +55,14 @@ export async function relayHello(
  * while `stillAdmitted` holds. A refusal is a typed error so the client can ask for the code.
  */
 export async function accountHello(
-  hello: Pick<Hello, "deviceId" | "machineCode">,
+  hello: Pick<Hello, "deviceId" | "machineCode" | "standing">,
   grant: string,
   machine: Pick<MachineAccount, "admitDevice" | "status" | "stillAdmitted"> | undefined,
 ): Promise<RelayAdmission> {
   const admission = machine
     ? await machine.admitDevice({
         grant,
+        standing: hello.standing,
         deviceId: hello.deviceId,
         machineCode: hello.machineCode,
       })
@@ -84,12 +87,17 @@ export async function accountHello(
     device: { id: hello.deviceId },
     account,
     grantExpiresAt: expiresAt,
+    person: admission.person === true,
     stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
   };
 }
 
-/** An admitted account device: admin while it stays admitted, never revoked by device id. */
-export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
+/**
+ * An admitted account device: admin while it stays admitted, never revoked by device id. It
+ * counts as the person for person-only actions only when its standing grant said person and a
+ * key this build pins signed it (`person`, ADR 0189); otherwise it has a machine's standing.
+ */
+export function accountDeviceActor(id: DeviceId, now: number, person: boolean): SessionActor {
   return {
     id,
     name: "ace account device",
@@ -98,6 +106,7 @@ export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
     lastSeenAt: now,
     revokedAt: null,
     revocable: false,
+    person,
   };
 }
 
@@ -110,8 +119,10 @@ export function mainActor(
   admitted: { id: DeviceId; generation?: string | undefined },
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
+  /** For an account device: its standing grant said person (ADR 0189). */
+  person = false,
 ): SessionActor | undefined {
-  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
+  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now(), person);
   const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
   if (!device) return undefined;
   if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;

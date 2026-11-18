@@ -40,6 +40,7 @@ async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({ relay: { url: relay.url, keys: relayKeys } }, (store) => {
     account = machineAccount({
+      relayHostId: async () => "A".repeat(52),
       dataDir: root,
       codes: store.machineCodes,
       fetch: globalThis.fetch,

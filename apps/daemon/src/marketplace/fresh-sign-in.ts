@@ -46,10 +46,14 @@ export function signedInRecently(age: number | undefined): boolean {
  */
 export async function hostMarketRefusal(input: {
   readonly operation: MarketOperation;
-  readonly hostCredential: boolean;
+  /**
+   * The socket's credential isn't the person's: the host token, or an account device whose
+   * standing grant didn't say person (ADR 0189).
+   */
+  readonly unproven: boolean;
   readonly fresh: () => Promise<boolean>;
 }): Promise<MarketResult | undefined> {
-  if (!input.hostCredential || !needsFreshSignIn(input.operation)) return undefined;
+  if (!input.unproven || !needsFreshSignIn(input.operation)) return undefined;
   if (await input.fresh()) return undefined;
   return { op: "error", code: "reauth", message: reauthSentence };
 }

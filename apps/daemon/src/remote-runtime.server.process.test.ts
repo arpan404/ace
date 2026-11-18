@@ -683,6 +683,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
     },
     account: (store, home) => {
       account = machineAccount({
+        relayHostId: async () => "A".repeat(52),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -730,6 +731,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
 function accountOn(holder: { account?: MachineAccount }) {
   return (store: Store, home: string) => {
     holder.account = machineAccount({
+      relayHostId: async () => "A".repeat(52),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -950,6 +952,7 @@ async function lastingAccount() {
   return {
     open: () => {
       const account = machineAccount({
+        relayHostId: async () => "A".repeat(52),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,

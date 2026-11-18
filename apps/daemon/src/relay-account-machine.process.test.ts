@@ -68,6 +68,7 @@ async function accountMachine(direct = false) {
     },
     (store) => {
       account = machineAccount({
+        relayHostId: async () => "A".repeat(52),
         dataDir: root,
         codes: store.machineCodes,
         fetch: globalThis.fetch,

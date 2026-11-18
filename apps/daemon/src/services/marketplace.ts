@@ -120,7 +120,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       const asPerson = async (market: MarketAgent) =>
         (await hostMarketRefusal({
           operation,
-          hostCredential: context.hostCredential?.() === true,
+          unproven: context.personProven?.() !== true,
           fresh: () => market.freshSignIn(),
         })) ?? market.asPerson(operation);
       const run = agent
@@ -130,7 +130,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
           ? async () =>
               (await hostMarketRefusal({
                 operation,
-                hostCredential: context.hostCredential?.() === true,
+                unproven: context.personProven?.() !== true,
                 fresh: () => machineFresh(options),
               })) ?? serviceAlone(options, operation)
           : undefined;

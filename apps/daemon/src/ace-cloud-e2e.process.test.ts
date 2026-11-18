@@ -27,6 +27,7 @@ import { z } from "zod";
 import { message } from "./payload-test-support.ts";
 import type { CommandHandler } from "./commands.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
+import { relayHostIdFor } from "./account-access/relay-host-id.ts";
 
 // ace's hosted relay end to end: a real daemon and real clients through the Cloudflare Worker
 // under Miniflare (local D1, its admission rules and Durable Object), signing in through the
@@ -127,6 +128,7 @@ async function hostedDaemon(direct = false) {
     },
     (store) => {
       account = machineAccount({
+        relayHostId: () => relayHostIdFor(home),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,

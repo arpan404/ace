@@ -1,4 +1,10 @@
-import { GrantError, verifyGrant, type GrantClaims, type GrantKeySet } from "@ace/account-grant";
+import {
+  GrantError,
+  verifyGrant,
+  verifyStandingGrant,
+  type GrantClaims,
+  type GrantKeySet,
+} from "@ace/account-grant";
 
 /** Why a device grant does not open this machine. Never names the grant itself. */
 export type GrantRefusal =
@@ -45,4 +51,27 @@ export function deviceGrantVerdict(
   if (claims.account !== input.account) return { accepted: false, reason: "other_account" };
   if (claims.subject !== input.deviceId) return { accepted: false, reason: "other_device" };
   return { accepted: true, claims };
+}
+
+/**
+ * Whether an admitted account device speaks for the person (ADR 0189): its hello carried a
+ * standing grant that says `person`, signed by a key this build pins (never one fetched from the
+ * session's origin or named by the environment), for the same account and device id as its device
+ * grant, and not expired. Anything less is a machine's standing. Pure.
+ */
+export function personStanding(
+  standing: string | undefined,
+  input: { keys: GrantKeySet; now: number; account: string; deviceId: string },
+): boolean {
+  if (standing === undefined) return false;
+  try {
+    const claims = verifyStandingGrant(standing, input.keys, input.now);
+    return (
+      claims.standing === "person" &&
+      claims.account === input.account &&
+      claims.subject === input.deviceId
+    );
+  } catch {
+    return false;
+  }
 }

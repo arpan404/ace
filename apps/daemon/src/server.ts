@@ -406,6 +406,11 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
+    // Whether this socket's credential is the person's for person-only actions (ADR 0189): an
+    // account device only when its standing grant said person; the host token never.
+    const personProven = () =>
+      !hostCredential() &&
+      (accountAdmitted === undefined || authenticated.get(socket)?.person === true);
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
@@ -440,6 +445,7 @@ export async function startServer(options: ServerOptions): Promise<{
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential,
+      personProven,
       accountDevice: () => accountId,
       access: {
         auth,
@@ -632,7 +638,7 @@ export async function startServer(options: ServerOptions): Promise<{
             return;
           }
           auth.accountDeviceSeen(message.deviceId, message.link);
-          actor = accountDeviceActor(message.deviceId, auth.now());
+          actor = accountDeviceActor(message.deviceId, auth.now(), admitted.person === true);
           accountAdmitted = admitted.stillAdmitted;
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.
@@ -760,7 +766,7 @@ export async function startServer(options: ServerOptions): Promise<{
             flights,
             open: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
             authorize,
-            hostCredential,
+            personProven,
             send,
             delay: runtime.delay,
           });
