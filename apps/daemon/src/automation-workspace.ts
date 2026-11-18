@@ -63,9 +63,7 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             kind,
             count: String(changes.length),
           },
-        }).catch((error) =>
-          context.log.log("error", "Automation file trigger", logError(error)),
-        );
+        }).catch((error) => context.log.log("error", "Automation file trigger", logError(error)));
       };
       /** A rescan names no paths: compare the matching paths now with the ones last seen. */
       const rescan = async (tool: FilesTool) => {

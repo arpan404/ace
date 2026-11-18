@@ -40,11 +40,7 @@ export class GitWorkspace implements WorkspaceFiles {
   readonly #options: GitProcessOptions;
   readonly #list: WorkspaceFolderLister | undefined;
   #ordinaryFolder: boolean | undefined;
-  constructor(
-    root: string,
-    options: GitProcessOptions = {},
-    reader: WorkspaceReaderOptions = {},
-  ) {
+  constructor(root: string, options: GitProcessOptions = {}, reader: WorkspaceReaderOptions = {}) {
     this.#options = options;
     this.root = resolve(root);
     this.#list = reader.list;

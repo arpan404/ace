@@ -200,11 +200,7 @@ export class FilesService {
     const capability = fileCapability(operation);
     this.authorize(device, capability);
     if (operation.op === "list") {
-      const listing = await this.workspaceIo.paths(
-        this.safe.root,
-        operation.path,
-        operation.limit,
-      );
+      const listing = await this.workspaceIo.paths(this.safe.root, operation.path, operation.limit);
       guard();
       return listing;
     }

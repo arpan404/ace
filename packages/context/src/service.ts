@@ -14,11 +14,7 @@ import {
 import { ContextError, requireContext } from "./errors.ts";
 import { resolveMentions, resolveWorkspaceMentions } from "./mentions.ts";
 import { prepareWorkspaceBinary } from "./workspace-binary.ts";
-import {
-  GitWorkspace,
-  type WorkspaceFileEntry,
-  type WorkspaceFiles,
-} from "./git-workspace.ts";
+import { GitWorkspace, type WorkspaceFileEntry, type WorkspaceFiles } from "./git-workspace.ts";
 import { UploadStore, type UploadOptions } from "./upload-store.ts";
 import {
   projectAttachments,
@@ -187,7 +183,10 @@ export class ContextService {
       else if (op.op === "mention.resolve")
         result = {
           kind: "mentions",
-          ...(await resolveMentions(this.reader(await this.workspaceRoot(device, op.threadId)), op.mentions)),
+          ...(await resolveMentions(
+            this.reader(await this.workspaceRoot(device, op.threadId)),
+            op.mentions,
+          )),
         };
       else if (op.op === "mention.complete")
         result = await this.completion(
@@ -317,13 +316,11 @@ export class ContextService {
         binaries.set(prepared.length, diagnostic);
         prepared.push(
           // One reader holds the root, so a binary mention reads the file the mention named.
-          await prepareWorkspaceBinary(this.reader(root), path, capabilities, budget).catch(
-            () => ({
-              path: join(root, path),
-              name: path,
-              mimeType: "application/octet-stream",
-            }),
-          ),
+          await prepareWorkspaceBinary(this.reader(root), path, capabilities, budget).catch(() => ({
+            path: join(root, path),
+            name: path,
+            mimeType: "application/octet-stream",
+          })),
         );
       }
       const projection = projectAttachments(prepared, capabilities);

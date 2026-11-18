@@ -7,7 +7,7 @@ export { WorkspaceError } from "./types.ts";
 export type { Entry } from "./types.ts";
 
 export { filesystem, workspaceRuntime } from "./runtime.ts";
-export type { WorkspaceFileSystem, WorkspaceRuntime, WorkspaceClock } from "./runtime.ts";
+export type { WorkspaceFileSystem, WorkspaceRuntime } from "./runtime.ts";
 
 // Shared root-bound filesystem owner for transfer and mutation services.
 export { SafeRoot, transferTemporary as isWorkspaceTransferTemporary } from "./safety.ts";

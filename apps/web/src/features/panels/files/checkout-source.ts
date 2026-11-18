@@ -17,7 +17,7 @@ export { CheckoutError, checkoutError, fromCode };
 
 /*
  * A thread's checkout as the Files tool reads it: search through `context.request`
- * `mention.complete` (the daemon's path index), and file bytes through the files channel
+ * `mention.complete` (ace-files' path index), and file bytes through the files channel
  * (`files.request` stat, download and upload, ADR 0037 and 0058), scoped to the thread so the
  * daemon resolves its worktree. Management requests use the same thread scope and version checks.
  */

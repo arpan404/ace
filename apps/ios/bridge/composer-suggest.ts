@@ -306,8 +306,7 @@ export class ComposerSuggest {
     workspaceId: string,
     query: string,
   ): Promise<{ paths: string[]; ready: boolean }> {
-    if (scope.type === "draft")
-      return this.#ports.draft.complete(workspaceId, query, 8);
+    if (scope.type === "draft") return this.#ports.draft.complete(workspaceId, query, 8);
     const reply = await this.#ports.owner.request(
       {
         type: "context.request",

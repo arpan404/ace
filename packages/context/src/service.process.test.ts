@@ -173,8 +173,7 @@ test("completion and folder listings come from ace-files", async () => {
       asked.push({ query, limit });
       return { paths: query === "smn" ? ["src/main.ts"] : [], ready: true };
     },
-    listFolder: (_root, folder) =>
-      folder === "src" ? oneFile("src/main.ts", 6) : emptyListing(),
+    listFolder: (_root, folder) => (folder === "src" ? oneFile("src/main.ts", 6) : emptyListing()),
   });
   await f.write("src/main.ts", "source");
   const complete = await f.service.handle("device", {

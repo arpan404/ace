@@ -127,4 +127,3 @@ describe("workspace mentions", () => {
     expect(Buffer.byteLength(capped.entries[0]?.text ?? "")).toBeLessThanOrEqual(1000);
   });
 });
-

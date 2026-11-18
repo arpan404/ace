@@ -132,7 +132,11 @@ export function useCheckoutSearch(threadId: string, query: string) {
     read: (_client, signal) => source.search(threadId, settled, signal),
   });
   const ready = result.data?.ready !== false;
-  const pending =
-    trimmed.length > 0 && (trimmed !== settled || result.isFetching || !ready);
-  return { ...result, data: ready ? (result.data?.paths ?? []) : [], pending, settledQuery: settled };
+  const pending = trimmed.length > 0 && (trimmed !== settled || result.isFetching || !ready);
+  return {
+    ...result,
+    data: ready ? (result.data?.paths ?? []) : [],
+    pending,
+    settledQuery: settled,
+  };
 }

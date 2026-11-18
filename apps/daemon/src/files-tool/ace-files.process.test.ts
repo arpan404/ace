@@ -102,17 +102,16 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
     await tool.listFolder(checkout, "");
     await until(async () => (await tool.quickOpen(checkout, "main", 20)).ready);
     await writeFile(join(checkout, "src", "after-start.ts"), "export const later = 1;\n");
-    await until(
-      async () =>
-        (await tool.quickOpen(checkout, "afterstart", 20)).paths.includes("src/after-start.ts"),
+    await until(async () =>
+      (await tool.quickOpen(checkout, "afterstart", 20)).paths.includes("src/after-start.ts"),
     );
     expect((await tool.quickOpen(checkout, "README", 20)).paths).toContain("README.md");
   });
 
   it("answers the quick-open shapes the panel sends", async () => {
     await tool.listFolder(checkout, "");
-    // The Rust index ranks like VS Code's quick open, so the order may differ from the
-    // TypeScript index; the paths a person expects are the behaviour this guards.
+    // The Rust index ranks like VS Code's quick open; the paths a person expects are the
+    // behaviour this guards.
     const expected: [string, string][] = [
       ["main", "src/main.ts"],
       ["gude", "docs/guide.md"],

@@ -5,12 +5,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import {
-  GitWorkspace,
-  UploadStore,
-  resolveMentions,
-  projectAttachments,
-} from "../src/index.ts";
+import { GitWorkspace, UploadStore, resolveMentions, projectAttachments } from "../src/index.ts";
 
 // Mention reads and context transfer only. Path-index and watcher timings moved with ace-files;
 // its own benches run inside native/files.

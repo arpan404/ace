@@ -24,10 +24,7 @@ export const png = Buffer.from(
   "base64",
 );
 /** A plain recursive listing for tests that are not about ace-files' ignore rules. */
-export async function* testListing(
-  root: string,
-  folder = "",
-): AsyncIterable<WorkspaceFileEntry> {
+export async function* testListing(root: string, folder = ""): AsyncIterable<WorkspaceFileEntry> {
   const pending = [folder];
   while (pending.length) {
     const dir = pending.shift();

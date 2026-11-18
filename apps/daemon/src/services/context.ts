@@ -172,8 +172,7 @@ async function* contextFiles(
   folder: string,
 ): AsyncGenerator<WorkspaceFileEntry> {
   for await (const entry of aceFilesIo(tool).walk(root, folder))
-    if (entry.type === "file" && !entry.ignored)
-      yield { path: entry.path, size: entry.size };
+    if (entry.type === "file" && !entry.ignored) yield { path: entry.path, size: entry.size };
 }
 
 function describeFailure(error: unknown): string {
