@@ -55,6 +55,7 @@ struct SettingsSheet: View {
     @State private var forgeProject = ""
     @State private var forgeKind = ForgeKind.pulls
     @State private var forgeQuery = ""
+    @State private var forgeFilters = ForgeListFilters()
 
     /// `forgeStart` is the list Pull requests opens on: Pull requests, Issues or Notifications.
     init(inbox: MachineInbox, places: MorePlaces? = nil, machines: MachinesModel? = nil, lock: AppLock? = nil,
@@ -177,7 +178,7 @@ struct SettingsSheet: View {
     /// Pull requests, Issues and Notifications (the forge's lists), each row pushing its page on
     /// More's stack. A thread or New thread opens on the inbox once More closes.
     private var pullRequests: some View {
-        ForgeHome(inbox: inbox, machine: $forgeMachine, project: $forgeProject, query: forgeQuery, kind: $forgeKind,
+        ForgeHome(inbox: inbox, machine: $forgeMachine, project: $forgeProject, query: forgeQuery, kind: $forgeKind, filters: $forgeFilters,
                   actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: { leave(to: $0) },
                                            startThread: { start() }),
                   openMachines: { path.append(.machines) })

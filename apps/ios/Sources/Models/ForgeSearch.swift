@@ -85,6 +85,14 @@ struct IssuesFilter: Equatable, Sendable {
     }
 }
 
+/// The choices of each forge list, Pull requests, Issues and Notifications, held together by the
+/// page that shows them so they outlive the page.
+struct ForgeListFilters: Equatable, Sendable {
+    var pulls = PullsFilter()
+    var issues = IssuesFilter()
+    var notifications = NotificationsFilter()
+}
+
 /// The project both lists read: the one the inbox chip names, else the last chosen here if it
 /// still exists, else the first (the web's `listProject`).
 enum ForgeProjectChoice {
