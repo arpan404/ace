@@ -50,6 +50,15 @@ export interface SpadeQuestionCardRow {
   line: string | null;
 }
 
+/**
+ * The most a `choices` question takes, as a whole count no larger than what can be picked: Swift
+ * reads it as an `Int`, so a malformed `max` (2.5, 1e300) would fail the whole frame.
+ */
+function mostPicks(question: Extract<SpadeQuestion, { kind: "choices" }>): number {
+  const possible = question.options.length + (question.other ? 1 : 0);
+  return Math.max(0, Math.min(possible, Math.floor(question.max ?? possible)));
+}
+
 const questionRow = (question: SpadeQuestion): SpadeQuestionRow => ({
   prompt: question.prompt,
   kind: question.kind,
@@ -59,10 +68,7 @@ const questionRow = (question: SpadeQuestion): SpadeQuestionRow => ({
       ? question.options.map((option) => ({ label: option.label, detail: option.detail ?? null }))
       : [],
   other: (question.kind === "choice" || question.kind === "choices") && question.other,
-  most:
-    question.kind === "choices"
-      ? (question.max ?? question.options.length + (question.other ? 1 : 0))
-      : null,
+  most: question.kind === "choices" ? mostPicks(question) : null,
   unit: question.kind === "number" ? (question.unit ?? null) : null,
   time: question.kind === "date" && question.time,
 });

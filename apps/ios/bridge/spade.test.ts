@@ -359,6 +359,15 @@ test("a card missing an answer never reaches Spade and names the question that n
   ).toMatchObject({ ok: false, at: 1 });
 });
 
+test("a malformed pick count still reaches the phone as a whole count it can read", async () => {
+  const { card } = await asked([
+    { prompt: "Which two?", kind: "choices", options: ["A", "B", "C"], max: 2.5 },
+    { prompt: "Any of these?", kind: "choices", options: ["A", "B"], other: true, max: 1e300 },
+  ]);
+
+  expect(card()?.questions.map((question) => question.most)).toEqual([2, 3]);
+});
+
 test("Answer later folds the card and the top bar counts it; Never mind then settles it as dismissed", async () => {
   const { card, reply, posted, patches } = await asked([{ prompt: "Which colour?" }]);
 
