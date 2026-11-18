@@ -11,7 +11,7 @@ import XCTest
     func testALongFinishedThreadOpensWhereItStays() {
         let app = open("ios-log-long")
         let run = jumpRun(app, "open")
-        print("jump open ios-log-long: \(run)")
+        print("jump open ios-log-long: \(run) reveal=\(app.probe["jump.reveal.ms"] ?? "-")ms capped=\(app.probe["jump.reveal.capped"] ?? "-")")
         XCTAssertGreaterThan(run.frames, 30, "frames were sampled: \(run)")
         XCTAssertEqual(run.moved, 0, "the rows stay where they were first drawn: \(run)")
     }
@@ -21,7 +21,7 @@ import XCTest
     func testALiveThreadOpensAtItsEndAndOnlyFollowsIt() {
         let app = open("ios-stream")
         let run = jumpRun(app, "open")
-        print("jump open ios-stream: \(run)")
+        print("jump open ios-stream: \(run) reveal=\(app.probe["jump.reveal.ms"] ?? "-")ms capped=\(app.probe["jump.reveal.capped"] ?? "-")")
         XCTAssertGreaterThan(run.frames, 30, "frames were sampled: \(run)")
         XCTAssertFalse(run.trace.contains("swap"), "the screen is never replaced: \(run)")
         XCTAssertLessThanOrEqual(run.onScreen.max() ?? 0, 0, "rows never move down: \(run)")
