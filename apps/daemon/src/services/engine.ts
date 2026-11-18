@@ -458,6 +458,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         ]),
       );
     },
+    (error: unknown) => log.log("warn", "Engine readiness line failed", logError(error)),
   );
   // The reader changes on its own as providers and recovery settle: say so each time.
   for (const step of [activation.settled, engine.ready()])
