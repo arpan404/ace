@@ -64,6 +64,9 @@ fn save(
     // The copy is complete and synced; check once more so a save that lost a race never lands on
     // top of another writer's work.
     let _ = guard(root, &dir, &name, path, expected)?;
+    // Open the folder for syncing before the rename. A folder this process may write but not
+    // read cannot be synced, and the save must fail while the old file is still in place.
+    let syncable = handle::syncable(&dir)?;
     before_publish();
     let published = match expected {
         None => publish_new(&dir, &name, &mut staged)?,
@@ -75,7 +78,7 @@ fn save(
             current: version_of(root, &dir, &name, path)?,
         });
     }
-    handle::sync(&dir)?;
+    syncable.sync()?;
     let metadata = dir.symlink_metadata(&name)?;
     version::version_of_entry(&dir, &name, &metadata)
 }

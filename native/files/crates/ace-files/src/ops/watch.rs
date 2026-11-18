@@ -60,12 +60,13 @@ pub fn deliver(
     let payload = match batch {
         Batch::Changes(changes) => {
             invalidate(entry, &changes);
-            entry.apply_changes(&index_changes(&changes));
-            // A walk running over a folder this batch touched may have passed it before the
-            // batch landed, so it runs once more when it publishes.
-            for change in &changes {
-                entry.note_touch(folder_of(change), change.directory);
-            }
+            // The index edit and the follow-up walk a running walk may now need are recorded
+            // under one lock, so a walk cannot publish between them.
+            let touched: Vec<(&str, bool)> = changes
+                .iter()
+                .map(|change| (folder_of(change), change.directory))
+                .collect();
+            entry.apply_batch(&index_changes(&changes), &touched);
             // An ignore-rule edit changes which paths belong in the index without changing those
             // files, so the folders it governs are walked again in the background.
             for folder in crate::rules::changed(entry.root(), &changes) {

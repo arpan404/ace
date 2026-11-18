@@ -18,26 +18,28 @@
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use files_safe::Root;
 use notify::Event;
+use notify::event::{EventKind, ModifyKind, RenameMode};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_IO_PENDING, ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED, HANDLE,
     INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+    CreateFileW, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
     FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
     FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadDirectoryChangesW,
 };
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, INFINITE, ResetEvent, SetEvent, WaitForMultipleObjects,
+    CreateEventW, INFINITE, ResetEvent, SetEvent, WaitForMultipleObjects, WaitForSingleObject,
 };
 
 use crate::error::Error;
@@ -197,26 +199,38 @@ fn run(
     events: Events,
     started: SyncSender<Result<(), String>>,
 ) {
-    let mut buffer = vec![0u8; BUFFER_BYTES];
+    // The kernel documents a four-byte-aligned buffer for its records, so the bytes live in
+    // `u32`s rather than a byte vector. Both it and `overlapped` are locals: this thread never
+    // returns while a read it issued may still write into either, because every exit path waits
+    // for the completion or cancels the read and drains the cancellation.
+    let mut buffer = vec![0u32; BUFFER_BYTES / 4];
     let mut overlapped = OVERLAPPED {
         hEvent: completion.0,
         ..OVERLAPPED::default()
     };
+    let mut renames = Rename::default();
     let mut armed = false;
     loop {
-        let mut returned = 0u32;
+        // A status the kernel keeps returning without a completion (a directory that cannot be
+        // read any more, say) would otherwise spin here, and the join in `Watch::drop` would
+        // never finish. The owner's stop ends the thread before the next read is issued.
+        if stopping(stop) {
+            break;
+        }
         // SAFETY: the directory handle stays open until this thread returns; the buffer is
-        // writable for its whole length and is not touched again until the operation below
-        // completes; `overlapped` is a valid structure whose event stays open until then; and
-        // a null completion routine is what an overlapped caller passes.
+        // writable for its whole length and four-byte aligned (it is `u32`s), and it is not
+        // touched again until the operation below completes; `overlapped` is a valid structure
+        // whose event stays open until then; the byte count is unused for an overlapped read, so
+        // a null pointer is what the call expects; and a null completion routine is what an
+        // overlapped caller passes.
         let read = unsafe {
             ReadDirectoryChangesW(
                 directory.0,
                 buffer.as_mut_ptr().cast(),
-                buffer.len() as u32,
+                BUFFER_BYTES as u32,
                 1,
                 FILTER,
-                &mut returned,
+                std::ptr::null_mut(),
                 &mut overlapped,
                 None,
             )
@@ -225,17 +239,19 @@ fn run(
             let error = std::io::Error::last_os_error();
             let code = error.raw_os_error();
             if code == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
+                // The new half of a rename may be among the lost records.
+                renames.clear();
                 events.lost_events();
                 continue;
             }
             // A queued overlapped read is a success that has not completed yet; wait for it.
             if code != Some(ERROR_IO_PENDING as i32) {
-                let message = format!("cannot watch {}: {error}", root.display());
-                if armed {
-                    events.failed(&message);
-                } else {
-                    let _ = started.send(Err(message));
-                }
+                fail(
+                    &started,
+                    armed,
+                    format!("cannot watch {}: {error}", root.display()),
+                    &events,
+                );
                 break;
             }
         }
@@ -267,19 +283,30 @@ fn run(
         let finished = unsafe { GetOverlappedResult(directory.0, &overlapped, &mut bytes, 1) };
         if finished == 0 {
             let error = std::io::Error::last_os_error();
-            if error.raw_os_error() == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
+            let code = error.raw_os_error();
+            if code == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
+                renames.clear();
                 events.lost_events();
             } else {
-                if error.raw_os_error() != Some(ERROR_OPERATION_ABORTED as i32) {
+                // An abort is the owner stopping the watch; any other status means the native
+                // watch is gone for good, and the worker must hear it and fall back.
+                let aborted = code == Some(ERROR_OPERATION_ABORTED as i32);
+                if !(aborted && stopping(stop)) {
                     events.failed(&format!("cannot watch {}: {error}", root.display()));
                 }
                 break;
             }
         } else if bytes == 0 {
             // A completion with nothing in it is the kernel saying its buffer ran out.
+            renames.clear();
             events.lost_events();
         } else {
-            emit(root, &buffer[..bytes as usize], &events);
+            // SAFETY: this is the completed read's byte count, inside the buffer this thread
+            // owns; the buffer is alive because the thread waits on every operation before it
+            // returns.
+            let filled =
+                unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), bytes as usize) };
+            emit(root, filled, &events, &mut renames);
         }
         // SAFETY: this resets this thread's own manual-reset completion event before the next
         // read; the event stays open until the thread returns.
@@ -287,6 +314,22 @@ fn run(
     }
     completion.close();
     directory.close();
+}
+
+/// Reports a dead watch to the worker, or to the caller while it is still starting one.
+fn fail(started: &SyncSender<Result<(), String>>, armed: bool, message: String, events: &Events) {
+    if armed {
+        events.failed(&message);
+    } else {
+        let _ = started.send(Err(message));
+    }
+}
+
+/// Whether the owner asked the watch to stop.
+fn stopping(stop: Handle) -> bool {
+    // SAFETY: the stop event is open for the whole thread, and a zero-timeout wait only reads
+    // its state.
+    unsafe { WaitForSingleObject(stop.0, 0) == WAIT_OBJECT_0 }
 }
 
 /// Opens a folder for change notifications, recursively.
@@ -335,14 +378,185 @@ fn wide(text: &OsStr) -> Vec<u16> {
     text.encode_wide().chain(Some(0)).collect()
 }
 
-/// Sends one backend event per record in the buffer the kernel filled.
-fn emit(root: &Path, bytes: &[u8], events: &Events) {
-    for (action, name) in parse(bytes) {
-        let Some(kind) = kind(action) else {
-            continue;
-        };
-        // The name is relative to the watched root and uses backslashes, which `join` and
-        // files-safe's relative form both understand.
-        events.send(Event::new(kind).add_path(root.join(name)));
+/// The old half of a rename whose new half has not arrived yet.
+///
+/// The kernel writes the two halves as separate records, and a buffer boundary can fall between
+/// them, so the half waits across completions. Any other record, an overflow or a damaged chain
+/// ends it: only a rename names a new path immediately after its old one.
+#[derive(Default)]
+struct Rename {
+    old: Option<PathBuf>,
+}
+
+impl Rename {
+    /// Appends the events one buffer's records describe, in order.
+    fn events(&mut self, root: &Path, records: &[(u32, String)], out: &mut Vec<Event>) {
+        for (action, name) in records {
+            // The name is relative to the watched root and uses backslashes, which `join` and
+            // files-safe's relative form both understand.
+            let path = root.join(name);
+            match *action {
+                FILE_ACTION_RENAMED_OLD_NAME => {
+                    self.flush(out);
+                    self.old = Some(path);
+                }
+                FILE_ACTION_RENAMED_NEW_NAME => {
+                    let event = match self.old.take() {
+                        Some(old) => {
+                            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+                                .add_path(old)
+                                .add_path(path)
+                        }
+                        // The old half was lost or named a path outside the tree: the new path
+                        // is still a creation for this watch.
+                        None => Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To)))
+                            .add_path(path),
+                    };
+                    out.push(event);
+                }
+                _ => {
+                    self.flush(out);
+                    if let Some(kind) = kind(*action) {
+                        out.push(Event::new(kind).add_path(path));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ends a pending old half as the deletion it is: a move out of the tree names only the old
+    /// path, so no new record will ever pair with it.
+    fn flush(&mut self, out: &mut Vec<Event>) {
+        if let Some(old) = self.old.take() {
+            out.push(
+                Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From))).add_path(old),
+            );
+        }
+    }
+
+    /// The new half may have been among records the kernel lost, and a rescan covers the rest.
+    fn clear(&mut self) {
+        self.old = None;
+    }
+}
+
+/// Sends the events one buffer of records describes.
+fn emit(root: &Path, bytes: &[u8], events: &Events, renames: &mut Rename) {
+    let parsed = parse(bytes);
+    let mut out = Vec::new();
+    renames.events(root, &parsed.records, &mut out);
+    for event in out {
+        events.send(event);
+    }
+    if !parsed.whole {
+        // A record was cut short or pointed outside the buffer: the rest is lost, and a pending
+        // rename half cannot be trusted without the records that would have followed it.
+        renames.clear();
+        events.lost_events();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use notify::event::{CreateKind, EventKind, ModifyKind, RenameMode};
+    use windows_sys::Win32::Storage::FileSystem::FILE_ACTION_ADDED;
+
+    use super::{FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME, Rename};
+
+    fn root() -> &'static Path {
+        Path::new("root")
+    }
+
+    fn one(action: u32, name: &str) -> Vec<(u32, String)> {
+        vec![(action, name.to_owned())]
+    }
+
+    #[test]
+    fn a_rename_is_one_pair_whether_the_halves_share_a_buffer_or_not() {
+        let records = [
+            (FILE_ACTION_RENAMED_OLD_NAME, "foo.txt".to_owned()),
+            (FILE_ACTION_RENAMED_NEW_NAME, "Foo.txt".to_owned()),
+        ];
+        let mut renames = Rename::default();
+        let mut out = Vec::new();
+        renames.events(root(), &records, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].kind,
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both))
+        );
+        assert_eq!(
+            out[0].paths,
+            [root().join("foo.txt"), root().join("Foo.txt")]
+        );
+
+        // The kernel can split the halves at a buffer boundary, so the second half arrives in a
+        // later completion.
+        let mut renames = Rename::default();
+        let mut out = Vec::new();
+        renames.events(
+            root(),
+            &one(FILE_ACTION_RENAMED_OLD_NAME, "foo.txt"),
+            &mut out,
+        );
+        assert!(out.is_empty(), "the old half waits for its new half");
+        renames.events(
+            root(),
+            &one(FILE_ACTION_RENAMED_NEW_NAME, "Foo.txt"),
+            &mut out,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].paths,
+            [root().join("foo.txt"), root().join("Foo.txt")]
+        );
+    }
+
+    #[test]
+    fn another_record_ends_a_half_seen_rename_as_a_deletion() {
+        let mut renames = Rename::default();
+        let mut out = Vec::new();
+        renames.events(
+            root(),
+            &one(FILE_ACTION_RENAMED_OLD_NAME, "gone.txt"),
+            &mut out,
+        );
+        renames.events(root(), &one(FILE_ACTION_ADDED, "new.txt"), &mut out);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            out[0].kind,
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+            "a move out of the tree names only its old path"
+        );
+        assert_eq!(out[0].paths, [root().join("gone.txt")]);
+        assert_eq!(out[1].kind, EventKind::Create(CreateKind::Any));
+    }
+
+    #[test]
+    fn an_overflow_forgets_a_pending_half() {
+        let mut renames = Rename::default();
+        let mut out = Vec::new();
+        renames.events(
+            root(),
+            &one(FILE_ACTION_RENAMED_OLD_NAME, "gone.txt"),
+            &mut out,
+        );
+        renames.clear();
+        renames.events(
+            root(),
+            &one(FILE_ACTION_RENAMED_NEW_NAME, "made.txt"),
+            &mut out,
+        );
+        assert_eq!(
+            out.len(),
+            1,
+            "the lost half must not pair with a new rename"
+        );
+        assert_eq!(
+            out[0].kind,
+            EventKind::Modify(ModifyKind::Name(RenameMode::To))
+        );
     }
 }

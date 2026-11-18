@@ -134,3 +134,30 @@ fn writing_through_a_symlink_keeps_the_link() {
     );
     assert_eq!(fixture.read("target.md"), b"two\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_save_that_cannot_sync_the_folder_leaves_the_file_alone() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    fixture.write("draft.md", b"old\n");
+    let version = fixture.version("draft.md");
+    let folder = fixture.dir().to_path_buf();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o300)).expect("chmod");
+    // Root can read a folder whatever its mode, so the failure cannot be staged there.
+    let denied = std::fs::read_dir(&folder).is_err();
+
+    let result = write(fixture.root(), "draft.md", b"new\n", Some(&version));
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).expect("chmod back");
+    if !denied {
+        return;
+    }
+    let error = result.expect_err("a folder that cannot be opened for syncing stops the save");
+    assert_eq!(error.code(), "PERMISSION_DENIED");
+    assert_eq!(
+        fixture.read("draft.md"),
+        b"old\n",
+        "a save that cannot be made durable must not change the file"
+    );
+}
