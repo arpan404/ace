@@ -21,6 +21,8 @@ const sentences: Record<string, string> = {
   BUSY: "The thread's worktree is busy (being prepared or moved). Try again in a moment.",
   CONFLICT: "This path changed or already exists. Refresh and try again.",
   INVALID_PATH: "Use a path inside the checkout, without parent folders (..).",
+  INVALID_CURSOR: "This folder changed while it was loading. Open it again.",
+  NOT_DIRECTORY: "That's a file, not a folder.",
   EXPIRED: "This recovery item expired. Restore from Git or a backup.",
   IO_ERROR: "Couldn't change the file. Check the path and folder permissions, then try again.",
   LIMIT_EXCEEDED: "This folder has too many entries. Choose a smaller folder.",

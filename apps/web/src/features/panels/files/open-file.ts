@@ -50,14 +50,14 @@ export function openFile(
     replaceable(options.from) ??
     workspace.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined);
   // The tree beside the file keeps what the person left there: its filter, which folders were
-  // folded, and where it was scrolled. A replacement carries its own tree over; a new tab takes
+  // opened, and where it was scrolled. A replacement carries its own tree over; a new tab takes
   // its source tab's (or the showing files tab's, for quick open), so browsing files never
   // resets the explorer.
   const inheritKey = target ?? options.from ?? workspace.active;
   const inheritTab = inheritKey ? findTab(workspace, inheritKey)?.tab : undefined;
   const inheritData = inheritTab && inheritTab.kind === "files" ? fileTabData(inheritTab) : {};
   const carried = {
-    ...(inheritData.collapsed === undefined ? {} : { collapsed: inheritData.collapsed }),
+    ...(inheritData.expanded === undefined ? {} : { expanded: inheritData.expanded }),
     ...(inheritData.query === undefined ? {} : { query: inheritData.query }),
     ...(inheritData.treeScroll === undefined ? {} : { treeScroll: inheritData.treeScroll }),
   };
