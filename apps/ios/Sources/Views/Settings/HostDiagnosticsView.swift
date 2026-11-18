@@ -31,6 +31,10 @@ struct HostDiagnosticsView: View {
 
     var body: some View {
         List {
+            if model.connection != "ready" {
+                ProblemRow("Can’t reach this machine.", detail: "Checks, the support bundle and reset need it online.",
+                           id: "diagnostics.offline") { model.retry(); Task { await load() } }
+            }
             Group {
                 checksSection
                 supportSection
@@ -70,6 +74,7 @@ struct HostDiagnosticsView: View {
     @ViewBuilder private var checksSection: some View {
         Section {
             Button(checking ? "Checking…" : "Run checks") { runChecks() }
+                .buttonStyle(.rowAction)
                 .disabled(checking || model.connection != "ready").accessibilityIdentifier("diagnostics.run")
             if let checks {
                 Text(checks.summary).accessibilityIdentifier("diagnostics.summary")
@@ -99,14 +104,16 @@ struct HostDiagnosticsView: View {
                 .onChange(of: includeThreads) { discardBundle() }
             if bundle != nil {
                 Button("Share support bundle") { sharing = true }
+                    .buttonStyle(.rowAction)
                     .transition(.opacity).accessibilityIdentifier("diagnostics.share")
             } else {
                 Button(exporting ? "Exporting…" : "Export support bundle") { export() }
+                    .buttonStyle(.rowAction)
                     .disabled(exporting || model.connection != "ready").accessibilityIdentifier("diagnostics.export")
             }
             ServiceProblem(message: bundleProblem)
         } header: { InsetHeader("Support bundle") } footer: {
-            Text("Recent logs, checks and settings, with known secrets and personal paths removed. Nothing is uploaded. Review the file before sharing it, especially with conversations.")
+            Text("Exports recent logs, checks and settings locally, with known secrets and personal paths removed. Conversations are excluded by default. Review the file before sharing.")
         }
     }
 
@@ -115,13 +122,14 @@ struct HostDiagnosticsView: View {
             if let health = page?.health {
                 ForEach(health.rows, id: \.self) { row in LabeledContent(row.label) { Text(row.value).monospacedDigit() } }
                 ForEach(health.queues, id: \.self) { queue in LabeledContent(queue.name) { Text(queue.depth.formatted()).monospacedDigit() } }
-                Button("Copy diagnostics") { UIPasteboard.general.string = health.json; copied += 1 }
-            } else if page?.healthProblem == nil && problem == nil {
+                Button("Copy diagnostics") { UIPasteboard.general.string = health.json; copied += 1 }.buttonStyle(.rowAction)
+            } else if page?.healthProblem == nil && problem == nil && model.connection == "ready" {
                 ForEach(0..<5, id: \.self) { _ in LabeledContent("Memory", value: "000 MB").redacted(reason: .placeholder) }
-            }
-            if let message = problem ?? page?.healthProblem {
+            } else if model.connection == "ready", let message = problem ?? page?.healthProblem {
                 ServiceProblem(message: message)
-                Button("Retry") { Task { await load() } }.buttonStyle(.textAction())
+                Button("Try again") { Task { await load() } }.buttonStyle(.rowAction)
+            } else {
+                Text("Shows once this phone reaches the machine.").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
             }
         } header: { InsetHeader("ace health") }
     }
@@ -129,6 +137,7 @@ struct HostDiagnosticsView: View {
     private var resetSection: some View {
         Section {
             Button(resetting ? "Resetting…" : "Reset settings", role: .destructive) { confirmingReset = true }
+                .buttonStyle(.rowAction)
                 .disabled(resetting || model.connection != "ready").accessibilityIdentifier("diagnostics.reset")
             ServiceProblem(message: resetProblem)
         } footer: { Text("This machine's settings go back to their defaults. Appearance and notifications stay.") }

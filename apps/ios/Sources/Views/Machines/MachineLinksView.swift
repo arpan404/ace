@@ -20,17 +20,18 @@ struct MachineLinksView: View {
 
     var body: some View {
         List {
+            if let problem {
+                ProblemRow(problem, id: "links.problem") { client?.retry(); Task { await read() } }
+            }
             if let overview {
                 if overview.forbidden {
-                    Section { ServiceProblem(message: overview.linksProblem) }.insetRowBackground()
+                    ProblemRow(overview.linksProblem ?? "Only a phone paired with full access can manage links.", id: "links.problem")
                 } else {
                     linked(overview)
                     others(overview)
                 }
             }
-            if let problem {
-                Section { ServiceProblem(message: problem); Button("Retry") { Task { await read() } } }.insetRowBackground()
-            } else if overview == nil {
+            if problem == nil, overview == nil {
                 Section { SkeletonRows(count: 2, label: "Reading this machine's links").listRowInsets(EdgeInsets()) }
                     .insetRowBackground()
             }
@@ -48,13 +49,13 @@ struct MachineLinksView: View {
                 .accessibilityIdentifier("links.link.operate")
             Button("Agents can only read") { Task { await link(to: target, access: "read") } }
         } message: { target in
-            Text("Agents on \(name) can then reach \(inbox.name(target.hostId)), up to that machine's own setting for agents from other machines.")
+            Text("\(inbox.name(target.hostId))’s “Agents from other machines” setting limits what \(name)’s agents can do.")
         }
         .confirmationDialog("Unlink \(unlinking?.name ?? "")?", isPresented: Binding(get: { unlinking != nil }, set: { if !$0 { unlinking = nil } }), titleVisibility: .visible, presenting: unlinking) { link in
             Button("Unlink", role: .destructive) { Task { await unlink(link) } }.accessibilityIdentifier("links.unlink.confirm")
         } message: { link in Text("Agents on \(name) can't reach \(link.name) any more. Linking again needs a new pairing.") }
         .alert("Couldn't do that", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            if let revocation { Button("Retry") { Task { await revokeOther(revocation) } } }
+            if let revocation { Button("Try again") { Task { await revokeOther(revocation) } } }
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
     }
@@ -65,20 +66,16 @@ struct MachineLinksView: View {
                 Text("\(name) doesn't link to another machine yet.").foregroundStyle(AceDesign.Ink.muted)
             }
             ForEach(overview.links) { link in
-                HStack(spacing: AceDesign.Space.related) {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(link.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
-                        Text(link.line).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-                    }
-                    Spacer(minLength: AceDesign.Space.related)
-                    if client?.canOperate == true, link.hostId != nil {
-                        Button("Unlink", role: .destructive) { unlinking = link }
-                            .buttonStyle(.textAction(.destructive))
-                            .accessibilityIdentifier("links.unlink.\(link.profile)")
-                    }
+                RowWithActions(title: link.name, detail: link.line, actionsLabel: "Actions for \(link.name)",
+                               actionsId: "links.actions.\(link.profile)", canOperate: client?.canOperate == true && link.hostId != nil) {
+                    Button("Unlink…", systemImage: "link", role: .destructive) { unlinking = link }
+                        .accessibilityIdentifier("links.unlink.\(link.profile)")
                 }
             }
-            if let problem = overview.linksProblem { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }
+            if let problem = overview.linksProblem {
+                ServiceProblem(message: problem)
+                Button("Try again") { Task { await read() } }.buttonStyle(.rowAction)
+            }
         } header: { InsetHeader("\(name) reaches") } footer: { Text("Agents here use these machines by name.") }
         .insetRowBackground()
     }
@@ -92,7 +89,7 @@ struct MachineLinksView: View {
                     HStack {
                         Text(inbox.name(session.hostId)).font(AceDesign.Typeface.body)
                         Spacer()
-                        Button("Link") { linking = session }.buttonStyle(.textAction())
+                        Button("Link") { linking = session }.buttonStyle(.secondaryAction).controlSize(.small)
                             .disabled(session.client.connection != "ready")
                             .accessibilityIdentifier("links.link.\(session.hostId)")
                     }
@@ -103,7 +100,7 @@ struct MachineLinksView: View {
     }
 
     private func read() async {
-        guard let client, client.connection == "ready" else { problem = "Can’t reach this machine. Reconnect and retry."; return }
+        guard let client, client.connection == "ready" else { problem = "Can’t reach \(name)."; return }
         do { overview = try await client.fleetOverview(machine: name); problem = nil }
         catch { problem = error.localizedDescription }
     }

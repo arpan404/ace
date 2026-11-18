@@ -33,8 +33,8 @@ struct MachineManageSection: View {
     var body: some View {
         Section {
             Button(saving ? "Renaming…" : "Rename") { newName = name; renaming = true }
+                .buttonStyle(.rowAction)
                 .disabled(!canRename || saving)
-                .foregroundStyle(AceDesign.Ink.primary)
                 .accessibilityIdentifier("machine.rename")
         } footer: {
             Text(renameFooter)
@@ -58,6 +58,7 @@ struct MachineManageSection: View {
         if machines != nil {
             Section {
                 Button(removeTitle, role: .destructive) { removing = true }
+                    .buttonStyle(.rowAction)
                     .accessibilityIdentifier("machine.remove")
             } footer: {
                 Text(removeFooter)
@@ -76,7 +77,7 @@ struct MachineManageSection: View {
     private var removeFooter: String {
         account
             ? "\(name) leaves your ace account on every device, and this iPhone deletes its unsent work for it. It comes back when it signs in to ace again."
-            : "Only this iPhone forgets \(name): its access and unsent work for it are deleted here. \(name) and your other devices keep everything. To cut this iPhone's access on the computer too, revoke it under Devices."
+            : "Removes \(name) and its unsent work from this iPhone. To revoke this iPhone's access on \(name), use Devices."
     }
 
     private func rename() async {
