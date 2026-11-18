@@ -78,3 +78,15 @@ fn a_flood_of_fifty_thousand_files_is_rescans_and_watching_continues() {
         "every rescan names the flood folder or the root, saw {rescans:?}"
     );
 }
+
+#[test]
+fn a_file_moved_out_of_the_tree_is_reported_deleted() {
+    // A move out of the watched tree names only the old half of the rename. Nothing will ever
+    // pair with it, so the watch reports the deletion on its own.
+    let outside = tempfile::tempdir().unwrap();
+    let session = Session::start(options(), |root| {
+        std::fs::write(root.join("moving.txt"), b"x").unwrap();
+    });
+    std::fs::rename(session.path("moving.txt"), outside.path().join("moved.txt")).unwrap();
+    session.wait_for("moving.txt", ChangeKind::Deleted);
+}

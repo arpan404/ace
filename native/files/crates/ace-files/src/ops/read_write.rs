@@ -68,8 +68,16 @@ pub fn read(shared: &Shared, cancel: &Cancel, op: &ReadOp) -> Result<(ReadMeta, 
 /// the caller never read, so a create that races with another writer is `CONFLICT`, not a clobber.
 pub fn write(shared: &Shared, op: &WriteOp, bytes: &[u8]) -> Result<Reply, Error> {
     let entry = shared.roots.get(op.root)?;
-    let version = files_io::write(entry.root(), &op.path, bytes, op.expected.as_deref())?;
-    Ok(Reply::Version { version })
+    let saved = files_io::write(entry.root(), &op.path, bytes, op.expected.as_deref())?;
+    if let Some(warning) = saved.warning {
+        // The bytes are in place; this is what could not be finished after the commit.
+        eprintln!("ace-files: save of {}: {warning}", op.path);
+    }
+    // A save whose version could not be read after its commit is still a success; an empty
+    // version makes the next guarded write conflict once, and the client re-reads the file.
+    Ok(Reply::Version {
+        version: saved.version.unwrap_or_default(),
+    })
 }
 
 /// Create a folder.

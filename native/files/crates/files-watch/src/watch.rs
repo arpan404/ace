@@ -19,6 +19,12 @@ use notify::event::{EventKind, Flag};
 
 use crate::adopt::{self, Adopted};
 use crate::backend::{self, Backend, Native, POLL_INTERVAL};
+
+/// How long to wait before the first retry of a polling watcher that could not start.
+const POLL_RETRY_START: Duration = Duration::from_millis(250);
+
+/// The longest pause between polling retries.
+const POLL_RETRY_MAX: Duration = Duration::from_secs(5);
 use crate::batch::{Batch, ChangeKind};
 use crate::coalesce::Coalescer;
 use crate::error::Error;
@@ -360,24 +366,64 @@ impl Worker {
 
     /// The native watch is gone. Poll from here on, and walk the tree once so the client learns
     /// what changed while nothing was watching.
+    ///
+    /// A fatal failure reaches the worker twice: once in the failure slot, which survives a full
+    /// event queue, and once as the command that wakes it. Whichever comes first does the work;
+    /// the backend check makes the other a no-op, so one failure starts one poller and one
+    /// rescan.
     fn backend_failed(&mut self, message: String) {
+        if matches!(self.backend, Backend::Polling(_)) {
+            return;
+        }
         self.switch_to_polling(&Error::Unsupported(message));
-        self.deliver(Batch::Rescan { dir: None });
+        if matches!(self.backend, Backend::Polling(_)) {
+            // The poller is watching before the walk is asked for, so changes that happen while
+            // the walk runs are reported too.
+            self.deliver(Batch::Rescan { dir: None });
+        }
     }
 
-    /// The kernel's watch budget ran out: carry on with the poller rather than lose the tree.
+    /// The kernel's watch budget ran out, or the native watch died: carry on with the poller
+    /// rather than lose the tree. A poller that cannot start is retried with a backoff, because
+    /// a root that is briefly unreadable should not end the watch for good.
     fn switch_to_polling(&mut self, error: &Error) {
-        match backend::poll(&self.root, self.events.clone()) {
-            Ok(polling) => {
-                let previous = std::mem::replace(&mut self.backend, Backend::Polling(polling));
-                previous.stop();
-                self.polling.store(true, Ordering::Release);
-                self.warn(format!(
-                    "native file watching stopped ({error}); polling every {} s",
-                    POLL_INTERVAL.as_secs()
-                ));
+        let mut backoff = POLL_RETRY_START;
+        loop {
+            match backend::poll(&self.root, self.events.clone()) {
+                Ok(polling) => {
+                    let previous = std::mem::replace(&mut self.backend, Backend::Polling(polling));
+                    previous.stop();
+                    self.polling.store(true, Ordering::Release);
+                    self.warn(format!(
+                        "native file watching stopped ({error}); polling every {} s",
+                        POLL_INTERVAL.as_secs()
+                    ));
+                    return;
+                }
+                Err(failure) => {
+                    self.warn(format!("file watching stopped: {failure}"));
+                    if !self.pause(backoff) {
+                        return;
+                    }
+                    backoff = backoff.saturating_mul(2).min(POLL_RETRY_MAX);
+                }
             }
-            Err(error) => self.warn(format!("file watching stopped: {error}")),
+        }
+    }
+
+    /// Sleeps for `wait`, checking for a stop every hundred milliseconds. False when the watcher
+    /// must stop instead.
+    fn pause(&self, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
+        loop {
+            if self.stop.load(Ordering::Acquire) {
+                return false;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return true;
+            }
+            std::thread::sleep(left.min(Duration::from_millis(100)));
         }
     }
 
@@ -444,7 +490,7 @@ mod tests {
                     .iter()
                     .any(|batch| matches!(batch, Batch::Rescan { dir: None }))
             {
-                return;
+                break;
             }
             assert!(
                 Instant::now() < deadline,
@@ -453,5 +499,25 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
+
+        // The slot and the command are two copies of one failure, and a repeated command is a
+        // duplicate: each must leave the single poller and its one rescan alone.
+        watcher
+            .control
+            .try_send(Command::Failed("the watch stopped".to_owned()))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let seen = batches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let rescans = seen
+            .iter()
+            .filter(|batch| matches!(batch, Batch::Rescan { dir: None }))
+            .count();
+        assert_eq!(
+            rescans, 1,
+            "one fatal error starts one poller and one rescan, saw {seen:?}"
+        );
     }
 }

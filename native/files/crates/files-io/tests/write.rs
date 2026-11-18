@@ -11,6 +11,7 @@ fn write_with_stale_version_conflicts() {
     fixture.write("notes.md", b"one\n");
     let stale = fixture.version("notes.md");
     let saved = write(fixture.root(), "notes.md", b"two\n", Some(&stale)).expect("first save");
+    let saved = saved.version.expect("a committed save reports its version");
     assert_ne!(
         saved, stale,
         "a save replaces the file, so its version changes"
@@ -110,10 +111,13 @@ fn create_refuses_existing_file() {
     assert_eq!(error.code(), "CONFLICT");
     assert_eq!(fixture.read("taken.txt"), b"someone else's work\n");
 
-    let version = files_io::create_file(fixture.root(), "fresh.txt", b"new file\n")
+    let created = files_io::create_file(fixture.root(), "fresh.txt", b"new file\n")
         .expect("create a new file");
     assert_eq!(fixture.read("fresh.txt"), b"new file\n");
-    assert_eq!(version, fixture.version("fresh.txt"));
+    assert_eq!(
+        created.version.as_deref(),
+        Some(fixture.version("fresh.txt").as_str())
+    );
 }
 
 #[cfg(unix)]

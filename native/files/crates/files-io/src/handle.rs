@@ -72,6 +72,33 @@ impl Staged {
     pub(crate) fn release(&mut self) -> String {
         self.name.take().unwrap_or_default()
     }
+
+    /// Removes the staging name after the copy was published, retrying once so a transient
+    /// sharing violation does not leave the name behind.
+    ///
+    /// A name that still cannot be removed is left for a later cleanup; the caller reports it
+    /// as a warning, because the file itself was already published.
+    pub(crate) fn cleanup(&mut self) -> Option<crate::SaveWarning> {
+        let name = self.name.take()?;
+        match remove_staging(&self.dir, &name) {
+            Ok(()) => None,
+            Err(error) => Some(crate::SaveWarning::NotCleanedUp(format!("{name}: {error}"))),
+        }
+    }
+}
+
+/// Removes one staging name, treating one that is already gone as done and retrying a real
+/// failure once.
+fn remove_staging(dir: &Dir, name: &str) -> Result<(), std::io::Error> {
+    match dir.remove_file(name) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(first) => match dir.remove_file(name) {
+            Ok(()) => Ok(()),
+            Err(second) if second.kind() == ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(first),
+        },
+    }
 }
 
 impl Drop for Staged {
@@ -139,11 +166,10 @@ pub(crate) fn rename_noclobber(
     to: &str,
 ) -> Result<Noclobber, Error> {
     if from_dir.symlink_metadata(from)?.is_file() {
+        // The hard link is the commit; the staging name it leaves behind is cleanup, and the
+        // caller removes it so a failure there is a warning rather than a failed create.
         return match from_dir.hard_link(from, to_dir, to) {
-            Ok(()) => {
-                from_dir.remove_file(from)?;
-                Ok(Noclobber::Done)
-            }
+            Ok(()) => Ok(Noclobber::Done),
             Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(Noclobber::Exists),
             Err(error) => Err(error.into()),
         };

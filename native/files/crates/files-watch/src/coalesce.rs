@@ -20,6 +20,10 @@ use crate::translate::{Notice, Presence};
 /// never stops cannot keep the tree stale forever.
 const CHECKPOINT_PERIODS: u32 = 5;
 
+/// The shortest interval between checkpoint rescans, whatever `max_wait` is: each one starts a
+/// walk of the tree, and a short window must not turn a settling burst into a walk storm.
+const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(10);
+
 /// Collects events into windows and turns them into batches.
 pub(crate) struct Coalescer {
     debounce: Duration,
@@ -152,9 +156,10 @@ impl Coalescer {
         }
     }
 
-    /// How long a burst may stay dirty before a checkpoint rescan.
+    /// How long a burst may stay dirty before a checkpoint rescan: five windows, but never
+    /// sooner than the independent checkpoint interval.
     fn checkpoint(&self) -> Duration {
-        self.max_wait.saturating_mul(CHECKPOINT_PERIODS)
+        CHECKPOINT_INTERVAL.max(self.max_wait.saturating_mul(CHECKPOINT_PERIODS))
     }
 
     /// Whether the window will close with a rescan. Everything that arrives until then is
@@ -395,11 +400,12 @@ mod tests {
         let mut step = 0u64;
         loop {
             let now = start + Duration::from_millis(step * 10);
-            if now.saturating_duration_since(start) > Duration::from_secs(12) {
+            if now.saturating_duration_since(start) > Duration::from_secs(25) {
                 break;
             }
             // A writer that never pauses: one event every ten milliseconds, so the queue is
-            // never empty when a max_wait boundary comes around.
+            // never empty when a max_wait boundary comes around. Two checkpoint intervals fit
+            // in the simulated quarter minute.
             coalescer.push(
                 notice(&format!("burst/file{step}"), ChangeKind::Created),
                 now,
