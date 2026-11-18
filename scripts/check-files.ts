@@ -30,12 +30,24 @@ for (const workspace of workspaces) {
     else execFileSync("cargo", args, { cwd, stdio: "inherit" });
   }
 
-  for (const args of [
+  const checks: string[][] = [
     ["fmt", "--all", "--check"],
     ["clippy", "--workspace", "--all-targets", "--locked"],
     ["test", "--workspace", "--locked"],
     ["deny", "check", "licenses", "sources"],
-  ]) {
+  ];
+  // ace-files keeps its test-only environment hooks behind a feature that a release build leaves
+  // off, so the tests that need them run a second time with it on.
+  if (workspace === "../native/files/") {
+    checks.splice(
+      3,
+      0,
+      ["clippy", "-p", "ace-files", "--all-targets", "--locked", "--features", "test-hooks"],
+      ["test", "-p", "ace-files", "--locked", "--features", "test-hooks"],
+    );
+  }
+
+  for (const args of checks) {
     cargo(args);
   }
 }

@@ -31,6 +31,7 @@ pub struct Client {
     pending: VecDeque<Message>,
     bodies: VecDeque<(u64, Vec<u8>)>,
     stderr: Option<Receiver<String>>,
+    #[cfg(feature = "test-hooks")]
     published: usize,
     last_id: u64,
 }
@@ -55,6 +56,7 @@ impl Client {
     }
 
     /// Spawn the binary with the live-root counter on, keeping its stderr for the test.
+    #[cfg(feature = "test-hooks")]
     pub fn with_live_roots() -> Client {
         Client::launch(&[("ACE_FILES_LIVE_ROOTS", "1")], true)
     }
@@ -127,6 +129,7 @@ impl Client {
             pending: VecDeque::new(),
             bodies: VecDeque::new(),
             stderr,
+            #[cfg(feature = "test-hooks")]
             published: 0,
             last_id: 0,
         }
@@ -416,6 +419,7 @@ impl Client {
     }
 
     /// Every stderr line the binary wrote within `window`.
+    #[cfg(feature = "test-hooks")]
     pub fn stderr_within(&mut self, window: Duration) -> Vec<String> {
         let stderr = self
             .stderr
@@ -457,6 +461,7 @@ impl Client {
     }
 
     /// How many indexes the binary has published, as `ACE_FILES_INDEX_EVENTS` reports them.
+    #[cfg(feature = "test-hooks")]
     pub fn index_publishes(&mut self) -> usize {
         let stderr = self
             .stderr
@@ -478,6 +483,7 @@ impl Client {
     }
 
     /// Wait for the binary to publish `wanted` indexes.
+    #[cfg(feature = "test-hooks")]
     pub fn await_index_published(&mut self, wanted: usize) {
         let deadline = Instant::now() + TIMEOUT;
         loop {
@@ -497,6 +503,7 @@ impl Client {
     ///
     /// A root the process forgot to release (a watcher that still points at it, say) never reaches
     /// zero, so this fails with the last count it saw.
+    #[cfg(feature = "test-hooks")]
     pub fn await_live_roots(&mut self, wanted: usize) {
         let stderr = self
             .stderr

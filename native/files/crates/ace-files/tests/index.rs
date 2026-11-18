@@ -3,6 +3,8 @@
 //! Quick open: the answer before the walk lands, the answer after it, and the answer when the
 //! walk never finishes.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// Every test here delays or stops the build through the binary's `test-hooks` feature.
+#![cfg(feature = "test-hooks")]
 
 mod common;
 

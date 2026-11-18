@@ -9,7 +9,9 @@
 //! published, so nothing a person typed or an agent wrote is lost between two walks.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
+#[cfg(feature = "test-hooks")]
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use files_index::{IndexChange, IndexOptions, PathIndex};
 use files_wire::IndexResult;
@@ -31,6 +33,7 @@ fn empty_index() -> IndexResult {
 
 /// Test-only: `ACE_FILES_HOLD_INDEX_MS` keeps a finished walk from being published for that many
 /// milliseconds, so a test can change the tree while the build is still in flight.
+#[cfg(feature = "test-hooks")]
 fn hold_publish() {
     let Some(ms) = std::env::var("ACE_FILES_HOLD_INDEX_MS")
         .ok()
@@ -61,6 +64,15 @@ pub(crate) struct IndexBook {
 /// Changes that arrive while a walk is running wait for it, up to this many. Past it the batch is
 /// folded into "walk the tree again", which costs one more walk instead of unbounded memory.
 const PENDING_LIMIT: usize = 50_000;
+
+/// Test-only: `ACE_FILES_PANIC_INDEX` makes every build panic, so a test can prove a stopped
+/// worker becomes an error instead of a root that reports "not ready" forever.
+#[cfg(feature = "test-hooks")]
+fn panic_index_on_purpose() {
+    if std::env::var_os("ACE_FILES_PANIC_INDEX").is_some() {
+        panic!("test hook: the index build panics");
+    }
+}
 
 impl RootEntry {
     /// Build the quick-open index in the background, right after the root opens.
@@ -95,10 +107,10 @@ impl RootEntry {
 
     /// Walk the checkout into a path index and hand it to [`RootEntry::publish`].
     fn build_index(self: &Arc<Self>) -> Result<(), Error> {
-        if std::env::var_os("ACE_FILES_PANIC_INDEX").is_some() {
-            panic!("test hook: the index build panics");
-        }
+        #[cfg(feature = "test-hooks")]
+        panic_index_on_purpose();
         let index = PathIndex::build(&self.root, &IndexOptions::default(), &self.build)?;
+        #[cfg(feature = "test-hooks")]
         hold_publish();
         self.publish(index)
     }
@@ -129,7 +141,9 @@ impl RootEntry {
                             "the index lock was poisoned",
                         )));
                     }
+                    #[cfg(feature = "test-hooks")]
                     note_publish();
+                    #[cfg(feature = "test-hooks")]
                     rebuild_on_purpose(self);
                     if again {
                         self.start_index();
@@ -263,8 +277,10 @@ impl RootEntry {
 
 /// Test-only: `ACE_FILES_INDEX_EVENTS` writes one line to stderr per published index, so a test
 /// can wait for a rebuild instead of sleeping.
+#[cfg(feature = "test-hooks")]
 static PUBLISHED: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(feature = "test-hooks")]
 fn note_publish() {
     let count = PUBLISHED.fetch_add(1, Ordering::Relaxed) + 1;
     if std::env::var_os("ACE_FILES_INDEX_EVENTS").is_some() {
@@ -274,6 +290,7 @@ fn note_publish() {
 
 /// Test-only: `ACE_FILES_REBUILD_AFTER_MS` makes one rebuild follow the first published index
 /// after that many milliseconds, so a test can watch quick open answer while a rescan walks.
+#[cfg(feature = "test-hooks")]
 fn rebuild_on_purpose(entry: &Arc<RootEntry>) {
     static ONCE: AtomicBool = AtomicBool::new(false);
     let Some(ms) = std::env::var("ACE_FILES_REBUILD_AFTER_MS")
