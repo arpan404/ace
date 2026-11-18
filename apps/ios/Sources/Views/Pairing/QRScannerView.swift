@@ -1,91 +1,279 @@
-import AVFoundation
+import Combine
 import SwiftUI
 import UIKit
 
-/// Live camera QR scanning. The decoded text is handed back once and never stored.
-struct QRScannerView: UIViewControllerRepresentable {
-    let found: @MainActor (String) -> Void
-    let unavailable: @MainActor (String) -> Void
+/// Scans the pairing code on the computer's screen: the camera full screen, dimmed around a
+/// rounded frame, one line saying what to point at, and the torch and Paste link as glass
+/// buttons. A good code flashes a check with a success tap before it's handed back; one that
+/// isn't a pairing link says so and scanning goes on. With access off, or no camera at all,
+/// the scanner says so in place and offers Settings or Paste: it never closes on its own.
+/// The decoded text is handed back once and never stored.
+struct QRScannerView: View {
+    /// Why a code can't pair, or nil when it can.
+    let check: (String) -> String?
+    let found: (String) -> Void
+    let paste: () -> Void
+    let close: () -> Void
+    @State private var probe: CameraProbe?
+    @State private var model: ScannerModel?
+    /// The torch asked for, and whether it really is on (it can be unavailable when hot).
+    @State private var torch = false
+    @State private var torchLit = false
+    @State private var torchAvailable = false
+    @State private var rejections = 0
+    /// The half-second check before a taken code goes back; Close cancels it.
+    @State private var handOver: Task<Void, Never>?
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
 
-    func makeUIViewController(context: Context) -> ScannerController {
-        let controller = ScannerController()
-        controller.found = found
-        controller.unavailable = unavailable
-        return controller
-    }
-    func updateUIViewController(_ controller: ScannerController, context: Context) {}
-}
+    private var dark: Bool { model?.showsCamera != false }
 
-final class ScannerController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
-    var found: (@MainActor (String) -> Void)?
-    var unavailable: (@MainActor (String) -> Void)?
-    /// Apple documents start/stop as blocking calls for a background serial queue.
-    private final class Capture: @unchecked Sendable { let session = AVCaptureSession() }
-    private let capture = Capture()
-    private var session: AVCaptureSession { capture.session }
-    private let sessionQueue = DispatchQueue(label: "ace.camera.session")
-    private var preview: AVCaptureVideoPreviewLayer?
-    private var delivered = false
-    private var lifetime = PairingLifetime()
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        let generation = lifetime.enter()
-        view.backgroundColor = .black
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: configure()
-        case .notDetermined:
-            // The answer arrives on a system queue: the callback must not belong to the main actor.
-            AVCaptureDevice.requestAccess(for: .video) { @Sendable [weak self] granted in
-                Task { @MainActor in
-                    guard let self, self.lifetime.accepts(generation) else { return }
-                    if granted { self.configure() } else { self.unavailable?("Camera access is off. Allow it in Settings, or paste the link instead.") }
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                if let model, let probe {
+                    if model.showsCamera { camera(model, live: probe.live) } else { unavailable(model.phase) }
+                } else {
+                    Color.black.ignoresSafeArea()
                 }
             }
-        default: unavailable?("Camera access is off. Allow it in Settings, or paste the link instead.")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(action: dismiss) { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("scanner.close")
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+            // Dark over the camera, the person's own appearance otherwise. Set here, never with
+            // `preferredColorScheme`: that reaches the window and closes the pairing sheet.
+            .toolbarColorScheme(dark ? .dark : nil, for: .navigationBar)
+            .environment(\.colorScheme, dark ? .dark : scheme)
+        }
+        .sensoryFeedback(.success, trigger: model?.phase) { _, phase in if case .found = phase { true } else { false } }
+        .sensoryFeedback(.warning, trigger: rejections)
+        .task { await start() }
+        // The app's own notifications, not `scenePhase`: a quick switch can coalesce the phase
+        // back to active without an update, but each notification arrives. Only the background
+        // stops the camera; the permission prompt and Control Center just resign active.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            model?.enteredBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if model?.backgrounded == true { Task { await recheck() } }
+        }
+        .onDisappear { handOver?.cancel() }
+    }
+
+    private func dismiss() {
+        model?.close()
+        handOver?.cancel()
+        close()
+    }
+
+    // MARK: Camera
+
+    private func camera(_ model: ScannerModel, live: Bool) -> some View {
+        GeometryReader { space in
+            let side = min(min(space.size.width, space.size.height) * ScannerLook.frameShare, ScannerLook.frameMax)
+            let centre = CGPoint(x: space.size.width / 2, y: space.size.height / 2 - ScannerLook.lift)
+            let found = if case .found = model.phase { true } else { false }
+            ZStack {
+                Color.black
+                if live && model.runsCamera {
+                    CameraPreview(read: { read($0) }, failed: { self.model?.cameraFailed() }, torch: torch, held: found,
+                                  torchAvailable: { torchAvailable = $0 },
+                                  torchApplied: { lit in torchLit = lit; torch = lit })
+                    // A new camera for each run: one stopped in the background is never kept.
+                    .id(model.cameraRun)
+                }
+                ScannerDim(side: side, centre: centre)
+                ScannerFrame(side: side, found: found, reduceMotion: reduceMotion)
+                    .overlay(alignment: .top) {
+                        Text(model.note ?? "Scan the code shown on your computer")
+                            .font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong))
+                            .foregroundStyle(.white).multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(width: space.size.width - 2 * AceDesign.Space.section)
+                            .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.group }
+                            .accessibilityIdentifier("scanner.instruction")
+                    }
+                    .position(centre)
+            }
+            .frame(width: space.size.width, height: space.size.height)
+        }
+        .ignoresSafeArea()
+        .overlay(alignment: .bottom) { controls(model) }
+    }
+
+    private func controls(_ model: ScannerModel) -> some View {
+        HStack(spacing: AceDesign.Space.row) {
+            if torchAvailable {
+                Button { torch = !torchLit } label: {
+                    Image(systemName: torchLit ? "flashlight.on.fill" : "flashlight.off.fill")
+                        .frame(width: AceDesign.Size.tap - AceDesign.Space.row)
+                }
+                .pairingSecondaryButton()
+                .accessibilityLabel(torchLit ? "Turn torch off" : "Turn torch on")
+                .accessibilityIdentifier("scanner.torch")
+            }
+            Button("Paste link instead", action: paste)
+                .pairingSecondaryButton()
+                .accessibilityIdentifier("scanner.paste")
+        }
+        .disabled(model.phase != .scanning && model.phase != .asking)
+        .padding(.bottom, AceDesign.Space.section)
+    }
+
+    // MARK: Can't scan
+
+    @ViewBuilder private func unavailable(_ phase: ScannerPhase) -> some View {
+        let words = ScannerWords(phase)
+        ContentUnavailableView {
+            Label(words.title, systemImage: words.symbol)
+        } description: {
+            Text(words.line)
+        } actions: {
+            VStack(spacing: AceDesign.Space.row) {
+                if phase == .denied || phase == .restricted {
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                    .pairingPrimaryButton()
+                    .accessibilityIdentifier("scanner.settings")
+                    Button("Paste link instead", action: paste).pairingSecondaryButton()
+                        .accessibilityIdentifier("scanner.paste")
+                } else {
+                    Button("Paste link", action: paste).pairingPrimaryButton()
+                        .accessibilityIdentifier("scanner.paste")
+                }
+            }
         }
     }
-    private func configure() {
-        if preview != nil {
-            let capture = capture
-            sessionQueue.async { capture.session.startRunning() }
-            return
+
+    // MARK: Decisions
+
+    private func start() async {
+        let probe = CameraProbe.current()
+        self.probe = probe
+        self.model = ScannerModel(access: probe.access, hasCamera: probe.hasCamera)
+        await askIfNeeded()
+        if let code = probe.standInCode, self.model?.phase == .scanning {
+            try? await Task.sleep(for: ScannerLook.standInDelay)
+            guard !Task.isCancelled else { return }
+            read(code)
         }
-        guard let camera = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: camera),
-              session.canAddInput(input) else {
-            unavailable?("No camera is available. Paste the pairing link instead.")
-            return
+    }
+
+    /// Back from the background: permission may have changed in Settings, and the camera
+    /// view is built again.
+    private func recheck() async {
+        let probe = CameraProbe.current()
+        self.probe = probe
+        model?.recheck(access: probe.access, hasCamera: probe.hasCamera)
+        await askIfNeeded()
+    }
+
+    private func askIfNeeded() async {
+        guard model?.phase == .asking else { return }
+        let granted = await CameraProbe.requestAccess()
+        guard !Task.isCancelled else { return }
+        model?.answered(granted: granted)
+    }
+
+    private func read(_ code: String) {
+        guard var model else { return }
+        let reading = model.read(code, problem: check(code))
+        self.model = model
+        switch reading {
+        case .accepted:
+            handOver = Task {
+                try? await Task.sleep(for: ScannerLook.checkHold)
+                // Closed while the check showed, or this scan is no longer the one on screen.
+                guard !Task.isCancelled, self.model?.handsBack(code) == true else { return }
+                found(code)
+            }
+        case .rejected: rejections += 1
+        case .ignored: break
         }
-        session.addInput(input)
-        let output = AVCaptureMetadataOutput()
-        guard session.canAddOutput(output) else { unavailable?("No camera is available. Paste the pairing link instead."); return }
-        session.addOutput(output)
-        output.setMetadataObjectsDelegate(self, queue: .main)
-        output.metadataObjectTypes = [.qr]
-        let layer = AVCaptureVideoPreviewLayer(session: session)
-        layer.videoGravity = .resizeAspectFill
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        preview = layer
-        let capture = capture
-        sessionQueue.async { capture.session.startRunning() }
     }
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        preview?.frame = view.bounds
+}
+
+/// The scanner's own measures: how much of the screen the frame takes, how dark the camera is
+/// around it, and how long the check shows before the scanner closes.
+private enum ScannerLook {
+    static let frameShare: CGFloat = 0.68
+    static let frameMax: CGFloat = 280
+    static let stroke: CGFloat = 3
+    static let dim: Double = 0.6
+    /// Lifts the frame a little above centre, clear of the buttons at the foot.
+    static let lift: CGFloat = 48
+    static let checkHold: Duration = .milliseconds(500)
+    static let standInDelay: Duration = .seconds(3)
+    static var corner: CGFloat { AceDesign.Corner.device / 2 + AceDesign.Space.related }
+}
+
+/// The camera darkened everywhere but the frame.
+private struct ScannerDim: View {
+    let side: CGFloat
+    let centre: CGPoint
+    var body: some View {
+        Rectangle().fill(.black.opacity(ScannerLook.dim))
+            .mask {
+                ZStack {
+                    Rectangle()
+                    RoundedRectangle(cornerRadius: ScannerLook.corner, style: .continuous)
+                        .frame(width: side, height: side).position(centre).blendMode(.destinationOut)
+                }
+                .compositingGroup()
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        lifetime.leave()
-        let capture = capture
-        sessionQueue.async { capture.session.stopRunning() }
+}
+
+/// The frame's outline, and the check that flashes in it when a code is taken.
+private struct ScannerFrame: View {
+    let side: CGFloat
+    let found: Bool
+    let reduceMotion: Bool
+    var body: some View {
+        RoundedRectangle(cornerRadius: ScannerLook.corner, style: .continuous)
+            .strokeBorder(found ? AceDesign.Status.finished : .white, lineWidth: ScannerLook.stroke)
+            .frame(width: side, height: side)
+            .overlay {
+                if found {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: side / 4, weight: AceDesign.Typeface.strong))
+                        .foregroundStyle(.white, AceDesign.Status.finished)
+                        .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
+                        .accessibilityLabel("Code found")
+                        .accessibilityIdentifier("scanner.found")
+                }
+            }
+            .animation(reduceMotion ? nil : .spring, value: found)
     }
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput objects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard lifetime.acceptsCurrent, !delivered, let code = objects.compactMap({ $0 as? AVMetadataMachineReadableCodeObject }).first?.stringValue else { return }
-        delivered = true
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        let capture = capture
-        sessionQueue.async { capture.session.stopRunning() }
-        found?(code)
+}
+
+/// What the scanner says when it can't scan.
+private struct ScannerWords {
+    let title: String
+    let line: String
+    let symbol = "qrcode.viewfinder"
+    init(_ phase: ScannerPhase) {
+        switch phase {
+        case .denied:
+            title = "Camera access is off"
+            line = "Allow ace to use the camera in Settings to scan the code, or paste the link from your computer."
+        case .restricted:
+            title = "Camera isn't allowed"
+            line = "This iPhone's restrictions keep the camera off. Check Screen Time in Settings, or paste the link from your computer."
+        case .failed:
+            title = "The camera didn't start"
+            line = "Close the scanner and try again, or paste the pairing link from your computer."
+        default:
+            title = "No camera"
+            line = "There's no camera here to scan with. Copy the pairing link on your computer and paste it instead."
+        }
     }
 }

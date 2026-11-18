@@ -5,6 +5,7 @@ import type { Icon } from "@ace/icons";
 import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
 import { aceGlyphSvgs } from "./generate-glyphs.ts";
 import { assetSvg } from "./icon-svg.ts";
+import { spadeTabSvg } from "./spade-tab-svg.ts";
 import {
   barIconSize,
   barIcons,
@@ -24,7 +25,8 @@ import {
  * Every icon is ace's own, from `@ace/icons` (ADR 0156), the set the web draws. Each name is
  * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`). A name is the `@ace/icons`
  * glyph of the same name, else the glyph `drawnAs` gives it. The tab bar's glyphs (`tabIcons`) are
- * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`), and the navigation
+ * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`), Spade's face beside
+ * them (`tab-spade`, from ui-core's geometry), and the navigation
  * bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
  * `extra`, or a row to `fromSymbols` when it replaces an SF Symbol. Every curated project glyph and machine mark (`@ace/ui-core`) is included, so
  * the bridge can name them. The outputs are committed.
@@ -110,6 +112,9 @@ for (const name of tabIcons) {
   await writeAsset(`tab-${name}`, assetSvg(source.icon, "regular", source.turn, tabIconSize));
   await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
 }
+// Spade's tab: its face from ui-core's geometry, as the web rail draws it.
+await writeAsset("tab-spade", spadeTabSvg("regular", tabIconSize));
+await writeAsset("tab-spade-fill", spadeTabSvg("fill", tabIconSize));
 // The navigation bar's button glyphs at a bar symbol's size.
 for (const { name, weight } of barIcons) {
   const source = sources.find((entry) => entry.name === name);
