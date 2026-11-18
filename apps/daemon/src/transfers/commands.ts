@@ -21,6 +21,11 @@ export interface TransferCommandDeps {
   ignoredByDefault(): Promise<boolean>;
   /** thread.move's refusal for a live tree; none when the thread may be carried. */
   continueRefusal(threadId: ThreadId): Promise<string | undefined>;
+  /**
+   * Whether a working thread may move live (ADR 0190): the code for a refusal, or none. A
+   * delegated child moves with its parent or not at all. Omitted: busy threads are refused.
+   */
+  liveRefusal?(threadId: ThreadId): string | undefined;
 }
 
 /** What a person reads for each refusal a thread's state gives (thread.move's checks). */
@@ -31,6 +36,10 @@ const refusalDetails: Record<string, string> = {
   workspace_change_in_progress:
     "The thread's checkout is still being changed. Try again once that's done.",
   workspace_unavailable: "This machine's projects are still starting. Try again in a moment.",
+  thread_is_child:
+    "This thread is a subagent of another thread. Continue its parent on the other machine instead.",
+  thread_moving: "This thread is already moving to another machine.",
+  thread_moved: "This thread already moved to another machine. Continue it there.",
 };
 
 export function refusalDetail(code: string): string {
@@ -102,16 +111,20 @@ export class TransferCommands {
   async start(input: TransferInput): Promise<Transfer> {
     const { store } = this.deps;
     let thread: Thread | undefined;
+    let live = false;
     if (input.threadId) {
       thread = store.getThread(input.threadId);
       if (!thread || thread.deletedAt !== undefined)
         throw new TransferError("thread_not_found", "That thread doesn't exist.");
-      // An agent continuing its own thread is that thread's live work; it hands over at commit.
+      // An agent continuing its own thread is that thread's live work: it moves live.
       const self = input.asker.kind === "agent" && input.asker.self;
-      if (!self) {
-        const refused = await this.deps.continueRefusal(input.threadId);
-        if (refused) throw new TransferError(refused, refusalDetail(refused));
-      }
+      const refused = self ? "thread_busy" : await this.deps.continueRefusal(input.threadId);
+      if (refused === "thread_busy" && this.deps.liveRefusal) {
+        // A working thread moves while it works (ADR 0190).
+        const cannot = this.deps.liveRefusal(input.threadId);
+        if (cannot) throw new TransferError(cannot, refusalDetail(cannot));
+        live = true;
+      } else if (refused && !self) throw new TransferError(refused, refusalDetail(refused));
     }
     const workspaceId = thread?.workspaceId ?? input.workspaceId;
     if (!workspaceId) throw new TransferError("invalid", "Name a project or a thread.");
@@ -140,6 +153,7 @@ export class TransferCommands {
         ...(input.parent ? { parent: input.parent } : {}),
         includeChanges: input.includeChanges,
         includeIgnored,
+        live,
         ...(thread
           ? {
               thread: {

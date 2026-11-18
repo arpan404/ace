@@ -1,5 +1,6 @@
 import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
+import * as liveMove from "./live-move.ts";
 import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
@@ -363,6 +364,7 @@ export class Engine {
             ? { commandId: command.id, ok: false, error: "engine_starting" }
             : store.atomic(
                 () =>
+                  (this.fence && liveMove.fenceCommand(command, this.fence)) ??
                   this.hostInteractionHandler?.(command) ??
                   (this.commandPolicy
                     ? this.commandPolicy(command, () => handler.handle(command, context))
@@ -433,6 +435,21 @@ export class Engine {
     if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
       await this.settledTrees.stop(id, this.settleFailed);
   }
+  private fence?: Parameters<typeof liveMove.fenceCommand>[1];
+  /** A thread moving or moved to another machine refuses new turns (ADR 0190). */
+  bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
+    this.fence = fence;
+  }
+  /** ADR 0190's live move: safe-point facts, the moved state, a carried native session. */
+  readonly liveMove = {
+    turnFacts: (id: ThreadId) => liveMove.turnFacts(this.repo, id),
+    markMoved: (id: ThreadId, to: Parameters<typeof liveMove.markMoved>[2]) =>
+      liveMove.markMoved(this.repo, id, to, this.clock.now()),
+    adoptSession: (id: ThreadId, session: Parameters<typeof liveMove.adoptCarriedSession>[2]) =>
+      liveMove.adoptCarriedSession(this.repo, id, session),
+    dropSession: (id: ThreadId) => liveMove.dropCarriedSession(this.repo, id),
+    shells: (id: ThreadId) => liveMove.runningShells(this.repo, id),
+  };
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
     this.commandPolicy = policy;

@@ -104,6 +104,18 @@ export const TransferLive = z.object({
     remoteChildren: z.array(z.string().max(256)).max(32),
     queued: z.number().int().nonnegative(),
   }),
+  /**
+   * Git methods: what the bulk bundle holds. `branch`, `head` and `changes` on the commit are
+   * the checkout as it was at the stop; `delta.bundle` in the final payload carries the commits
+   * between the two.
+   */
+  bulk: z
+    .object({
+      branch: refName.optional(),
+      head: commit.optional(),
+      changes: z.object({ ref: refName, commit }).optional(),
+    })
+    .optional(),
   /** The provider's session, when it could be carried; otherwise why not. */
   session: CarriedSession.optional(),
   unsupported: z.string().max(256).optional(),

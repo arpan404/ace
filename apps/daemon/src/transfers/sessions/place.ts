@@ -30,9 +30,12 @@ export async function placeFiles(input: {
       try {
         placed.push(await publishFile(stage, home, { source: written, relative: file.to }));
       } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "EEXIST")
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+        // The same copy placed before a restart is this one; anything else is someone's own.
+        const there = await readFile(join(home, file.to), "utf8").catch(() => undefined);
+        if (there !== input.rewrite(text))
           throw new SessionNotCarried("This machine already has a session with that id");
-        throw error;
+        continue;
       }
     }
   } catch (error) {

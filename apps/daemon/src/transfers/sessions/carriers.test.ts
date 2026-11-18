@@ -23,7 +23,7 @@ async function files(root: string): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await readdir(root, { recursive: true, withFileTypes: true }))
     if (entry.isFile()) out.push(join(entry.parentPath, entry.name).slice(root.length + 1));
-  return out.sort();
+  return out.toSorted();
 }
 
 /** Capture on one home, stage as the final payload would, place in another. */
@@ -114,15 +114,15 @@ describe("carrying Claude Code's session to another machine", () => {
   });
 });
 
-describe("carrying Codex's session to another machine", () => {
-  const rollout = (cwd: string) =>
-    [
-      JSON.stringify({ type: "session_meta", payload: { id, session_id: id, cwd } }),
-      JSON.stringify({ type: "turn_context", payload: { cwd, model: "m" } }),
-      JSON.stringify({ type: "response_item", payload: { type: "message", cwd } }),
-      "",
-    ].join("\n");
+const rollout = (cwd: string) =>
+  [
+    JSON.stringify({ type: "session_meta", payload: { id, session_id: id, cwd } }),
+    JSON.stringify({ type: "turn_context", payload: { cwd, model: "m" } }),
+    JSON.stringify({ type: "response_item", payload: { type: "message", cwd } }),
+    "",
+  ].join("\n");
 
+describe("carrying Codex's session to another machine", () => {
   it("keeps the rollout's place and rewrites the header's and each turn's folder", async () => {
     const home = await temp();
     const path = join("sessions", "2026", "11", "18", `rollout-2026-11-18T10-00-00-${id}.jsonl`);

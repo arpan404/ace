@@ -19,6 +19,10 @@ import { OutgoingTransfers } from "./outgoing.ts";
 import { TransferError } from "./ports.ts";
 import { threadGone } from "../thread-gone.ts";
 import { sourceThreads, targetProjects, targetThreads } from "./service-adapters.ts";
+import { liveSourcePorts, liveTargetPorts } from "./live/adapters.ts";
+import { ThreadOwnership } from "./live/ownership.ts";
+import { LiveSource } from "./live/source.ts";
+import { LiveTarget } from "./live/target.ts";
 
 export interface DaemonTransfers {
   outgoing: OutgoingTransfers;
@@ -86,6 +90,8 @@ export function startTransfers(context: ServiceContext): void {
   const transport: TransferTransport = (profile, route, callOptions) =>
     base(profile, route, { ...callOptions, connections });
 
+  // Which machine owns each thread (ADR 0190); the engine's fence reads the same record.
+  const ownership = new ThreadOwnership(store);
   const identities = transferIdentities(store, () => services.projects?.catalog, randomUUID, now);
   const incoming = new IncomingTransfers({
     store,
@@ -96,6 +102,9 @@ export function startTransfers(context: ServiceContext): void {
     projects: targetProjects(context),
     threads: targetThreads(context),
     identities,
+    live: new LiveTarget(
+      liveTargetPorts(context, { ownership, git, archive, log: record("warn") }),
+    ),
     now,
     log: record("info"),
   });
@@ -123,6 +132,14 @@ export function startTransfers(context: ServiceContext): void {
     sleep: options.transfers?.sleep ?? sleep,
     nextId: randomUUID,
     identities,
+    live: new LiveSource(
+      liveSourcePorts(context, {
+        ownership,
+        git,
+        archive,
+        sleep: options.transfers?.sleep ?? sleep,
+      }),
+    ),
     log: record("info"),
     ...(options.transfers?.offlineMs ? { offlineMs: options.transfers.offlineMs } : {}),
   });
@@ -137,6 +154,11 @@ export function startTransfers(context: ServiceContext): void {
       if (!runtime) return "workspace_unavailable";
       return runtime.continueRefusal(id);
     },
+    // A delegated child moves with its parent; a thread already moving can't move again.
+    liveRefusal: (id) =>
+      services.agentControl?.delegations.journal.get(id)
+        ? "thread_is_child"
+        : ownership.refusal(id)?.code,
   });
   const agents = new AgentTransfers({
     store,

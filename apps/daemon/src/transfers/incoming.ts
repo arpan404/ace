@@ -1,4 +1,5 @@
 import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
+import { rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
   WorkspaceId,
@@ -32,6 +33,7 @@ import {
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
+import { finalFolder, type LiveTarget } from "./live/target.ts";
 
 export interface IncomingDeps {
   store: Store;
@@ -44,6 +46,8 @@ export interface IncomingDeps {
   threads: TargetThreadStarter;
   /** Logical project identity (ADR 0180); without it, this target says it keeps none. */
   identities?: TransferIdentities | undefined;
+  /** Threads moved while working (ADR 0190); without it, this target takes none. */
+  live?: LiveTarget | undefined;
   now(): number;
   log(message: string, fields: Record<string, unknown>): void;
 }
@@ -128,6 +132,8 @@ export class IncomingTransfers {
       await this.rollback(record);
       this.import(this.rows.get(record.transferId) ?? record);
     }
+    // Moved threads whose first turn a restart interrupted.
+    for (const start of this.deps.live?.unfinished() ?? []) this.startLive(start.transferId);
     // Rows a cancel or failure settled before their rollback finished.
     for (const record of this.rows.leftovers()) await this.rollback(record);
     // Files a crash left behind for transfers that are settled or gone.
@@ -138,6 +144,7 @@ export class IncomingTransfers {
   /** Stops importing; a restart rolls back what an import made and runs it again. */
   async close(): Promise<void> {
     this.closed = true;
+    this.deps.live?.close();
     for (const controller of this.running.values()) controller.abort();
     await Promise.allSettled([...this.imports.values(), ...this.writes.values()]);
   }
@@ -148,21 +155,41 @@ export class IncomingTransfers {
   private ignoredFile(transferId: string) {
     return join(this.deps.directory, `${transferId}.ignored.part`);
   }
+  /** A live move's final payload: what changed after the bulk, and the session (ADR 0190). */
+  private finalFile(transferId: string) {
+    return join(this.deps.directory, `${transferId}.final.part`);
+  }
   private async removeFiles(transferId: string) {
     await removeQuietly(this.file(transferId));
     await removeQuietly(this.ignoredFile(transferId));
+    await removeQuietly(this.finalFile(transferId));
+    await rm(finalFolder(this.deps.directory, transferId), { recursive: true, force: true });
   }
   async view(record: IncomingRecord): Promise<IncomingTransfer> {
     const receiving = record.state === "receiving";
+    const live =
+      record.begin.live && this.deps.live ? this.deps.live.state(record.transferId) : undefined;
+    // A moved thread is answered completed only once its first turn's start is known.
+    const starting =
+      record.commit?.live && record.state === "completed" && live?.running === undefined;
     return {
       transferId: record.transferId,
-      state: record.state,
+      state: starting ? "importing" : record.state,
       method: record.method,
       offset: receiving ? await fileBytes(this.file(record.transferId)) : 0,
       // Always present: this machine takes ignored files.
       ignoredOffset: receiving ? await fileBytes(this.ignoredFile(record.transferId)) : 0,
       ...(record.hasOrigin === undefined ? {} : { hasOrigin: record.hasOrigin }),
       ...(this.deps.identities ? { identity: true as const } : {}),
+      ...(record.begin.live && this.deps.live
+        ? {
+            live: {
+              finalOffset: receiving ? await fileBytes(this.finalFile(record.transferId)) : 0,
+              ...(live?.running === undefined ? {} : { running: live.running }),
+              ...(live ? { session: live.session } : {}),
+            },
+          }
+        : {}),
       ...(record.result ? { result: record.result } : {}),
       ...(record.error ? { error: record.error } : {}),
     };
@@ -190,6 +217,8 @@ export class IncomingTransfers {
     }
   }
   private async begin(device: Device, call: TransferBegin): Promise<IncomingTransfer> {
+    if (call.live && !this.deps.live)
+      throw new TargetRefusal("invalid", "This machine can't take a working thread.");
     if (call.remote) (this.deps.gitPolicy?.validateUrl ?? validateCloneUrl)(call.remote.url);
     const existing = this.rows.get(call.transferId);
     if (existing) return this.view(this.owned(device, call.transferId));
@@ -282,20 +311,29 @@ export class IncomingTransfers {
     transferId: string,
     offset: number,
     data: Buffer,
-    part: "code" | "ignored" = "code",
+    part: "code" | "ignored" | "final" = "code",
   ) {
     const record = this.owned(device, transferId);
     if (data.length > transferChunkBytes) throw new TargetRefusal("invalid", "Chunk too large.");
     if (record.state !== "receiving")
       throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
     if (this.closed) throw new TargetRefusal("unavailable", "This machine is shutting down.");
-    const file = part === "ignored" ? this.ignoredFile(transferId) : this.file(transferId);
-    const other = part === "ignored" ? this.file(transferId) : this.ignoredFile(transferId);
+    const files = {
+      code: this.file(transferId),
+      ignored: this.ignoredFile(transferId),
+      final: this.finalFile(transferId),
+    };
+    if (part === "final" && !record.begin.live)
+      throw new TargetRefusal("invalid", "This transfer has no final payload.");
+    const file = files[part];
+    const others = Object.values(files).filter((path) => path !== file);
     const previous = this.writes.get(transferId) ?? Promise.resolve();
     // Serialised per transfer, so the cap counts both payloads as they stand before this write.
     const write = previous.then(async () => {
       const held = await fileBytes(file);
-      if (held === offset && held + data.length + (await fileBytes(other)) > maxTransferBytes)
+      let rest = 0;
+      for (const path of others) rest += await fileBytes(path);
+      if (held === offset && held + data.length + rest > maxTransferBytes)
         throw new TargetRefusal(
           "invalid",
           "The transfer is larger than a transfer may be (20 GiB with the files Git ignores).",
@@ -343,6 +381,20 @@ export class IncomingTransfers {
         return this.view(this.owned(device, call.transferId));
       }
     }
+    if (call.final) {
+      const final = this.finalFile(call.transferId);
+      const bytes = await fileBytes(final);
+      if (bytes !== call.final.bytes)
+        throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.final.bytes} bytes.`);
+      if ((await fileDigest(final)) !== call.final.sha256) {
+        await this.removeFiles(call.transferId);
+        this.settle(record.transferId, "failed", {
+          code: "transfer_corrupt",
+          message: "The file arrived damaged. Start the transfer again.",
+        });
+        return this.view(this.owned(device, call.transferId));
+      }
+    }
     // The sender's logical project lands in its registration here, where that fits the method.
     const byIdentity = call.identity
       ? await this.identityLanding(record, call.identity)
@@ -373,7 +425,12 @@ export class IncomingTransfers {
     const ignored = record.commit?.ignored ? this.ignoredFile(record.transferId) : undefined;
     let ignoredSkipped = 0;
     const mine: string[] = [];
+    const commit = record.commit;
+    const live = commit?.live && this.deps.live ? this.deps.live : undefined;
+    const folder = finalFolder(this.deps.directory, record.transferId);
     try {
+      if (live && commit?.final)
+        await live.unpack(this.finalFile(record.transferId), folder, signal);
       const landed = await landTransfer(
         {
           git: this.deps.git,
@@ -387,6 +444,12 @@ export class IncomingTransfers {
             this.rows.update(record.transferId, change, this.deps.now());
           },
           attempt: String(this.deps.now()),
+          ...(live && commit
+            ? {
+                delta: (path: string, held: { directoryFd: number } | undefined) =>
+                  live.delta(folder, record.transferId, commit, path, held),
+              }
+            : {}),
           // Ignored files go in once the checkout is there, never over a file it already has.
           ...(ignored
             ? {
@@ -405,22 +468,33 @@ export class IncomingTransfers {
               throw new TransferError("transfer_cancelled", "The transfer was cancelled.");
             this.past.add(record.transferId);
           },
-          created: (result) =>
+          created: (result) => {
             this.rows.update(
               record.transferId,
               { result: { ...result, ...(ignored ? { ignoredSkipped } : {}) } },
               this.deps.now(),
-            ),
+            );
+            // Past the cutoff, in the thread's own transaction: this machine owns it now.
+            if (live && commit?.live && result.threadId)
+              live.own({
+                transferId: record.transferId,
+                threadId: result.threadId,
+                live: commit.live,
+                from: { hostId: record.begin.origin.hostId, name: record.begin.origin.hostName },
+              });
+          },
         },
         record,
         hasFile ? file : undefined,
         signal,
       );
+      await this.prepareLive(record, landed);
       this.finish(this.rows.get(record.transferId) ?? record, {
         ...landed,
         ...(ignored ? { ignoredSkipped } : {}),
       });
       await this.removeFiles(record.transferId);
+      this.startLive(record.transferId);
     } catch (error) {
       const current = this.rows.get(record.transferId) ?? record;
       // Past the cutoff, the result stands and is never rolled back: what failed came after it
@@ -457,14 +531,50 @@ export class IncomingTransfers {
     result: NonNullable<IncomingRecord["result"]>,
   ): Promise<void> {
     try {
+      await this.prepareLive(record, result);
       this.finish(record, result);
       await this.removeFiles(record.transferId);
+      this.startLive(record.transferId);
     } catch (error) {
       this.deps.log("Transfer setup not finished", {
         transferId: record.transferId,
         error: String(error),
       });
     }
+  }
+  /**
+   * A moved thread (ADR 0190): its carried session placed, or the summary chosen, before its
+   * setup; the bulk's own capture ref removed. A restart repeats it with the same outcome.
+   */
+  private async prepareLive(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>) {
+    const live = this.deps.live;
+    const carried = record.commit?.live;
+    if (!live || !carried || !landed.threadId) return;
+    await live.prepare({
+      transferId: record.transferId,
+      threadId: landed.threadId,
+      live: carried,
+      folder: finalFolder(this.deps.directory, record.transferId),
+    });
+    await live.tidy(carried, landed.path);
+  }
+  /** Sends a moved thread's first turn and watches it start; the status answer waits for it. */
+  private startLive(transferId: string): void {
+    const record = this.rows.get(transferId);
+    const live = this.deps.live;
+    const commit = record?.commit;
+    if (!record || !live || !commit?.live || !commit.thread || !record.result?.threadId) return;
+    live
+      .start({
+        transferId,
+        live: commit.live,
+        from: record.begin.origin.hostName,
+        path: record.result.path,
+        handoff: commit.thread.handoff,
+      })
+      .catch((error: unknown) =>
+        this.deps.log("Moved thread's turn didn't start", { transferId, error: String(error) }),
+      );
   }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
   private finish(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>): void {
@@ -506,6 +616,8 @@ export class IncomingTransfers {
       this.deps.threads.setUp(
         {
           threadId: result.threadId,
+          // A carried session holds the whole conversation: no summary in front of it.
+          handoff: this.deps.live?.state(record.transferId)?.session.kind !== "native",
           thread,
           machine: { hostId: record.begin.origin.hostId, name: record.begin.origin.hostName },
         },

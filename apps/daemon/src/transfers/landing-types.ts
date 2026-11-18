@@ -80,6 +80,8 @@ export interface TargetThreadStarter {
       threadId: ThreadId;
       thread: NonNullable<TransferCommit["thread"]>;
       machine: { hostId: string; name: string };
+      /** False when a carried native session holds the conversation (ADR 0190). */
+      handoff?: boolean | undefined;
     },
     then: () => void,
   ): void;
@@ -102,6 +104,11 @@ export interface LandingDeps {
     createdId?: string | undefined;
     registeredId?: string | undefined;
   }): void;
+  /**
+   * A live move (ADR 0190): fetches what changed after the bulk into the repository, once the
+   * bulk is there and before the branch is placed.
+   */
+  delta?: ((path: string, held: { directoryFd: number } | undefined) => Promise<void>) | undefined;
   /** Distinct per attempt, so a retried import never reuses an earlier attempt's receipt. */
   attempt: string;
   /**

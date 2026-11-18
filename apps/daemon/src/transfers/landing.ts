@@ -97,6 +97,13 @@ async function land(
 ): Promise<Landed> {
   const commit = record.commit;
   if (!commit) throw new TransferError("transfer_invalid", "Nothing was sent to import.");
+  // A live move (ADR 0190): the bulk bundle holds the branch as it was then; the delta brings it
+  // up to the stop, and the work lands as `commit` says.
+  const base = bulkCommit(commit);
+  const delta = async (path: string, held: { directoryFd: number } | undefined) => {
+    await deps.delta?.(path, held);
+    signal.throwIfAborted();
+  };
   const { begin } = record;
   const key = `transfer:${record.transferId}:${deps.attempt}`;
   // Chosen when the transfer began; used only while it is still registered here.
@@ -137,8 +144,9 @@ async function land(
     if (!file) throw new TransferError("transfer_invalid", "The repository's bundle is missing.");
     if (reused) {
       // The whole repository again, into the project that has it: only its refs are fetched.
-      await fetchInto(deps, record, commit, reused.path, file, undefined);
+      await fetchInto(deps, record, base, reused.path, file, undefined);
       signal.throwIfAborted();
+      await delta(reused.path, undefined);
       return place(deps, made, record, commit, { ...reused, fresh: false }, signal);
     }
     await made.reserve(begin.parent, begin.name);
@@ -151,11 +159,12 @@ async function land(
         bundle: file,
         origin: begin.remote?.url,
         directoryFd: directory.fd,
-        ...(commit.branch ? { branch: commit.branch } : {}),
+        ...(base.branch ? { branch: base.branch } : {}),
       },
       deps.gitPolicy,
     );
     signal.throwIfAborted();
+    await delta(path, { directoryFd: directory.fd });
     const workspaceId = await deps.projects.register({ key, path, name: begin.name });
     made.registeredAs(workspaceId);
     return place(deps, made, record, commit, { path, workspaceId, fresh: true, directory }, signal);
@@ -189,16 +198,16 @@ async function land(
   signal.throwIfAborted();
   const held = made.handle ? { directoryFd: made.handle.fd } : undefined;
   try {
-    if (!(await hasBase(deps, path, file, commit, held))) {
+    if (!(await hasBase(deps, path, file, base, held))) {
       // A clone here that fell behind origin: catching up is enough, when origin answers.
       if (!fresh)
         await deps.git.fetchOrigin(path, { signal }, deps.gitPolicy).catch(() => undefined);
       signal.throwIfAborted();
-      if (!(await hasBase(deps, path, file, commit, held))) throw new NeedsFullBundle();
+      if (!(await hasBase(deps, path, file, base, held))) throw new NeedsFullBundle();
     }
-    if (file) await fetchInto(deps, record, commit, path, file, held);
+    if (file) await fetchInto(deps, record, base, path, file, held);
     // The branch's commit must be here now, from origin or the bundle.
-    if (commit.head && !(await deps.git.hasCommit(path, commit.head, held)))
+    if (base.head && !(await deps.git.hasCommit(path, base.head, held)))
       throw new NeedsFullBundle();
   } catch (error) {
     signal.throwIfAborted();
@@ -206,6 +215,7 @@ async function land(
     throw new NeedsFullBundle();
   }
   signal.throwIfAborted();
+  await delta(path, held);
   return place(
     deps,
     made,
@@ -214,4 +224,17 @@ async function land(
     { path, workspaceId, fresh, directory: made.handle },
     signal,
   );
+}
+
+/** What the bulk bundle of a live move holds; for any other transfer, the commit itself. */
+function bulkCommit(commit: TransferCommit): TransferCommit {
+  const bulk = commit.live?.bulk;
+  if (!bulk) return commit;
+  const { head: _head, changes: _changes, branch: _branch, ...rest } = commit;
+  return {
+    ...rest,
+    ...((bulk.branch ?? commit.branch) ? { branch: bulk.branch ?? commit.branch } : {}),
+    ...(bulk.head ? { head: bulk.head } : {}),
+    ...(bulk.changes ? { changes: bulk.changes } : {}),
+  };
 }

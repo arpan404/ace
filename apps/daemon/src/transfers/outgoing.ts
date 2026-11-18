@@ -30,6 +30,9 @@ import {
   type TransferRequest,
 } from "./outgoing-rows.ts";
 import { planSource, tooLarge, writeIgnoredFile, writeTransferFile } from "./prepare.ts";
+import { bulkHeadRef, finalChangesRef, type LiveSource } from "./live/source.ts";
+import { headRef } from "./landing-types.ts";
+import { cutoverStep, type CutoverEvent } from "./live/cutover.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 
 /** The source thread's side of a continuation. */
@@ -60,6 +63,8 @@ export interface OutgoingDeps {
   log(message: string, fields: Record<string, unknown>): void;
   /** Longest a target may stay unreachable before the transfer fails. */
   offlineMs?: number;
+  /** Moving a working thread (ADR 0190); without it, a busy thread is never sent. */
+  live?: LiveSource | undefined;
 }
 
 export interface StartTransfer {
@@ -82,6 +87,7 @@ function payloads(plan: TransferPlan | undefined): string[] {
   return [
     ...(plan?.file ? [plan.file.path] : []),
     ...(plan?.ignored && "path" in plan.ignored ? [plan.ignored.path] : []),
+    ...(plan?.live ? [plan.live.final.path] : []),
   ];
 }
 
@@ -107,6 +113,8 @@ export class OutgoingTransfers {
   /** Each running drive, so a cancel can wait for it to stop before asking the target. */
   private drives = new Map<string, Promise<void>>();
   private closed = false;
+  /** Ends the waits between a handed-over transfer's attempts at shutdown. */
+  private stopping = new AbortController();
   private progress = new Set<(transfer: Transfer) => void>();
   private settled = new Set<(record: OutgoingRecord) => void>();
   private lastBytes = new Map<string, number>();
@@ -210,6 +218,7 @@ export class OutgoingTransfers {
         ...(input.request.parent ? { parent: input.request.parent } : {}),
       },
       sentBytes: 0,
+      ...(input.request.live ? { live: { stage: "readying" as const } } : {}),
       startedAt: at,
       updatedAt: at,
     };
@@ -243,6 +252,7 @@ export class OutgoingTransfers {
   /** Stops sending; a restart resumes from the target's acknowledged offset. */
   async close(): Promise<void> {
     this.closed = true;
+    this.stopping.abort();
     for (const controller of this.running.values()) controller.abort();
     await Promise.allSettled(this.flights);
   }
@@ -256,6 +266,12 @@ export class OutgoingTransfers {
     const record = this.rows.get(transferId);
     if (!record) throw new TransferError("not_found", "No such transfer.");
     if (!cancellable.has(record.transfer.phase)) return record.transfer;
+    // A handed-over thread may already be the other machine's: only its answer settles it.
+    if (record.transfer.live?.stage === "handing")
+      throw new TransferError(
+        "too_late",
+        `It already reached ${record.transfer.target.name}; the thread is moving there and can't be cancelled.`,
+      );
     this.running.get(transferId)?.abort();
     // Nothing more is sent while the target decides.
     await this.drives.get(transferId);
@@ -296,11 +312,21 @@ export class OutgoingTransfers {
     if (this.running.has(transferId) || this.closed) return;
     const controller = new AbortController();
     this.running.set(transferId, controller);
+    let retry = false;
     const flight = this.drive(transferId, controller.signal)
       .catch(async (error: unknown) => {
         if (this.closed) return;
         const record = this.rows.get(transferId);
         if (!record || terminal.has(record.transfer.phase) || controller.signal.aborted) return;
+        // Handed over: the commit may have landed, so nothing here settles it. Ask again.
+        if (record.transfer.live?.stage === "handing") {
+          this.deps.log("Moving thread still waiting for its target", {
+            transferId,
+            error: String(error),
+          });
+          retry = true;
+          return;
+        }
         const failure =
           error instanceof TransferError
             ? error
@@ -322,6 +348,8 @@ export class OutgoingTransfers {
         this.running.delete(transferId);
         this.flights.delete(flight);
         if (this.drives.get(transferId) === flight) this.drives.delete(transferId);
+        if (retry && !this.closed)
+          void this.deps.sleep(5_000, this.stopping.signal).then(() => this.run(transferId));
       });
     this.flights.add(flight);
     this.drives.set(transferId, flight);
@@ -330,7 +358,7 @@ export class OutgoingTransfers {
    * Retries calls that couldn't reach the target, or that it answered while starting or stopping,
    * until it has been gone too long.
    */
-  private async reach<T>(signal: AbortSignal, call: () => Promise<T>): Promise<T> {
+  private async reach<T>(signal: AbortSignal, call: () => Promise<T>, patient = false): Promise<T> {
     const since = this.deps.now();
     for (let delay = 250; ; delay = Math.min(delay * 2, 30_000)) {
       try {
@@ -342,7 +370,8 @@ export class OutgoingTransfers {
           error instanceof MachineFailure &&
           (error.kind !== "refused" || error.refusal === "unavailable");
         if (!passing) throw error;
-        if (this.deps.now() - since > (this.deps.offlineMs ?? 60 * 60 * 1000))
+        // A handed-over thread waits for its target however long it takes (ADR 0190).
+        if (!patient && this.deps.now() - since > (this.deps.offlineMs ?? 60 * 60 * 1000))
           throw new TransferError(
             "machine_offline",
             "The other machine stayed unreachable. Start the transfer again when it's back.",
@@ -384,6 +413,7 @@ export class OutgoingTransfers {
       name: plan.name.slice(0, 256) || "project",
       ...(record.request.parent ? { parent: record.request.parent } : {}),
       ...(plan.remote ? { remote: plan.remote } : {}),
+      ...(record.request.live ? { live: true as const } : {}),
     };
     // The target lands a project sent again in the copy it made before, by the source's id. A
     // target older than that field refuses it: it is asked again without, as it knows.
@@ -394,8 +424,11 @@ export class OutgoingTransfers {
           error instanceof MachineFailure &&
           error.kind === "refused" &&
           error.refusal === "invalid"
-        )
+        ) {
+          // Nothing here stopped yet: the agent keeps working.
+          if (record.request.live) throw tooOld(record.transfer.target.name);
           return this.reach(signal, () => client.call(begin, signal));
+        }
         throw error;
       },
     );
@@ -417,9 +450,17 @@ export class OutgoingTransfers {
           phase: status.state === "cloning" ? "cloning" : "importing",
         });
         await this.deps.sleep(500, signal);
-        status = await this.reach(signal, () => client.call({ op: "status", transferId }, signal));
+        status = await this.reach(
+          signal,
+          () => client.call({ op: "status", transferId }, signal),
+          this.need(transferId).transfer.live?.stage === "handing",
+        );
         continue;
       }
+      if (record.request.live && !status.live) throw tooOld(record.transfer.target.name);
+      // A folder has no cheap diff: a moving thread's is packed once it stopped (ADR 0190).
+      if (record.request.live && method === "archive" && !plan.live)
+        ({ record, plan } = await this.stopLive(this.need(transferId), plan, signal));
       // Receiving: write what travels once, then send what the target doesn't hold yet.
       if (status.method !== method) {
         method = status.method;
@@ -473,10 +514,10 @@ export class OutgoingTransfers {
       if (record.transfer.totalBytes !== total)
         record = this.update(this.need(transferId), { totalBytes: total });
       record = this.update(this.need(transferId), { phase: "sending" });
-      const sent = { code: status.offset, ignored: status.ignoredOffset ?? 0 };
+      const sent = { code: status.offset, ignored: status.ignoredOffset ?? 0, final: 0 };
       // Chunk sizes and timeouts follow the throughput acknowledged chunks show.
       const pace = new ChunkPace();
-      const upload = async (part: "code" | "ignored", path: string, bytes: number) => {
+      const upload = async (part: "code" | "ignored" | "final", path: string, bytes: number) => {
         while (sent[part] < bytes) {
           signal.throwIfAborted();
           const from = sent[part];
@@ -494,15 +535,27 @@ export class OutgoingTransfers {
               throw error;
             }
           });
-          record = this.bytes(this.need(transferId), sent.code + sent.ignored);
+          record = this.bytes(this.need(transferId), sent.code + sent.ignored + sent.final);
         }
       };
       await upload("code", file?.path ?? "", codeBytes);
       await upload("ignored", ignored?.path ?? "", ignoredBytes);
+      // A working thread stops only now that the target holds the bulk (ADR 0190).
+      if (record.request.live && !plan.live)
+        ({ record, plan } = await this.stopLive(this.need(transferId), plan, signal));
+      const live = record.request.live ? plan.live : undefined;
+      if (live) {
+        sent.final = status.live?.finalOffset ?? 0;
+        await upload("final", live.final.path, live.final.bytes);
+        // Recorded before the commit leaves: from here only the target's answer settles it.
+        this.deps.live?.handing(record);
+        record = this.cutover(this.need(transferId), { type: "committing" });
+      }
       const thread = record.request.thread;
       const threadId = record.transfer.threadId;
-      // An agent continuing its own thread is the work that is still running; it hands over now.
-      if (threadId && !record.request.agent?.self) await this.deps.threads.assertIdle(threadId);
+      // An idle thread must still be idle; a live one was stopped above.
+      if (threadId && !record.request.agent?.self && !live)
+        await this.deps.threads.assertIdle(threadId);
       const carried: TransferThread | undefined =
         thread && threadId
           ? { ...thread, sourceThreadId: threadId, handoff: this.deps.threads.handoff(threadId) }
@@ -517,10 +570,16 @@ export class OutgoingTransfers {
             op: "commit",
             transferId,
             ...(file ? { file: { bytes: file.bytes, sha256: file.sha256 } } : {}),
-            ...(plan.branch ? { branch: plan.branch } : {}),
-            ...(plan.head ? { head: plan.head } : {}),
-            ...(plan.changes ? { changes: plan.changes } : {}),
+            ...((live ?? plan).branch ? { branch: (live ?? plan).branch } : {}),
+            ...((live ?? plan).head ? { head: (live ?? plan).head } : {}),
+            ...((live ?? plan).changes ? { changes: (live ?? plan).changes } : {}),
             ...(carried ? { thread: carried } : {}),
+            ...(live
+              ? {
+                  final: { bytes: live.final.bytes, sha256: live.final.sha256 },
+                  live: live.carried,
+                }
+              : {}),
             ...(ignored
               ? {
                   ignored: { bytes: ignored.bytes, sha256: ignored.sha256, files: ignored.files },
@@ -533,6 +592,41 @@ export class OutgoingTransfers {
       );
       record = this.update(this.need(transferId), { phase: "importing" });
     }
+  }
+  /**
+   * Stops a working thread at a safe point and writes the final payload (ADR 0190), kept on the
+   * row so a restart sends the same one. The thread runs here again if this fails.
+   */
+  private async stopLive(
+    record: OutgoingRecord,
+    plan: TransferPlan,
+    signal: AbortSignal,
+  ): Promise<{ record: OutgoingRecord; plan: TransferPlan }> {
+    const live = this.deps.live;
+    if (!live)
+      throw new TransferError("transfers_unavailable", "This machine can't move a working thread.");
+    let current = this.cutover(record, { type: "bulk_held" });
+    const stopped = await live.stop({
+      record: current,
+      plan,
+      directory: this.deps.directory,
+      signal,
+      interrupted: () => {
+        plan = { ...plan, interrupted: true };
+        current = this.update(this.need(current.transfer.transferId), {}, plan);
+      },
+    });
+    plan = { ...plan, live: stopped };
+    current = this.update(this.need(current.transfer.transferId), {}, plan);
+    return { record: current, plan };
+  }
+  /** One step of the live switch-over, kept on the row (see `cutover.ts`). */
+  private cutover(record: OutgoingRecord, event: CutoverEvent): OutgoingRecord {
+    const stage = record.transfer.live?.stage;
+    if (!stage) return record;
+    const next = cutoverStep(stage, event);
+    if (next.stage === stage) return record;
+    return this.update(record, { live: { ...record.transfer.live, stage: next.stage } });
   }
   private need(transferId: string): OutgoingRecord {
     const record = this.rows.get(transferId);
@@ -547,7 +641,12 @@ export class OutgoingTransfers {
     const transfer: Transfer = { ...record.transfer, ...change, updatedAt: this.deps.now() };
     this.rows.save(transfer, plan);
     const phaseChanged = transfer.phase !== record.transfer.phase;
-    if (phaseChanged || change.method !== undefined || change.totalBytes !== undefined)
+    if (
+      phaseChanged ||
+      change.method !== undefined ||
+      change.totalBytes !== undefined ||
+      change.live !== undefined
+    )
       this.publish(transfer);
     return { ...record, transfer, ...(plan ? { plan } : {}) };
   }
@@ -569,6 +668,11 @@ export class OutgoingTransfers {
     record: OutgoingRecord,
     result: NonNullable<IncomingTransfer["result"]>,
   ): Promise<Transfer> {
+    // A moved thread: the target owns it and its turn started there.
+    if (record.transfer.live && result.threadId) {
+      this.deps.live?.moved(record, result.threadId);
+      record = this.cutover(record, { type: "target_owns" });
+    }
     if (record.transfer.threadId && result.threadId)
       this.deps.threads.continuedOn(record.transfer.threadId, {
         hostId: HostId.parse(record.request.hostId),
@@ -583,14 +687,40 @@ export class OutgoingTransfers {
     });
   }
   /**
+   * A live move that ends without the target taking the thread: it runs here again, and an agent
+   * that was stopped is told to carry on (ADR 0190). Only the target's answer reaches here once
+   * handed over; a lost link keeps asking instead (see `run`).
+   */
+  private releaseLive(record: OutgoingRecord, change: Partial<Transfer>): OutgoingRecord {
+    const stage = record.transfer.live?.stage;
+    if (!stage || change.phase === "completed" || !this.deps.live) return record;
+    if (stage !== "stopping" && stage !== "handing")
+      return this.cutover(record, { type: "failed", interrupted: false });
+    const reason = change.error?.message ?? "it was cancelled.";
+    this.deps.live.release(record, {
+      confirmed: stage === "handing",
+      interrupted: stage === "handing" || record.plan?.interrupted === true,
+      reason,
+    });
+    return this.cutover(
+      record,
+      stage === "handing" ? { type: "target_released" } : { type: "failed", interrupted: true },
+    );
+  }
+  /**
    * Settles a transfer once: its files and capture refs go first, so a transfer that reads
    * settled has nothing of it left here; then the row settles and its listeners hear it.
    */
   private async finish(record: OutgoingRecord, change: Partial<Transfer>): Promise<Transfer> {
-    const current = this.rows.get(record.transfer.transferId) ?? record;
+    let current = this.rows.get(record.transfer.transferId) ?? record;
     if (terminal.has(current.transfer.phase)) return current.transfer;
+    current = this.releaseLive(current, change);
     for (const path of payloads(current.plan)) await removeQuietly(path);
-    for (const ref of [current.plan?.changes?.ref, current.plan?.pinned])
+    for (const ref of [
+      current.plan?.changes?.ref,
+      current.plan?.pinned,
+      ...(current.transfer.live ? liveRefs(current) : []),
+    ])
       if (ref && current.plan)
         await this.deps.git.deleteRef(current.plan.source, ref).catch((error: unknown) =>
           this.deps.log("Transfer ref not deleted", {
@@ -613,4 +743,18 @@ export class OutgoingTransfers {
     for (const listener of this.settled) listener(settled);
     return settled.transfer;
   }
+}
+
+/** The refs a live move pinned or captured in the source repository. */
+function liveRefs(record: OutgoingRecord): string[] {
+  const id = record.transfer.transferId;
+  return [finalChangesRef(id), bulkHeadRef(id), headRef(id)];
+}
+
+/** A target that can't take a working thread; nothing here stopped. */
+function tooOld(name: string): TransferError {
+  return new TransferError(
+    "target_too_old",
+    `${name} runs an older ace that can't take a working thread. Let it finish here, or update ace there.`,
+  );
 }
