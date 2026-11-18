@@ -31,7 +31,9 @@ import XCTest
         app.buttons["Rocket"].tap()
         shot("project-edit-icon", app)
 
-        for _ in 0..<6 where !app.buttons["project.edit.addNote"].isHittable { app.swipeUp() }
+        // The list builds its rows as they come near, so Add note only exists once scrolled to.
+        let addNote = app.buttons["project.edit.addNote"]
+        for _ in 0..<10 where !(addNote.exists && addNote.isHittable) { app.swipeUp() }
         app.buttons["project.edit.addNote"].tap()
         let note = app.textFields["Note"].firstMatch
         XCTAssertTrue(note.waitForExistence(timeout: 5))
@@ -50,7 +52,7 @@ import XCTest
         openProject("ace", in: app)
         // Untouched, Close just closes.
         app.buttons["project.edit"].tap()
-        let close = app.buttons["Close"].firstMatch
+        let close = app.buttons["project.edit.close"]
         XCTAssertTrue(app.textFields["project.edit.name"].waitForExistence(timeout: 10))
         close.tap()
         XCTAssertTrue(app.buttons["project.edit"].waitForExistence(timeout: 10))

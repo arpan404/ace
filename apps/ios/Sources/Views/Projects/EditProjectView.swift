@@ -101,11 +101,7 @@ struct EditProjectView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button { if dirty { discarding = true } else { done(.cancelled) } } label: { Image(systemName: "xmark") }
-                    .accessibilityLabel("Close")
-                    .confirmationDialog("Discard your changes?", isPresented: $discarding, titleVisibility: .visible) {
-                        Button("Discard changes", role: .destructive) { done(.cancelled) }
-                        Button("Keep editing", role: .cancel) {}
-                    }
+                    .accessibilityLabel("Close").accessibilityIdentifier("project.edit.close")
             }
             ToolbarItem(placement: .confirmationAction) {
                 if saving { WorkingMark(label: "Saving") } else {
@@ -116,6 +112,11 @@ struct EditProjectView: View {
         }
         // A swipe down never throws changes away; Close asks first.
         .interactiveDismissDisabled(dirty)
+        // An alert, not a dialog: iOS 26 draws a toolbar button's dialog as a popover without Keep editing.
+        .alert("Discard your changes?", isPresented: $discarding) {
+            Button("Discard changes", role: .destructive) { done(.cancelled) }
+            Button("Keep editing", role: .cancel) {}
+        }
         .projectRemoval(model: model, project: project, isPresented: $removing) { done(.removed) }
         .task { await readOptions() }
         .task(id: name) { initials = await model.projectInitials(name) ?? initials }

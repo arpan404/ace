@@ -89,10 +89,6 @@ struct AutomationEditor: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button { if dirty { discarding = true } else { dismiss() } } label: { Image(systemName: "xmark") }
                     .accessibilityLabel("Close").accessibilityIdentifier("automation.cancel")
-                    .confirmationDialog("Discard your changes?", isPresented: $discarding, titleVisibility: .visible) {
-                        Button("Discard changes", role: .destructive) { dismiss() }
-                        Button("Keep editing", role: .cancel) {}
-                    }
             }
             ToolbarItem(placement: .confirmationAction) {
                 if saving { WorkingMark(label: "Saving") } else {
@@ -104,6 +100,11 @@ struct AutomationEditor: View {
         }
         // A swipe down never throws a changed draft away; Close asks first.
         .interactiveDismissDisabled(dirty)
+        // An alert, not a dialog: iOS 26 draws a toolbar button's dialog as a popover without Keep editing.
+        .alert("Discard your changes?", isPresented: $discarding) {
+            Button("Discard changes", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        }
         .sensoryFeedback(.success, trigger: savedCount)
         .sheet(isPresented: $choosingModel) {
             AutomationModelSheet(compose: model.compose, pick: Binding(get: { pick }, set: { pick = $0; pickChanged = true }),
