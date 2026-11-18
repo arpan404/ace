@@ -26,7 +26,7 @@ function actions(): ReturnType<typeof useFileActions> {
   };
 }
 
-function draw(overrides: { wrap?: boolean; readable?: boolean } = {}) {
+function draw(overrides: { wrap?: boolean; readable?: boolean; editing?: boolean } = {}) {
   const onWrap = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -39,6 +39,7 @@ function draw(overrides: { wrap?: boolean; readable?: boolean } = {}) {
         finding={false}
         treeOpen={false}
         readable={overrides.readable ?? true}
+        editing={overrides.editing ?? false}
         online
         actions={actions()}
         onFolder={vi.fn()}
@@ -72,4 +73,11 @@ test("wrap waits for a file that can be read as text", () => {
   draw({ readable: false });
   const button = screen.getByRole("button", { name: "Wrap lines" });
   expect((button as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("wrap stays available while the file is open in the editor", () => {
+  // The editor wraps its own text, and Alt+Z works there; the button must not be the way out.
+  draw({ readable: false, editing: true });
+  const button = screen.getByRole("button", { name: "Wrap lines" });
+  expect((button as HTMLButtonElement).disabled).toBe(false);
 });
