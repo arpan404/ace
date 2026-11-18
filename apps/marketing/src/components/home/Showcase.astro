@@ -34,7 +34,7 @@ const span: Record<ShowcaseId, string> = {
       showcase.tiles.map((tile) => {
         const Tag = tile.href ? "a" : "div";
         return (
-          <Tag class:list={["piece", span[tile.id], "reveal"]} href={tile.href}>
+          <Tag class:list={["piece", span[tile.id], "reveal"]} href={tile.href} data-piece>
             <div class="art" aria-hidden="true">
               {tile.id === "browser" && (
                 <div class="win browser">
@@ -110,9 +110,17 @@ const span: Record<ShowcaseId, string> = {
               )}
 
               {tile.id === "devices" && (
-                <div class="sim-wrap">
-                  <SimulatorWindow />
-                </div>
+                <>
+                  <div class="sim-wrap">
+                    <SimulatorWindow />
+                  </div>
+                  <div class="ask">
+                    <span>
+                      <b>Claude on build-server</b> wants to use iPhone 17 Pro
+                    </span>
+                    <span class="allow">Allow</span>
+                  </div>
+                </>
               )}
 
               {tile.id === "accounts" && (
@@ -221,15 +229,41 @@ const span: Record<ShowcaseId, string> = {
     }
   }
 
-  /* The picture: a piece of the app on the page's own ground, cut off by the tile's edge. */
+  /*
+   * The picture: a piece of the app on the page's own ground, cut off by the tile's edge. A
+   * blue light follows the pointer across the ground, and the window and what floats over it
+   * shift against each other as the pointer moves (`--px`, `--py`, set by the script below).
+   */
   .art {
     position: relative;
     height: 300px;
     overflow: hidden;
     border-bottom: 1px solid var(--border);
     background-color: var(--background);
-    background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.6px);
-    background-size: 22px 22px;
+    background-image:
+      radial-gradient(
+        380px circle at var(--lx, 50%) var(--ly, -40%),
+        color-mix(in srgb, var(--line) 14%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(circle, var(--dot) 1px, transparent 1.6px);
+    background-size:
+      auto,
+      22px 22px;
+  }
+
+  .win,
+  .sim-wrap {
+    translate: calc(var(--px, 0) * -8px) calc(var(--py, 0) * -6px);
+    transition: translate 0.5s var(--ease-out);
+  }
+
+  .pointer,
+  .comment,
+  .move,
+  .ask {
+    translate: calc(var(--px, 0) * 10px) calc(var(--py, 0) * 8px);
+    transition: translate 0.5s var(--ease-out);
   }
 
   .words {
@@ -522,6 +556,120 @@ const span: Record<ShowcaseId, string> = {
     transform-origin: 50% 0;
   }
 
+  /* The request an agent on another machine makes before it may use this Mac's Simulator. */
+  .ask {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 9px 9px 14px;
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow:
+      0 0 0 1px var(--border-strong),
+      0 18px 36px -18px var(--frame-shadow);
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .ask b {
+    font-weight: 600;
+  }
+
+  .ask .allow {
+    flex: none;
+    padding: 6px 13px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 600;
+  }
+
+  /*
+   * Each drawing plays once as its tile comes into view: the agent's pointer arrives and presses
+   * Pay, the comment lands on its line, the request slides up, the account fills and the
+   * thread moves, the automations list in.
+   */
+  :global(html.motion) .piece:global(.is-in) .pointer {
+    animation: arrive 1.1s var(--ease-out) 0.5s both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .button {
+    animation: press 0.3s var(--ease-out) 1.65s both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) :is(.comment, .ask) {
+    animation: rise 0.6s var(--ease-out) 0.7s both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .meter.full i {
+    animation: fill 1s var(--ease-out) 0.4s both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .move {
+    animation: press 0.3s var(--ease-out) 1.5s both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .meter:not(.full) i {
+    animation: start 0.8s var(--ease-out) 1.8s both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .auto {
+    animation: rise 0.5s var(--ease-out) both;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .auto:nth-child(1) {
+    animation-delay: 0.35s;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .auto:nth-child(2) {
+    animation-delay: 0.45s;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .auto:nth-child(3) {
+    animation-delay: 0.55s;
+  }
+
+  :global(html.motion) .piece:global(.is-in) .auto:nth-child(4) {
+    animation-delay: 0.65s;
+  }
+
+  @keyframes arrive {
+    from {
+      transform: translate(-150px, -70px);
+      opacity: 0;
+    }
+  }
+
+  @keyframes press {
+    50% {
+      scale: 0.96;
+    }
+  }
+
+  @keyframes rise {
+    from {
+      transform: translateY(12px);
+      opacity: 0;
+    }
+  }
+
+  @keyframes fill {
+    from {
+      width: 58%;
+    }
+  }
+
+  @keyframes start {
+    from {
+      width: 0;
+    }
+  }
+
   /* An account at its limit, and the one the thread moves to. */
   .accounts {
     top: 50%;
@@ -620,3 +768,24 @@ const span: Record<ShowcaseId, string> = {
     font-size: 12px;
   }
 </style>
+
+<script>
+  /* Each tile learns where the pointer is over it: in pixels for its light, and from -1 to 1 for
+     the shift between its layers. Leaving a tile settles it back. */
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  for (const piece of document.querySelectorAll<HTMLElement>("[data-piece]")) {
+    piece.addEventListener("pointermove", (event) => {
+      const box = piece.getBoundingClientRect();
+      const x = event.clientX - box.left;
+      const y = event.clientY - box.top;
+      piece.style.setProperty("--lx", `${x}px`);
+      piece.style.setProperty("--ly", `${y}px`);
+      if (still) return;
+      piece.style.setProperty("--px", ((x / box.width) * 2 - 1).toFixed(3));
+      piece.style.setProperty("--py", ((y / box.height) * 2 - 1).toFixed(3));
+    });
+    piece.addEventListener("pointerleave", () => {
+      for (const name of ["--lx", "--ly", "--px", "--py"]) piece.style.removeProperty(name);
+    });
+  }
+</script>

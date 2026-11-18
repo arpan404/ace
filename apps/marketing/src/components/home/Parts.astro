@@ -6,6 +6,18 @@
  */
 import { partGroups } from "../../content/parts.ts";
 import Icon from "../Icon.astro";
+
+/* One small drawing per group, in the lines the home story's diagram is drawn in. */
+const emblems: Record<string, string> = {
+  Agents:
+    '<circle cx="8" cy="20" r="4"/><path d="M12 20h30M22 20c7 0 5-12 12-12h8M22 20c7 0 5 12 12 12h8"/><circle cx="46" cy="8" r="4"/><circle cx="46" cy="20" r="4"/><circle cx="46" cy="32" r="4"/>',
+  Tools:
+    '<rect x="4" y="5" width="46" height="30" rx="5"/><path d="M4 13h46"/><path d="M27 19l5 14 3.2-5.8L41 25z"/>',
+  Machines:
+    '<rect x="7" y="6" width="34" height="22" rx="3"/><path d="M2 32h44"/><rect x="50" y="12" width="12" height="22" rx="3"/>',
+  Workbench:
+    '<circle cx="10" cy="8" r="4"/><circle cx="10" cy="32" r="4"/><circle cx="44" cy="12" r="4"/><path d="M10 12v16M44 16c0 9-34 2-34 10"/>',
+};
 ---
 
 <section class="section page parts">
@@ -17,6 +29,9 @@ import Icon from "../Icon.astro";
     {
       partGroups.map((group) => (
         <section class="group reveal">
+          <svg class="emblem" width="64" height="40" viewBox="0 0 64 40" aria-hidden="true">
+            <Fragment set:html={emblems[group.name] ?? ""} />
+          </svg>
           <h3>{group.name}</h3>
           <p class="line">{group.line}</p>
           <ul>
@@ -55,9 +70,27 @@ import Icon from "../Icon.astro";
 
   .groups {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 232px), 1fr));
-    gap: 56px 32px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: 16px;
     margin-top: clamp(40px, 6vw, 72px);
+  }
+
+  /* Each group is a card, like the showcase's tiles. */
+  .group {
+    padding: 26px 24px 12px;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--surface);
+  }
+
+  .emblem {
+    display: block;
+    margin-bottom: 22px;
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   h3 {
