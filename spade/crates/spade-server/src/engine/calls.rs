@@ -887,8 +887,8 @@ async fn run_tools(
 }
 
 /// The longest a call's classification may take (reading the scripts and makefiles it runs)
-/// before it goes to the person as unclear.
-const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+/// before it is given up ([`Engine::classify_time`]).
+pub(crate) const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a call reaches (ADR 0144), worked out off the turn's thread: reading a command's files is
 /// blocking work, bounded by the classifier's budget and here by [`CLASSIFY_TIME`]. Stop is
@@ -904,13 +904,21 @@ async fn classify(
     let Some(tool) = engine.tools.get_for(id, name) else {
         return Some(Class::Sensitive(Sensitive::Unknown).into());
     };
+    // A classification that fails never widens where the call runs: one asking to leave the
+    // sandbox goes to the person, anything else stays in it (and a launch held to the sandbox is
+    // refused where there is none).
+    let failed = if crate::workspace::asks_outside(arguments) {
+        autonomy::Classed::asks_outside()
+    } else {
+        autonomy::Classed::sandboxed()
+    };
     let (key, arguments) = (key.to_owned(), arguments.clone());
     let work = tokio::task::spawn_blocking(move || tool.classed(&key, &arguments));
     tokio::select! {
-        done = tokio::time::timeout(CLASSIFY_TIME, work) => Some(match done {
+        done = tokio::time::timeout(engine.classify_time(), work) => Some(match done {
             Ok(Ok(classed)) => classed,
-            // Took too long, or panicked: the person decides.
-            _ => Class::Sensitive(Sensitive::Unclear).into(),
+            // Took too long, or panicked.
+            _ => failed,
         }),
         _ = stop.wait_for(|stopped| *stopped) => None,
     }

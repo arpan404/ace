@@ -135,6 +135,22 @@ impl Engine {
         self.oversight().map_or(true, |global| global.classifier)
     }
 
+    /// How long a call's classification may take before it is given up (where a call runs is
+    /// then never widened).
+    pub(crate) fn classify_time(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(
+            self.classify_ms.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Sets that budget; for tests that must see a classification run out of time.
+    pub fn set_classify_time(&self, time: std::time::Duration) {
+        self.classify_ms.store(
+            u64::try_from(time.as_millis()).unwrap_or(u64::MAX),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
     /// Whether Spade's classifier can screen calls now: on, and its model built into this binary
     /// loads. In Full access an app's write runs only then (ADR 0163, amendment 2).
     pub(crate) fn classifier_ready(&self) -> bool {

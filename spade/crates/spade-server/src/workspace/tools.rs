@@ -433,7 +433,8 @@ struct ShellArgs {
 }
 
 /// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
-fn asks_outside(arguments: &Value) -> bool {
+/// Whether a `shell` call asks to run outside the sandbox this once.
+pub fn asks_outside(arguments: &Value) -> bool {
     arguments.get(OUTSIDE_SANDBOX).and_then(Value::as_bool) == Some(true)
 }
 

@@ -152,6 +152,8 @@ pub struct Engine {
     media: Arc<crate::media::Media>,
     /// Spade's classifier's decisions, logged on this machine (ADR 0172).
     decisions: classify::Decisions,
+    /// How long a call's classification may take, in milliseconds.
+    classify_ms: std::sync::atomic::AtomicU64,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -294,6 +296,9 @@ impl Engine {
             images: setup.images,
             media,
             decisions,
+            classify_ms: std::sync::atomic::AtomicU64::new(
+                u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
+            ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),
