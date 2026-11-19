@@ -148,6 +148,7 @@ impl Services {
                             // let start only held is refused where nothing holds it.
                             may_run_uncontained: false,
                             contained_only: plan.contained_only(),
+                            verify: None,
                             clean: false,
                             read_only: false,
                         },

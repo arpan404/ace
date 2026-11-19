@@ -31,7 +31,7 @@ use tokio::time::Instant;
 
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
-use crate::workspace::shell::{Cleanup, Job, LaunchPlan, Ran, Shell, Tee};
+use crate::workspace::shell::{Cleanup, Job, LaunchPlan, Ran, Shell, Tee, Verify};
 
 /// How long a command's supervisor waits for the end of what it started before it gives up and
 /// quarantines the terminal.
@@ -703,6 +703,7 @@ impl Terminal {
             LaunchPlan::AS_FOUND,
             &[],
             false,
+            None,
         )
         .await
     }
@@ -722,6 +723,7 @@ impl Terminal {
         plan: LaunchPlan,
         overrides: &[(String, String)],
         settled: bool,
+        verify: Option<Verify>,
     ) -> Result<Ran, String> {
         let overrides = overrides.to_vec();
         let lane = lock(&self.commands)
@@ -754,7 +756,7 @@ impl Terminal {
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), plan, &overrides, settled) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), plan, &overrides, settled, verify) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -824,6 +826,7 @@ impl Terminal {
         plan: LaunchPlan,
         overrides: &[(String, String)],
         settled: bool,
+        verify: Option<Verify>,
     ) -> Result<Ran, String> {
         let carried = self.carried_in(session);
         // A settled command runs with a clean, fixed environment (`Job::clean`), never the
@@ -894,6 +897,8 @@ impl Terminal {
                     may_run_uncontained: plan.may_run_uncontained,
                     // Cleared to run only contained: refused where nothing holds it.
                     contained_only: plan.contained_only(),
+                    // Under this session's lock: no other command runs here until it starts.
+                    verify,
                     clean: settled,
                     read_only: settled,
                 },

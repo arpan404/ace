@@ -285,7 +285,10 @@ impl From<Class> for Classed {
 /// folder it starts in).
 pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
     let Some(command) = arguments.get("command").and_then(Value::as_str) else {
-        return Class::Sensitive(Sensitive::Unclear).into();
+        return Classed {
+            incomplete: true,
+            ..Class::Sensitive(Sensitive::Unclear).into()
+        };
     };
     let assessed = shell::assess(command, place);
     let (class, credentials) = match assessed.finding {

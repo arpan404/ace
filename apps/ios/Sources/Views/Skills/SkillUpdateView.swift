@@ -15,7 +15,7 @@ struct SkillSourceRow: View {
     @State private var problem: String?
 
     var body: some View {
-        QuietSectionRow {
+        StackingRow {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 QuietRowText(title: "Source", detail: check.map { "\(source) · \($0.status)" } ?? source)
                 if let problem {
@@ -28,11 +28,11 @@ struct SkillSourceRow: View {
             if model.canOperate {
                 if check?.available == true {
                     Button("Review update") { reviewing = true }
-                        .buttonStyle(.textAction(.prominent))
+                        .buttonStyle(.secondaryAction).controlSize(.small)
                         .accessibilityIdentifier("skill.update.review")
                 } else {
                     Button(checking ? "Checking…" : "Check for update") { Task { await runCheck() } }
-                        .buttonStyle(.textAction(.prominent))
+                        .buttonStyle(.secondaryAction).controlSize(.small)
                         .disabled(checking)
                         .accessibilityIdentifier("skill.update.check")
                 }
@@ -95,7 +95,7 @@ struct SkillUpdateReviewView: View {
                     if let problem { ProblemRow(problem, id: "skill.update.review.problem") }
                     if review != nil {
                         Button(busy ? "Updating…" : "Update") { Task { await apply() } }
-                            .buttonStyle(.textAction(.prominent))
+                            .buttonStyle(.primaryAction).controlSize(.large)
                             .disabled(busy || !model.canOperate)
                             .padding(.horizontal, AceDesign.Space.margin)
                             .accessibilityIdentifier("skill.update.apply")
@@ -111,7 +111,11 @@ struct SkillUpdateReviewView: View {
             }
             .background(AceDesign.Surface.background)
             .navigationTitle(review?.title ?? "Update \(title)").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close").disabled(busy)
+                }
+            }
         }
         .interactiveDismissDisabled(busy)
         .task { await prepare() }

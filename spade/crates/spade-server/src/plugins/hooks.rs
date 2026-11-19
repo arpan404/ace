@@ -134,6 +134,7 @@ impl Plugins {
                     may_run_uncontained: false,
                     // Plugin hooks were never gated (ADR 0171): no gate decided this one.
                     contained_only: false,
+                    verify: None,
                     clean: false,
                     read_only: false,
                 })

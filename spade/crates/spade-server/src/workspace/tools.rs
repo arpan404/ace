@@ -420,6 +420,7 @@ impl Tool for WorkspaceEdit {
     }
 }
 
+#[derive(Clone)]
 pub struct ShellTool {
     place: Place,
     shell: Commands,
@@ -431,6 +432,34 @@ struct ShellArgs {
     #[serde(default)]
     timeout_s: Option<u64>,
 }
+
+impl ShellTool {
+    /// The check a call allowed outside the sandbox makes last, right before it starts: what it
+    /// runs, read again as it starts, is complete and is what was allowed.
+    fn last_check(&self, key: &str, arguments: &Value) -> Option<crate::workspace::shell::Verify> {
+        let expected = self.place.bots.get()?.take_binding(key)?;
+        let (tool, key, arguments) = (self.clone(), key.to_owned(), arguments.clone());
+        Some(Box::new(move || {
+            let now = Tool::classed(&tool, &key, &arguments);
+            if now.incomplete {
+                return Err(spade_core::autonomy::refused(LAST_UNREAD));
+            }
+            if crate::engine::binding(&now.shown) != expected {
+                return Err(spade_core::autonomy::refused(LAST_CHANGED));
+            }
+            Ok(())
+        }))
+    }
+}
+
+/// Why an allowed command didn't start: part of what it runs couldn't be read whole as it
+/// started.
+const LAST_UNREAD: &str = "Part of what this command runs couldn't be read whole as it \
+     started, so it isn't known to be what was allowed.";
+
+/// Why an allowed command didn't start: a file it runs changed while it waited to start.
+const LAST_CHANGED: &str = "A file it runs changed while it waited to start, after it was \
+     allowed.";
 
 /// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
 pub fn asks_outside(arguments: &Value) -> bool {
@@ -587,6 +616,10 @@ impl Tool for ShellTool {
         let shell = self.shell.clone();
         let name = output_name(key);
         let (place, key) = (self.place.clone(), key.to_owned());
+        // A call allowed outside the sandbox is read again by its own run, last, right before
+        // it starts: under the terminal's lock for a terminal command, so no earlier command can
+        // rewrite what it runs in between (ADR 0171, amendment 4).
+        let verify = self.last_check(&key, &arguments);
         Box::pin(async move {
             let args: ShellArgs = match parse(arguments) {
                 Ok(args) => args,
@@ -653,22 +686,21 @@ impl Tool for ShellTool {
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
                             contained_only: plan.contained_only(),
+                            verify,
                             clean: form.is_some(),
                             read_only: form.is_some(),
                         })
                         .await
                 }
                 Commands::Terminal(terminals) => {
-                    in_terminal(
-                        &place,
-                        &key,
-                        terminals,
-                        &args.command,
+                    let run = TerminalRun {
+                        command: &args.command,
                         timeout,
                         plan,
                         overrides,
-                    )
-                    .await
+                        verify,
+                    };
+                    in_terminal(&place, &key, terminals, run).await
                 }
             };
             // Whatever the command did to the folder, the app looks again.
@@ -710,16 +742,24 @@ impl Tool for ShellTool {
 /// How a terminal command's scope names the state it was allowed in.
 const STATE: &str = "\n[terminal state ";
 
+/// A command for the bot's terminal, as the gate cleared it.
+struct TerminalRun<'a> {
+    command: &'a str,
+    timeout: Duration,
+    plan: crate::workspace::shell::LaunchPlan,
+    /// The classifier's configuration overrides it runs with, if any.
+    overrides: &'a [(String, String)],
+    /// Read again under the terminal's lock, right before it starts.
+    verify: Option<crate::workspace::shell::Verify>,
+}
+
 /// Runs the bot's command in its terminal; refused while the person has its computer, and when
 /// the terminal is no longer in the state the command was allowed in.
 async fn in_terminal(
     place: &Place,
     key: &str,
     terminals: &crate::computer::Terminals,
-    command: &str,
-    timeout: Duration,
-    plan: crate::workspace::shell::LaunchPlan,
-    overrides: &[(String, String)],
+    run: TerminalRun<'_>,
 ) -> Result<Ran, String> {
     let bot = place
         .bots
@@ -750,12 +790,13 @@ async fn in_terminal(
         .of(&bot)?
         .run_in_state(
             &session,
-            command,
-            timeout,
+            run.command,
+            run.timeout,
             expected.as_deref(),
-            plan,
-            overrides,
-            !overrides.is_empty(),
+            run.plan,
+            run.overrides,
+            !run.overrides.is_empty(),
+            run.verify,
         )
         .await
 }

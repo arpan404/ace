@@ -908,6 +908,231 @@ async fn a_verdict_given_on_one_page_is_not_reused_on_another_after_a_restart() 
     Ok(())
 }
 
+/// A shell command the scripted reviewer allowed, Spade stopped between the review and the start,
+/// and `stored` run on the database (to leave the verdict as an earlier review gave it); after
+/// the restart the reviewer reads `after`. How many times it ran, and how many reviews it had.
+async fn shell_restarted_after_its_review(
+    stored: &str,
+    after: Vec<Script>,
+) -> Result<(usize, usize)> {
+    let reviewed = || support::Options {
+        reviewer: None,
+        ..support::Options::default()
+    };
+    let shell = || FakeTool::new("shell", Risk::Write, "ok");
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "cargo test" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Tests pass."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(shell()) as Arc<dyn Tool>],
+        reviewed(),
+    )
+    .await?;
+    let agent = spade.new_agent("Builder", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Run the tests").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let again = shell();
+    let commands = again.calls();
+    let spade = spade
+        .restart_paused_with(
+            &format!(
+                "DELETE FROM events WHERE seq > (SELECT seq FROM events
+                     WHERE json_extract(body, '$.type') = 'call_reviewed')
+                   AND conversation_id = (SELECT conversation_id FROM events
+                     WHERE json_extract(body, '$.type') = 'call_reviewed');
+                 INSERT INTO events (conversation_id, seq, at_ms, body)
+                   SELECT conversation_id, seq + 1, at_ms,
+                     json_object('type', 'turn_paused', 'reply', json_extract(body, '$.reply'))
+                   FROM events WHERE json_extract(body, '$.type') = 'call_reviewed';
+                 {stored}"
+            ),
+            vec![Arc::new(again) as Arc<dyn Tool>],
+            after,
+            reviewed(),
+        )
+        .await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let reviews = events
+        .iter()
+        .filter(|e| e["type"] == "call_reviewed" && e["call_id"] == "c1")
+        .count();
+    Ok((ran(&commands), reviews))
+}
+
+#[tokio::test]
+async fn a_reviewer_allow_for_a_contained_command_is_not_reused_once_it_would_run_outside() -> Result
+{
+    const REFUSE: &str = r#"{"verdict":"refuse","reason":"Not outside the sandbox."}"#;
+    let review = "UPDATE events SET body = ";
+    // Given while the bot's commands ran in the sandbox, or by a build that recorded no limit
+    // (read as contained-only); after the restart the command runs outside it.
+    for stored in [
+        "json_set(body, '$.launch', 'contained')",
+        "json_remove(body, '$.launch')",
+    ] {
+        let (ran, reviews) = shell_restarted_after_its_review(
+            &format!("{review}{stored} WHERE json_extract(body, '$.type') = 'call_reviewed';"),
+            vec![Script::reply("").plain(REFUSE), Script::reply("Left it.")],
+        )
+        .await?;
+        assert_eq!(
+            ran, 0,
+            "reviewed afresh for the wider launch, and refused: {stored}"
+        );
+        assert_eq!(reviews, 2, "{stored}");
+    }
+    // Given for the launch it now has, the stored verdict stands: no second review.
+    let (ran, reviews) =
+        shell_restarted_after_its_review("", vec![Script::reply("Tests pass.")]).await?;
+    assert_eq!((ran, reviews), (1, 1));
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_approval_stored_without_its_launch_never_lets_a_command_run_outside() -> Result {
+    // Asked by a build that recorded no launch with it, for a command run outside the sandbox,
+    // whether the bot asked for that or its commands ran there: read as contained-only.
+    for arguments in [
+        json!({ "command": "cargo test", "outside_sandbox": true }),
+        json!({ "command": "cargo test" }),
+    ] {
+        let spade = Spade::start(
+            vec![Script::reply("").call("c1", "shell", arguments.clone())],
+            vec![Arc::new(FakeTool::new("shell", Risk::Write, "ok")) as Arc<dyn Tool>],
+        )
+        .await?;
+        let agent = spade.new_agent("Builder", "").await?;
+        let conversation = agent["conversation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        spade.say(&conversation, "Run the tests").await?;
+        spade.wait_for(&conversation, "approval_requested").await?;
+        let again = FakeTool::new("shell", Risk::Write, "ok");
+        let commands = again.calls();
+        let spade = spade
+            .restart_paused_with(
+                "UPDATE events SET body = json_remove(body, '$.launch')
+                   WHERE json_extract(body, '$.type') = 'approval_requested';",
+                vec![Arc::new(again) as Arc<dyn Tool>],
+                vec![Script::reply("Left it."), Script::reply("").plain(TITLE)],
+                support::Options::default(),
+            )
+            .await?;
+        let (status, body) = spade
+            .post(
+                &format!("/v1/conversations/{conversation}/approvals/c1"),
+                json!({ "allowed": true }),
+            )
+            .await?;
+        assert_eq!(status, 202, "{body}");
+        let events = spade.wait_for(&conversation, "reply_finished").await?;
+        let said = events
+            .iter()
+            .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")
+            .map(|e| e["content"].to_string())
+            .unwrap_or_default();
+        assert!(
+            said.contains("wider than when the person allowed it"),
+            "{arguments}: {said}"
+        );
+        assert_eq!(ran(&commands), 0, "{arguments}");
+    }
+    Ok(())
+}
+
+/// A conversation holding the person's Always allow from an earlier call, `asked` as it was
+/// stored, then `tool` called with `cargo test`: how many times it ran, and whether it asked.
+async fn cargo_test_after_an_always_allow(asked: Value, tool: FakeTool) -> Result<(usize, bool)> {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let agent = spade.new_agent("Builder", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let stored = |body: Value| {
+        format!(
+            "INSERT INTO events (conversation_id, seq, at_ms, body) SELECT '{conversation}', \
+             COALESCE(MAX(seq), 0) + 1, 0, '{body}' FROM events \
+             WHERE conversation_id = '{conversation}';"
+        )
+    };
+    let call = asked["call_id"].clone();
+    let seed = [
+        stored(asked),
+        stored(
+            json!({ "type": "approval_answered", "reply": "r0", "call_id": call,
+                       "allowed": true, "always": true }),
+        ),
+    ]
+    .join("\n");
+    let commands = tool.calls();
+    let spade = spade
+        .restart_paused_with(
+            &seed,
+            vec![Arc::new(tool) as Arc<dyn Tool>],
+            vec![
+                Script::reply("").call("c1", "shell", json!({ "command": "cargo test" })),
+                Script::reply("Tests pass."),
+                Script::reply("").plain(TITLE),
+            ],
+            support::Options::default(),
+        )
+        .await?;
+    spade.say(&conversation, "Run the tests").await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let events = spade.events(&conversation).await?;
+        let asked = requests(&events).iter().any(|e| e["call_id"] == "c1");
+        let done = events.iter().any(|e| e["type"] == "reply_finished");
+        if asked || done || Instant::now() > deadline {
+            return Ok((ran(&commands), asked));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_always_allow_given_for_a_contained_command_is_not_reused_to_run_it_outside() -> Result {
+    // The fake shell's commands run outside the sandbox. An Always allow for `cargo test` given
+    // while they ran in it, and one for the whole tool from a build that recorded no launch (read
+    // as contained-only), each leave the command to be asked about afresh.
+    let given = |scope: Option<&str>, launch: Option<&str>| {
+        let mut asked = json!({ "type": "approval_requested", "reply": "r0", "call_id": "old",
+                               "name": "shell", "arguments": { "command": "cargo test" } });
+        if let Some(scope) = scope {
+            asked["scope"] = json!(scope);
+        }
+        if let Some(launch) = launch {
+            asked["launch"] = json!(launch);
+        }
+        asked
+    };
+    let scoped = || FakeTool::new("shell", Risk::Write, "ok").scoped();
+    let whole = || FakeTool::new("shell", Risk::Write, "ok");
+    for (asked, tool) in [
+        (given(Some("cargo test"), Some("contained")), scoped()),
+        (given(Some("cargo test"), None), scoped()),
+        (given(None, None), whole()),
+    ] {
+        let (ran, asked_again) = cargo_test_after_an_always_allow(asked.clone(), tool).await?;
+        assert_eq!((ran, asked_again), (0, true), "{asked}");
+    }
+    // Given for a launch outside, the scoped Always allow still holds there.
+    let (ran, asked_again) =
+        cargo_test_after_an_always_allow(given(Some("cargo test"), Some("outside")), scoped())
+            .await?;
+    assert_eq!((ran, asked_again), (1, false));
+    Ok(())
+}
+
 #[tokio::test]
 async fn an_always_allow_an_earlier_build_stored_for_sim_act_never_skips_the_person() -> Result {
     let tool = || {

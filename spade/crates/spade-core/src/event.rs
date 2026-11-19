@@ -337,6 +337,14 @@ pub enum Known {
         /// verdict holds only there, so a restart never carries it to another page or app.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         acts_in: Option<Box<crate::effect::drive::Place>>,
+        /// Where the call was decided to run when it was judged: the verdict holds for that
+        /// launch or a narrower one only (ADR 0171, amendment 4). Absent reads as contained only.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -766,6 +774,19 @@ pub enum Authorized {
     Contained,
     AsFound,
     Outside,
+}
+
+impl Authorized {
+    /// What a stored limit allows: one that is absent (older events, an ambiguous request) is
+    /// contained only.
+    pub fn stored(limit: Option<Self>) -> Self {
+        limit.unwrap_or(Self::Contained)
+    }
+
+    /// Whether a verdict given for this launch holds for one at `wanted`: the same or narrower.
+    pub fn covers(self, wanted: Self) -> bool {
+        self >= wanted
+    }
 }
 
 /// A stored authorization read leniently: a word this build doesn't know is the narrowest.

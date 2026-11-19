@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod autonomy;
+pub(crate) use autonomy::binding;
 mod bots;
 mod brain;
 mod calls;
@@ -208,6 +209,9 @@ pub struct Engine {
     /// What the gate authorized for each call about to run, by call key (ADR 0171; ADR 0167
     /// Windows hardening): outside the sandbox, contained only, or reviewed. Taken once at launch.
     launches: Mutex<HashMap<String, crate::workspace::shell::Launch>>,
+    /// For a call allowed outside the sandbox, the binding of the files it runs as they were
+    /// allowed, by call key: checked again by the run itself right before it starts.
+    bindings: Mutex<HashMap<String, Option<String>>>,
     /// Where the gate found each driving step about to run acts, by call key (ADR 0171,
     /// amendment 3): checked again right before it runs. Taken once.
     drive_places: Mutex<HashMap<String, (spade_core::effect::drive::Place, bool)>>,
@@ -329,6 +333,7 @@ impl Engine {
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
+            bindings: Mutex::default(),
             drive_places: Mutex::default(),
             continuations: Mutex::default(),
             helpers: helpers::Shared::default(),

@@ -59,6 +59,11 @@ pub struct Job<'a> {
     /// held by the sandbox, and is refused when nothing holds it here (no sandbox, or one that
     /// doesn't apply), never run plainly.
     pub contained_only: bool,
+    /// Checked at the last moment, after everything else this run awaits and right before it
+    /// starts (for a terminal command, under the terminal's lock, against the folder and
+    /// variables it starts with): an allowed command whose files changed, or can't be read
+    /// whole, doesn't start.
+    pub verify: Option<Verify>,
     /// A command Spade's classifier settled: it runs with a clean, fixed environment built by
     /// Spade, never one inherited from the daemon or carried from an earlier terminal command
     /// (ADR 0172, amendment 4). `job.env` (the hardening overrides) still go on top.
@@ -223,6 +228,12 @@ pub trait Confine: Send + Sync {
         None
     }
 }
+
+/// A check a run must pass right before it starts: `Err` with why it didn't.
+pub type Verify = Box<dyn FnOnce() -> Result<(), String> + Send>;
+
+/// How long a run's last check may take.
+const VERIFY_TIME: Duration = Duration::from_secs(10);
 
 /// Wraps `program args` in a run's sandbox: the program and arguments to start instead, and
 /// whether its environment must be carried past Spade's own program (`Launch::seals_env`).
@@ -469,6 +480,7 @@ impl Shell {
             // Spade's own internal command: always expected to be containable.
             may_run_uncontained: false,
             contained_only: false,
+            verify: None,
             clean: false,
             read_only: false,
         })
@@ -573,6 +585,19 @@ impl Shell {
             shell.envs(carried).env(platform::MARK, &mark);
         } else {
             shell.envs(run_env);
+        }
+        // The last check, after the last await: what it runs is still what was allowed.
+        if let Some(verify) = job.verify {
+            match tokio::time::timeout(VERIFY_TIME, tokio::task::spawn_blocking(verify)).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(why))) => return Err(why),
+                _ => {
+                    return Err(
+                        "Not run: what it runs couldn't be checked again before it started."
+                            .to_owned(),
+                    );
+                }
+            }
         }
         let mut child = shell
             .stdin(if job.stdin.is_some() {

@@ -388,16 +388,32 @@ send, post or pay as the person, and nothing looked.
   and checked again right before the launch, only from a classification that succeeded; one that
   fails at the launch refuses the call.
 - **An approval binds an exact, fully read decision; anything incomplete or changed refuses.**
-  - What a command runs is read whole or marked incomplete (a script past the read limit,
-    outside its folder or unreadable, or the reading's budget spent): a call that would run
-    outside the sandbox with an incomplete reading is refused, never asked about or run
-    unreviewed, and one allowed outside doesn't start if, read again right before the launch,
-    any of it is incomplete or differs. This replaces ADR 0163's rule that a script the reviewer
-    can't be shown goes to the person, for every command that would run outside the sandbox.
-  - Every approval request records where the call was decided to run then (`launch`: contained
-    only, as the sandbox finds it, or outside). When the person answers, a call that would now
-    run anywhere wider (the bot's commands moved outside meanwhile) doesn't run on that answer:
-    it needs a fresh decision. A word this build doesn't know reads as the narrowest.
+  - What a command runs is read whole or marked incomplete. Incomplete is anything Spade
+    couldn't read or resolve: a script past the read limit, outside its folder or unreadable; a
+    command that doesn't parse (`$((...))` among it, since arithmetic can run commands); a folder
+    `cd` goes to or a program it can't place; a command name built at run time (`$RUN`, `eval`);
+    a script piped in, or written and then run; a sourced file it can't find; git or make
+    configuration or options that run what it can't read; the reading's budget spent. A call
+    that would run outside the sandbox with an incomplete reading is refused, never asked about,
+    reviewed or run unreviewed. This replaces ADR 0163's rule that a script the reviewer can't be
+    shown goes to the person, for every command that would run outside the sandbox.
+  - A call allowed outside is read again twice before it starts, and doesn't start if any of it
+    is incomplete or differs from what was allowed: once before it waits for its turn, and last
+    by the run itself, after everything it waits on: for a terminal command under the terminal's
+    lock, from the folder and with the variables it starts with, so an earlier command in the
+    same terminal can't rewrite what it runs in between; for a one-shot command right before the
+    spawn.
+  - **Every stored verdict carries the launch it was given for**, and is reused only for that
+    launch or a narrower one (contained only, then as the sandbox finds it, then outside): the
+    person's answer (the approval request's `launch`), a reviewer's or a rule's verdict and the
+    classifier's screening (`call_reviewed.launch`), an Always allow (the request it answered,
+    whether scoped to one command or the whole tool), and a helper's mirror of its bot's. A
+    verdict with no launch recorded (an older build's, even one asked to run outside) and a grant
+    (which records none) hold for a contained launch only. A tool that launches no command (a
+    connector, Spade's own) is a contained launch, so its grants and Always allows hold as
+    before. So a call that would now run anywhere wider than its verdict (the bot's commands
+    moved outside meanwhile, before or across a restart) doesn't run on it: it is reviewed or
+    asked afresh. A word this build doesn't know reads as the narrowest.
   - Spade's classifier is read once per call, and that one reading routes the call and screens
     it, so switching the classifier off in between never lets an app's write skip both the
     screening and the reviewer; one routed counting on a screening that then can't happen goes to
@@ -422,7 +438,10 @@ send, post or pay as the person, and nothing looked.
 - **What changes for the person.** A plugin whose server holds a token or reaches the network now
   has its writes reviewed and its undeclared tools asked about once, as a connector's are. To
   have a plugin's tools run unreviewed in the sandbox, turn its network off for the bot and give
-  it no token.
+  it no token. A command outside the sandbox that Spade can't read whole is refused rather than
+  asked about: the bot writes it plainly or runs it in the sandbox. An Always allow or an answer
+  an older build stored, or one given while the bot's commands ran in the sandbox, asks once
+  more before a command runs outside on it.
 
 Tested in `spade_core::effect` (on the auto-review a sandboxed app tool that can reach the network
 never runs unreviewed; a sealed plugin server's tools keep the sandbox's decision),
@@ -436,6 +455,15 @@ sealed). `spade-sandbox` tests the offline plan and profile (the offline profile
 service that can reach the network), and, with real processes, that a descriptor left open in
 the parent reaches neither an offline nor a read-only run (`inherited_fds.rs` on Linux,
 `seatbelt.rs` on macOS, which also checks `trustd` fetches nothing for an offline run).
+The approval binding is tested in `spade_core::review` (a stored verdict holds only for its
+launch or a narrower one) and `spade_core::autonomy` (a reading that doesn't parse or resolve
+what runs is incomplete), and through the API: a reviewer's allow stored for a contained launch,
+or with none, is reviewed afresh after a restart once the command runs outside
+(`effects.rs`); an approval stored without its launch, and an Always allow given for a contained
+launch or with none, never let a command run outside (`effects.rs`); an outside request Spade
+can't parse is refused and never asked about, and a script an earlier terminal command rewrites
+after the first check doesn't start outside (`security.rs`). `classify-train`'s replay counts an
+incomplete reading as refused, as the server does.
 
 ## Note: Full access (2026-11-18)
 
