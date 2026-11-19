@@ -273,7 +273,8 @@ describe("a moved thread starting on this machine", () => {
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     expect(t.live.state("x")?.running).toBeUndefined();
-    const restarted = new LiveTarget(t.ports);
+    // A new daemon: its own start rows, read from the same database.
+    const restarted = new LiveTarget({ ...t.ports, starts: new LiveStarts(t.store) });
     await restarted.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
     // Ten minutes from when it first read uncertain, not from the restart.
     expect(t.clock()).toBeLessThanOrEqual(uncertainMs + 1_000);
