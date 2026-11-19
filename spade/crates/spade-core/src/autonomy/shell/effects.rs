@@ -47,6 +47,8 @@ pub(super) struct Effect {
     pub writes: Vec<String>,
     /// It may rewrite files it doesn't name (unpacking, a checkout, a patch).
     pub rewrites: bool,
+    /// It redirects output outside the bot's folder.
+    pub writes_outside: bool,
 }
 
 impl Effect {
@@ -72,6 +74,8 @@ impl Effect {
 /// What `simple` does, run from `place`: its kind, the files it runs, and what it writes.
 pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
     let mut effect = what(simple, place);
+    // A redirect outside is a write outside whatever the program is; what it runs is still read.
+    effect.writes_outside = simple.writes_to.iter().any(|t| outside(place, t));
     effect.writes = writes(simple);
     effect.rewrites = rewrites(&simple.words);
     let program = simple.words.first().map(|w| basename(w)).unwrap_or("");
@@ -430,7 +434,7 @@ fn flag_value(words: &[String], short: &str, long: &str) -> Option<String> {
 }
 
 /// Programs named by a path that are the system's own, not a script of the bot's.
-fn system_program(path: &str) -> bool {
+pub fn system_program(path: &str) -> bool {
     [
         "/bin/",
         "/sbin/",
@@ -445,9 +449,6 @@ fn system_program(path: &str) -> bool {
 }
 
 fn what(simple: &Simple, place: &dyn Place) -> Effect {
-    if simple.writes_to.iter().any(|t| outside(place, t)) {
-        return Effect::kind(Sensitive::WriteOutside);
-    }
     let words = &simple.words;
     let Some(first) = words.first() else {
         return Effect::default();

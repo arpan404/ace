@@ -152,6 +152,10 @@ pub struct Engine {
     media: Arc<crate::media::Media>,
     /// Spade's classifier's decisions, logged on this machine (ADR 0172).
     decisions: classify::Decisions,
+    /// How long a call's classification may take, in milliseconds.
+    classify_ms: std::sync::atomic::AtomicU64,
+    /// What a test runs right before a call is screened.
+    screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -201,7 +205,16 @@ pub struct Engine {
     allowed_scopes: Mutex<HashMap<String, String>>,
     /// What the gate authorized for each call about to run, by call key (ADR 0171; ADR 0167
     /// Windows hardening): outside the sandbox, contained only, or reviewed. Taken once at launch.
-    launches: Mutex<HashMap<String, crate::workspace::shell::Launch>>,
+    /// With each, the warrant its start outside the sandbox must pass.
+    launches: Mutex<
+        HashMap<
+            String,
+            (
+                crate::workspace::shell::Launch,
+                crate::workspace::outside::Warrant,
+            ),
+        >,
+    >,
     /// Where the gate found each driving step about to run acts, by call key (ADR 0171,
     /// amendment 3): checked again right before it runs. Taken once.
     drive_places: Mutex<HashMap<String, (spade_core::effect::drive::Place, bool)>>,
@@ -294,6 +307,10 @@ impl Engine {
             images: setup.images,
             media,
             decisions,
+            screening_hook: Mutex::default(),
+            classify_ms: std::sync::atomic::AtomicU64::new(
+                u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
+            ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),

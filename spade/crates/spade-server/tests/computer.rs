@@ -426,7 +426,16 @@ async fn a_helpers_commands_run_beside_the_bots_each_session_with_its_own_folder
     // A helper's session runs meanwhile, from the workspace, not the bot's folder.
     let started = std::time::Instant::now();
     let helper = terminal
-        .run_in_state("c_helper", "pwd", long, None, false, &[], false)
+        .run_in_state(
+            "c_helper",
+            "pwd",
+            long,
+            None,
+            spade_server::workspace::shell::LaunchPlan::AS_FOUND,
+            &[],
+            false,
+            spade_server::workspace::shell::By::Spade,
+        )
         .await?;
     assert!(
         started.elapsed() < Duration::from_millis(700),
@@ -689,10 +698,10 @@ async fn the_bots_terminal_commands_still_ask_and_always_allows_only_that_comman
     let spade = start(
         &machine,
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "echo first-$((1+1))" })),
+            Script::reply("").call("c1", "shell", json!({ "command": "echo first-$(echo 2)" })),
             Script::reply("Ran it."),
             Script::reply("").plain(r#"{"title":"Shell"}"#),
-            Script::reply("").call("c2", "shell", json!({ "command": "echo first-$((1+1))" })),
+            Script::reply("").call("c2", "shell", json!({ "command": "echo first-$(echo 2)" })),
             Script::reply("Again."),
             Script::reply("").call("c3", "shell", json!({ "command": "echo other" })),
             Script::reply("Okay."),
@@ -725,7 +734,7 @@ async fn the_bots_terminal_commands_still_ask_and_always_allows_only_that_comman
         .cloned()
         .unwrap_or_default();
     assert_eq!(terminal["live"], true);
-    assert_eq!(terminal["title"], "echo first-$((1+1))");
+    assert_eq!(terminal["title"], "echo first-$(echo 2)");
 
     spade.say(&conversation, "Again").await?;
     spade
@@ -1418,7 +1427,16 @@ async fn a_settled_command_never_sees_variables_an_earlier_terminal_command_expo
         panic!("printenv has no hardened form");
     };
     let ran = terminal
-        .run_in_state("", "printenv", long, None, false, &form.env, true)
+        .run_in_state(
+            "",
+            "printenv",
+            long,
+            None,
+            spade_server::workspace::shell::LaunchPlan::AS_FOUND,
+            &form.env,
+            true,
+            spade_server::workspace::shell::By::Spade,
+        )
         .await?;
     assert_eq!(ran.code, Some(0), "{ran:?}");
     let env = ran.stdout;

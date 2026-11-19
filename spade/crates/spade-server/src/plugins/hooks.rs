@@ -121,6 +121,7 @@ impl Plugins {
                 .run_job(Job {
                     dir: &dir,
                     script: &script,
+                    asked: None,
                     timeout: self.hook_limit(),
                     env: &env,
                     tee: None,
@@ -132,6 +133,10 @@ impl Plugins {
                     // refused, never run unconfined. Only the person's allowing it outside the
                     // sandbox (above) runs it plainly.
                     may_run_uncontained: false,
+                    // Plugin hooks were never gated (ADR 0171): no gate decided this one.
+                    contained_only: false,
+                    // The person installed the plugin; its policy decides (ADR 0151).
+                    by: crate::workspace::shell::By::Plugin,
                     clean: false,
                     read_only: false,
                 })

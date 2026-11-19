@@ -74,6 +74,11 @@ export interface SpadeAgent {
   progress: SpadeTaskProgress | undefined;
   /** The bot that made it as a worker (ADR 0161); undefined when the person made it. */
   parent: { id: string; name: string } | undefined;
+  /**
+   * It is in Full access (ADR 0163, amendment 2): no reviewer, and only the hard stops ask. False
+   * on the auto-review, every bot's default, and from a Spade before Full access.
+   */
+  fullAccess: boolean;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -184,6 +189,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     computer: parseSpadeComputer(record.computer),
     progress: parseSpadeTaskProgress(record),
     parent: agent.parent ?? undefined,
+    fullAccess: record.autonomy === "full_access",
     raw: record,
   };
 }

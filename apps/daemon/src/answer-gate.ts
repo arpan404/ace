@@ -80,3 +80,20 @@ export async function settingWriteRefusal(
   if (await facts.fresh()) return undefined;
   return { code: "validation", message: reauthSentence };
 }
+
+/**
+ * Why a change only the person may make in Spade (turning Full access on, ADR 0163 amendment 2)
+ * is refused, or undefined when it may go with their stamp. An agent's device never makes it;
+ * over the host token, which any process able to read the token file holds, it needs a fresh ace
+ * sign-in; the app and paired devices make it as they are.
+ */
+export async function personOnlyChangeRefusal(facts: {
+  readonly device: string | undefined;
+  readonly hostCredential: boolean;
+  fresh(): Promise<boolean>;
+}): Promise<string | undefined> {
+  if (isAgentDevice(facts.device)) return "Only the person can turn on Full access: agents can't.";
+  if (!facts.hostCredential) return undefined;
+  if (await facts.fresh()) return undefined;
+  return reauthSentence;
+}

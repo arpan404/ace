@@ -605,6 +605,7 @@ fn fetch_as(
 ) -> Option<String> {
     // The classification's budget is checked before the read.
     if !walk.spent.may_read() {
+        walk.incomplete = true;
         walk.kind(Sensitive::Unclear);
         return None;
     }
@@ -626,6 +627,7 @@ fn fetch_as(
         if super::super::secrets::names_place(text) {
             walk.credentials = true;
         }
+        walk.incomplete = true;
         walk.kind(Sensitive::Unclear);
         return None;
     }

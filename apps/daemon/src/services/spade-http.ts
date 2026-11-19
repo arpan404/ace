@@ -18,6 +18,12 @@ import {
 } from "../spade/bodies.ts";
 import { spadeRequest, spadeUpload, type SpadeAnswer, type SpadeUpload } from "../spade/forward.ts";
 import type { SpadeLink } from "../spade/link.ts";
+import {
+  personHeader,
+  personOnlyRoute,
+  personOnlyWrite,
+  type PersonOnlyWrite,
+} from "../spade/person-stamp.ts";
 import { checkSpadePath, scopeFor } from "../spade/rules.ts";
 
 /** How long Spade has to answer once the whole body is sent. */
@@ -56,6 +62,11 @@ export function createSpadeHttp(context: {
   send(message: ServerMessage): void;
   /** Why nothing can be forwarded now: hidden on this machine, or not running. */
   unavailable(): { code: "hidden" | "unavailable"; message: string };
+  /**
+   * The person's stamp on a change only they may make (turning Full access on), or why this
+   * caller can't make it: an agent, or the host token without a fresh sign-in.
+   */
+  stamp(write: PersonOnlyWrite): Promise<{ stamp: string } | { refused: string }>;
 }) {
   const uploads = new Map<string, Upload>();
   /** Long answers' pieces, read one at a time so no reply outgrows the socket's frame cap. */
@@ -168,6 +179,11 @@ export function createSpadeHttp(context: {
     }
     if (body && body.length > requestBodyLimit(message.method, admitted.path))
       return fail(message.requestId, "too_large", "The body is too large for this route.");
+    // Turning Full access on is the person's alone: stamped as theirs, or not forwarded.
+    const guarded = personOnlyWrite(message.method, admitted.path, body);
+    const stamped = guarded ? await context.stamp(guarded) : undefined;
+    if (stamped && "refused" in stamped)
+      return fail(message.requestId, "forbidden", stamped.refused);
     const answer = await spadeRequest(
       admitted.connection,
       {
@@ -175,6 +191,7 @@ export function createSpadeHttp(context: {
         path: admitted.path,
         body,
         ...(message.contentType ? { contentType: message.contentType } : {}),
+        ...(stamped ? { headers: { [personHeader]: stamped.stamp } } : {}),
       },
       {
         signal: AbortSignal.timeout(requestTimeoutMs),
@@ -193,6 +210,9 @@ export function createSpadeHttp(context: {
       return fail(message.requestId, "limit", "Too many uploads are open on this connection.");
     const admitted = admit(message);
     if (!admitted) return;
+    // A change only the person may make is read whole before it is stamped.
+    if (personOnlyRoute(message.method, admitted.path) !== undefined)
+      return fail(message.requestId, "invalid_body", "Send this change in one piece.");
     const controller = new AbortController();
     const base64 = base64Stream();
     const upload: Upload = {

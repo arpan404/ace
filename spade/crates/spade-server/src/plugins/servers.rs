@@ -41,6 +41,10 @@ pub struct Server {
     /// It runs in a sandbox that holds files and network here, so its calls are the OS's to
     /// decide (ADR 0171).
     contained: bool,
+    /// It runs in the sandbox under the enforced offline policy and with no environment of the
+    /// plugin's own (where API tokens go): nothing it does leaves this machine as anyone (ADR
+    /// 0171, amendment 4).
+    sealed: bool,
     /// It can't be sealed off here and the person allowed it to run outside the sandbox: it runs
     /// plainly, never `contained`, and its calls keep their reviews (ADR 0167).
     outside: bool,
@@ -66,6 +70,11 @@ pub struct ServerState {
 
 impl Server {
     /// Whether its calls run in a sandbox that holds files and network here.
+    /// Whether nothing its tools do can leave this machine: sandboxed, offline, no tokens.
+    pub fn sealed(&self) -> bool {
+        self.sealed
+    }
+
     pub fn contained(&self) -> bool {
         self.contained
     }
@@ -151,6 +160,8 @@ impl Servers {
         let root = &plugin.root;
         let mut command = StdioCommand::new(expand_root(&server.command, root), dir);
         command.args = server.args.iter().map(|a| expand_root(a, root)).collect();
+        // What the plugin injects of its own (an API token, say), beyond the bot's shell's.
+        let injects = !server.env.is_empty();
         let mut env = base_env;
         env.extend(root_vars(root));
         env.extend(
@@ -168,6 +179,7 @@ impl Servers {
         // the person allows it to run outside the sandbox, and then plainly — never `contained`.
         // Where it should hold the server and can't, the server doesn't start.
         let kind = crate::workspace::shell::Kind::Plugin { root: root.into() };
+        let mut offline = false;
         let (hold, problem, outside, waiting) = match shell.review(dir, &kind) {
             Some(reason) => {
                 let start = super::outside::Start {
@@ -196,9 +208,10 @@ impl Servers {
                         let args: Vec<std::ffi::OsString> =
                             command.args.iter().map(Into::into).collect();
                         match (confined.launch)(Path::new(&command.program), &args) {
-                            Ok((program, args)) => {
-                                command.program = program.to_string_lossy().into_owned();
-                                command.args = args
+                            Ok(launched) => {
+                                command.program = launched.program.to_string_lossy().into_owned();
+                                command.args = launched
+                                    .args
                                     .iter()
                                     .map(|a| a.to_string_lossy().into_owned())
                                     .collect();
@@ -209,7 +222,20 @@ impl Servers {
                                     *path = format!("{}:{path}", confined.path_first.join(":"));
                                 }
                                 command.env.extend(confined.env);
-                                (Some(confined.hold), None)
+                                // Spade's own program starts the server: the plugin's environment
+                                // (its tokens, and any `LD_*` or `DYLD_*` it names) is carried
+                                // past it to the server inside the sandbox, never set on it.
+                                // A variable it can't carry exactly: not started at all.
+                                let carried = if launched.seals_env {
+                                    carry(&mut command.env)
+                                } else {
+                                    Ok(())
+                                };
+                                offline = confined.offline;
+                                match carried {
+                                    Ok(()) => (Some(confined.hold), None),
+                                    Err(why) => (None, Some(why)),
+                                }
                             }
                             Err(why) => (None, Some(why)),
                         }
@@ -234,6 +260,8 @@ impl Servers {
             problem: Mutex::new(problem),
             _hold: hold,
             contained,
+            // From the policy its launch applies, not from its network setting.
+            sealed: contained && offline && !injects,
             outside,
             waiting,
             effects: server
@@ -393,6 +421,22 @@ fn server_plan(confinement: Result<Confinement, String>) -> ServerPlan {
         Ok(Confinement::NeedsReview(reason)) => ServerPlan::Refuse(reason),
         Err(why) => ServerPlan::Refuse(why),
     }
+}
+
+/// `env`, carried past Spade's own program (`spade_sandbox::run_env`); an error, and `env` left
+/// empty, when a name can't be carried exactly.
+fn carry(env: &mut Vec<(String, String)>) -> Result<(), String> {
+    let carried = spade_sandbox::run_env::sealed(std::mem::take(env))?;
+    *env = carried
+        .into_iter()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    Ok(())
 }
 
 #[cfg(test)]
