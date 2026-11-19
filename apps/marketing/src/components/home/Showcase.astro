@@ -234,7 +234,7 @@ const span: Record<ShowcaseId, string> = {
 
   /*
    * The picture: a piece of the app on the page's own ground, cut off by the tile's edge. A
-   * blue light follows the pointer across it, and the window and what floats over it
+   * soft light follows the pointer across it, and the window and what floats over it
    * shift against each other as the pointer moves (`--px`, `--py`, set by the script below).
    */
   .art {
@@ -245,7 +245,7 @@ const span: Record<ShowcaseId, string> = {
     background-color: var(--raised);
     background-image: radial-gradient(
       380px circle at var(--lx, 50%) var(--ly, -40%),
-      color-mix(in srgb, var(--line) 14%, transparent),
+      var(--glow),
       transparent 70%
     );
   }
@@ -436,7 +436,7 @@ const span: Record<ShowcaseId, string> = {
     gap: 2px;
     padding: 3px 9px 3px 4px;
     border-radius: 999px;
-    background: var(--line);
+    background: var(--accent);
     color: #fff;
     font-size: 12px;
     font-weight: 600;
@@ -444,7 +444,7 @@ const span: Record<ShowcaseId, string> = {
 
   .pointer svg {
     margin: -12px 0 0 -14px;
-    fill: var(--line);
+    fill: var(--accent);
     stroke: #fff;
     stroke-width: 1.2;
   }

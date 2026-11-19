@@ -3,9 +3,9 @@
 @import "./motion.css";
 
 /*
- * Two themes, dark by default: a cool near-black page or a paper-white one, ink type and
- * hairlines instead of boxed cards. One blue draws the lines and labels of the drawings; status
- * hues (from the app's status theme) appear only where they mean a status. Base.astro sets
+ * Two themes: a near-black page or a paper-white one, ink type, everything in greys. One orange
+ * is the only colour and is used rarely; status hues (from the app's status theme) appear only
+ * where they mean a status. Base.astro sets
  * <html data-theme> before paint from the visitor's choice or their system setting.
  */
 :root {
@@ -24,12 +24,16 @@
   --ink: #f2f4f6;
   --ink-foreground: #0b0d10;
   --ink-hover: #ffffff;
-  --focus: #8d9bff;
+  --focus: #ff7a2f;
 
-  /* The one colour that isn't a status: the drawing's lines and labels, and focus. */
-  --line: #8d9bff;
+  /* The grey the drawings' lines and labels are drawn in. The site is monochrome. */
+  --line: #b4b9c1;
+  /* The one colour, used rarely: the agent's own pointer, a light on a horizon, focus. */
+  --accent: #ff7a2f;
+  /* A section that stands a step off the page's ground. */
+  --band: #111418;
   /* The soft light at the top of every page. */
-  --glow: rgb(141 155 255 / 0.11);
+  --glow: rgb(255 255 255 / 0.05);
   /* A drawn screen's bezel, its hairline and the shadow under it. */
   /* A drawn MacBook's aluminium: its lit top edge, its face, its underside and the lid's rim. */
   --metal-hi: #5c5e63;
@@ -82,10 +86,12 @@ html[data-theme="light"] {
   --ink: #101418;
   --ink-foreground: #f4f5f1;
   --ink-hover: #2a3038;
-  --focus: #2540ff;
+  --focus: #d9540b;
 
-  --line: #2540ff;
-  --glow: rgb(37 64 255 / 0.09);
+  --line: #3a4048;
+  --accent: #e8590c;
+  --band: #eaebe6;
+  --glow: rgb(255 255 255 / 0.9);
   --metal-hi: #f1f2f4;
   --metal: #c9cbcf;
   --metal-lo: #8b8d92;
@@ -128,8 +134,7 @@ html {
 }
 
 /*
- * Every page stands on the same plain ground, with a soft blue light falling from the top
- * right. No pattern anywhere: cards and drawings are what the eye lands on.
+ * Every page stands on the same plain ground, with a soft light falling from the top right. No pattern anywhere: cards and drawings are what the eye lands on.
  */
 body {
   margin: 0;
@@ -217,6 +222,31 @@ code {
   padding-top: var(--section);
 }
 
+/*
+ * A band: a full-width sheet with rounded shoulders, a step off the page's ground, that one or
+ * more sections sit on. Bands and bare ground alternate down a page, so each part reads as its
+ * own. A soft light falls on each from its top left.
+ */
+.band {
+  margin-top: var(--section);
+  padding-bottom: var(--section);
+  border-top: 1px solid var(--border);
+  border-radius: clamp(28px, 5vw, 64px) clamp(28px, 5vw, 64px) 0 0;
+  background-color: var(--band);
+  background-image: radial-gradient(70rem 30rem at 12% -6rem, var(--glow), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+/* A band that ends where the ground resumes closes its lower corners too. */
+.band.closed {
+  border-bottom: 1px solid var(--border);
+  border-radius: clamp(28px, 5vw, 64px);
+}
+
+.band > .section:first-child {
+  padding-top: clamp(64px, 9vw, 112px);
+}
+
 /* Section heading block: mono eyebrow, title, lede. */
 .eyebrow {
   font-family: var(--font-mono);
@@ -290,7 +320,7 @@ code {
   background: var(--surface);
 }
 
-/* A small blue label in the drawing's own type, for a group's name or a state such as "In beta". */
+/* A small grey label in the drawing's own type, for a group's name or a state such as "In beta". */
 .kicker {
   color: var(--line);
   font-family: var(--font-mono);

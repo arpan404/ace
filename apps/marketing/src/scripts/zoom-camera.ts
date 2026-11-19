@@ -198,48 +198,66 @@ export function link(from: Rect, to: Rect): string {
   return `M${a.x} ${y1}C${a.x} ${y1 + bend} ${b.x} ${y2 - bend} ${b.x} ${y2}`;
 }
 
-export interface Tree {
-  /** Top left corner of each chip, in stage pixels. */
-  leaves: { x: number; y: number }[];
-  /** One line per chip, from the composer to the chip's left edge. */
-  lines: string[];
+/** The circle the opening's agents sit on, in stage pixels, and the angle between neighbours. */
+export interface Dial {
+  cx: number;
+  cy: number;
+  radius: number;
+  step: number;
+}
+
+/** One agent's place on the dial: its chip's top left corner, and how present it is. */
+export interface Seat {
+  x: number;
+  y: number;
+  opacity: number;
+  scale: number;
 }
 
 /**
- * The opening's picture of "a whole team out": a tree growing from the composer's side, one
- * branch per agent, drawn the way ace draws a thread's agents. The chips stand in a column at
- * the stage's right edge. Returns nothing when there is no room beside the composer, as on a
- * phone or a narrow window.
+ * The opening's picture of "a whole team out": a dial of agents beside the composer, one of
+ * them chosen and level with it, its neighbours curving away above and below. Returns nothing
+ * when there is no room beside the composer, as on a phone or a narrow window.
  */
-export function teamTree(
-  composer: Rect,
-  stage: Size,
-  side: number,
-  count: number,
-  chip: Size,
-  /** Where the column of chips starts, in stage pixels: level with the top of the headline. */
-  top = 116,
-): Tree | undefined {
-  const radius = 14;
-  const bottom = composer.y + composer.height;
+export function teamDial(composer: Rect, stage: Size, side: number, chip: Size): Dial | undefined {
   const right = composer.x + composer.width;
-  const x = stage.width - side - chip.width;
-  if (x - right < 96) return undefined;
-  const trunk = right + (x - right) * 0.42;
-  const from = composer.y + composer.height / 2;
-  const last = bottom - chip.height;
-  const step = count > 1 ? (last - top) / (count - 1) : 0;
-  const leaves = Array.from({ length: count }, (_, index) => ({ x, y: top + step * index }));
+  /** How far the chosen chip stands from the composer's edge. */
+  const reach = 104;
+  if (stage.width - side - right < reach + chip.width) return undefined;
+  const radius = 190;
   return {
-    leaves,
-    lines: leaves.map((leaf) => {
-      const y = leaf.y + chip.height / 2;
-      const rise = y - from;
-      // A branch level with the composer runs straight; the others turn twice.
-      if (Math.abs(rise) < radius * 2)
-        return `M${right} ${from}C${trunk} ${from} ${trunk} ${y} ${x} ${y}`;
-      const turn = Math.sign(rise) * radius;
-      return `M${right} ${from}H${trunk - radius}Q${trunk} ${from} ${trunk} ${from + turn}V${y - turn}Q${trunk} ${y} ${trunk + radius} ${y}H${x}`;
-    }),
+    cx: right + reach - radius,
+    cy: composer.y + composer.height / 2,
+    radius,
+    step: (24 * Math.PI) / 180,
   };
+}
+
+/**
+ * Where each of `count` agents sits when `chosen` is the one level with the composer. The list
+ * wraps: the agents before the chosen one curve up, those after it curve down, and whoever is
+ * more than two places away is out of sight.
+ */
+export function dialSeats(dial: Dial, count: number, chosen: number, chip: Size): Seat[] {
+  return Array.from({ length: count }, (_, index) => {
+    let away = (index - chosen) % count;
+    if (away > count / 2) away -= count;
+    if (away < -count / 2) away += count;
+    const angle = away * dial.step;
+    const far = Math.abs(away);
+    return {
+      x: dial.cx + dial.radius * Math.cos(angle),
+      y: dial.cy + dial.radius * Math.sin(angle) - chip.height / 2,
+      opacity: far === 0 ? 1 : far === 1 ? 0.6 : far === 2 ? 0.28 : 0,
+      scale: far === 0 ? 1 : far === 1 ? 0.94 : 0.88,
+    };
+  });
+}
+
+/** The dial's track, as an arc that spans the seats in sight. */
+export function dialTrack(dial: Dial): string {
+  const sweep = dial.step * 2.5;
+  const at = (angle: number) =>
+    `${(dial.cx + dial.radius * Math.cos(angle)).toFixed(1)} ${(dial.cy + dial.radius * Math.sin(angle)).toFixed(1)}`;
+  return `M${at(-sweep)}A${dial.radius} ${dial.radius} 0 0 1 ${at(sweep)}`;
 }

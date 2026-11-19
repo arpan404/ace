@@ -1,38 +1,21 @@
 ---
 /*
- * A Windows desktop, 680 × 383: a terminal window over the wallpaper, and the taskbar. The home
- * story's workstation runs a nightly automation here.
+ * A Windows desktop, 680 × 383, with ace open on it: ace's own window at half size from the same
+ * drawing the Mac shows, the window's caption buttons, and the taskbar. The story script opens a
+ * thread in it (scripts/stage-scenes.ts `show`).
  */
-import { providerIcon } from "@ace/ui-core/provider-icons";
-import BrandMark from "../BrandMark.astro";
-
-interface Props {
-  /** The task the agent on this machine is doing, as the terminal tab's title. */
-  task: string;
-}
-
-const { task } = Astro.props;
-const codex = providerIcon({ provider: "codex" }).brand;
+import AceWindow from "../mac/AceWindow.astro";
 ---
 
 <div class="windows">
-  <div class="window">
-    <div class="tabs">
-      <span class="tab">{codex && <BrandMark brand={codex} size={13} />}{task}</span>
-      <span class="plus">+</span>
-      <span class="caption"><i class="min"></i><i class="max"></i><i class="close"></i></span>
-    </div>
-    <pre><span class="dim">PS C:\src\billing-api&gt;</span> bun run test --repeat 5
-<span class="dim">started by an automation, every night</span>
-
-checkout.spec.ts   <span class="warn">fails 1 run in 5</span>
-cart.spec.ts       <span class="ok">passes</span>
-webhooks.spec.ts   <span class="ok">passes</span></pre>
+  <div class="app">
+    <div class="half"><AceWindow /></div>
+    <span class="caption"><i class="min"></i><i class="max"></i><i class="close"></i></span>
   </div>
   <div class="taskbar">
     <span class="apps">
       <span class="start"><i></i><i></i><i></i><i></i></span>
-      <i class="app"></i><i class="app two"></i><i class="app three"></i><i class="app on"></i>
+      <i class="pin"></i><i class="pin"></i><i class="pin"></i><i class="pin on"></i>
     </span>
     <span class="clock">9:41 AM<br />11/3/2026</span>
   </div>
@@ -42,101 +25,68 @@ webhooks.spec.ts   <span class="ok">passes</span></pre>
   .windows {
     position: absolute;
     inset: 0;
-    background:
-      radial-gradient(70% 90% at 62% 78%, #5db1ff 0%, transparent 58%),
-      radial-gradient(60% 80% at 30% 60%, #1f6fe0 0%, transparent 62%),
-      linear-gradient(to bottom, #0a2a66, #06163c);
+    background: #0c0d0f;
     color: #e9eaec;
     font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     font-size: 12px;
   }
 
-  .window {
+  .app {
     position: absolute;
-    left: 34px;
-    top: 20px;
-    width: 612px;
-    height: 300px;
+    inset: 0 0 42px;
     overflow: hidden;
-    border-radius: 8px;
-    background: #0c0c0c;
-    box-shadow:
-      0 0 0 1px rgb(255 255 255 / 0.1),
-      0 22px 46px -14px rgb(0 0 0 / 0.7);
   }
 
-  .tabs {
-    display: flex;
-    align-items: end;
-    height: 36px;
-    padding-left: 8px;
-    background: #202020;
+  /* ace's window at its own size, shown at half. */
+  .half {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 200%;
+    height: 200%;
+    transform: scale(0.5);
+    transform-origin: 0 0;
   }
 
-  .tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 29px;
-    padding: 0 14px 0 10px;
-    border-radius: 7px 7px 0 0;
-    background: #0c0c0c;
+  /* No traffic lights here; the caption buttons take the right corner instead. */
+  .half :global(.ace .nav) {
+    padding-left: 18px;
   }
 
-  .plus {
-    align-self: center;
-    margin-left: 12px;
-    color: #b9bbc0;
-    font-size: 16px;
+  .half :global(.ace .actions) {
+    padding-right: 232px;
   }
 
-  /* Minimise, maximise and close, at the window's right corner. */
+  /* Minimise, maximise and close. */
   .caption {
-    align-self: center;
+    position: absolute;
+    right: 0;
+    top: 0;
     display: flex;
-    gap: 26px;
-    margin-left: auto;
-    padding-right: 18px;
+    align-items: center;
+    gap: 22px;
+    height: 22px;
+    padding: 0 14px;
+    color: var(--a-muted, #a3a3a3);
   }
 
   .caption i {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
   }
 
   .min {
-    border-bottom: 1px solid #d5d6d9;
+    border-bottom: 1px solid currentColor;
   }
 
   .max {
-    border: 1px solid #d5d6d9;
+    border: 1px solid currentColor;
   }
 
   .close {
     background:
-      linear-gradient(45deg, transparent 46%, #d5d6d9 46% 54%, transparent 54%),
-      linear-gradient(-45deg, transparent 46%, #d5d6d9 46% 54%, transparent 54%);
-  }
-
-  pre {
-    margin: 0;
-    padding: 14px 16px;
-    font-family: "Cascadia Mono", var(--font-mono);
-    font-size: 13px;
-    line-height: 1.7;
-    white-space: pre-wrap;
-  }
-
-  .dim {
-    color: #8a8e97;
-  }
-
-  .ok {
-    color: #57bd9b;
-  }
-
-  .warn {
-    color: #edc070;
+      linear-gradient(45deg, transparent 44%, currentColor 44% 56%, transparent 56%),
+      linear-gradient(-45deg, transparent 44%, currentColor 44% 56%, transparent 56%);
   }
 
   .taskbar {
@@ -147,9 +97,8 @@ webhooks.spec.ts   <span class="ok">passes</span></pre>
     align-items: center;
     height: 42px;
     padding: 0 12px;
-    background: rgb(22 28 40 / 0.78);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: #17181b;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
   }
 
   .apps {
@@ -169,29 +118,20 @@ webhooks.spec.ts   <span class="ok">passes</span></pre>
     width: 8px;
     height: 8px;
     border-radius: 1.5px;
-    background: #5cb8ff;
+    background: #e9eaec;
   }
 
-  .app {
+  .pin {
     position: relative;
     width: 20px;
     height: 20px;
     border-radius: 5px;
-    background: #d9dce2;
+    background: #3a3c41;
   }
 
-  .two {
-    background: #f0b556;
-  }
-
-  .three {
-    background: #4f8ef7;
-  }
-
-  /* The open terminal, with the mark under it that says it is running. */
+  /* ace, open, with the mark under it that says it is running. */
   .on {
-    background: #101114;
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
+    background: #f2f4f6;
   }
 
   .on::after {
@@ -202,7 +142,7 @@ webhooks.spec.ts   <span class="ok">passes</span></pre>
     width: 8px;
     height: 3px;
     border-radius: 2px;
-    background: #5cb8ff;
+    background: #e9eaec;
   }
 
   .clock {
