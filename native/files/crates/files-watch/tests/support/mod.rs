@@ -19,7 +19,8 @@ pub const DEBOUNCE: Duration = Duration::from_millis(100);
 pub const WAIT: Duration = Duration::from_secs(30);
 const SETTLE: Duration = Duration::from_secs(2);
 
-/// One OS watcher at a time: several FSEvents streams in one process interfere on macOS.
+/// One session at a time, so one test's burst never delays the OS events another test is timing.
+/// Many watches in one process is covered on purpose by `promptness.rs`.
 static SERIAL: Mutex<()> = Mutex::new(());
 
 pub struct Session {

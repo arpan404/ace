@@ -180,7 +180,8 @@ Acceptance: `lists_one_level_only`, `lists_folders_before_files_in_natural_order
 
 ### files-watch
 
-Crates: `notify`, `notify-debouncer-full`, `files-safe`, `globset`.
+Crates: `notify` (Linux inotify and the polling fallback), `files-safe`, `globset`; on macOS
+`objc2-core-services` and `dispatch2` for FSEvents; on Windows `windows-sys`.
 
 ```rust
 pub struct Watcher;                                  // drop = stop
@@ -204,11 +205,28 @@ changes in one window, or an OS overflow signal (inotify `Q_OVERFLOW`, FSEvents 
 watches inside excluded folders; walk with per-folder non-recursive watches and add new folders as
 they appear. If native watching cannot start or hits the inotify limit, fall back to notify's
 `PollWatcher` (2 s) and send one `Warning` saying why. Paths outside the root (symlink targets) are
-never reported. Acceptance (real temp dirs, generous timeouts, no sleeps shorter than the
+never reported.
+
+macOS: files-watch owns its FSEvents stream rather than using notify's (notify starts at
+`kFSEventStreamEventIdSinceNow`, drops records with no item flag and only rescans on must-scan).
+The stream is created and started on its own serial dispatch queue before `start` returns, from
+`FSEventsGetCurrentEventId()` read first, so fseventsd replays anything written after the call;
+flags `FileEvents | NoDefer | WatchRoot`, latency 20 ms. `UserDropped`, `KernelDropped`,
+`EventIdsWrapped` and `RootChanged` rescan the root; `MustScanSubDirs`, `Mount`, `Unmount` and a
+record with no item flag (FSEvents' folder-level record) rescan the folder named. Stop is
+stop, invalidate, an empty `dispatch_sync` on the queue, release: no callback runs after it.
+Windows: its own `ReadDirectoryChangesW` backend, because notify hides the lost-event statuses.
+An error event from an OS watch (an inotify read failure) rescans the root; poller errors are per
+path and lose nothing. A lone change reaches the sink one debounce (75 ms) after the OS delivers
+it. fseventsd is one process serving every client: when it is saturated it delivers seconds late
+and can stop delivering part of a burst without any lost-events flag, which the per-folder
+rescan rule covers for bursts but nothing in-band can detect for a lone change. Acceptance (real temp dirs, generous timeouts, no sleeps shorter than the
 debounce): `reports_a_created_file`, `reports_a_deleted_folder`, `rename_is_delete_plus_create`,
 `create_then_delete_in_one_window_reports_nothing`, `many_writes_to_one_file_coalesce`,
 `burst_over_max_batch_becomes_rescan`, `excluded_folders_report_nothing`,
-`new_subfolder_is_watched` (create `a/`, then write `a/b.txt`, expect it).
+`new_subfolder_is_watched` (create `a/`, then write `a/b.txt`, expect it); `promptness.rs`: lone
+create, delete and rename in a quiet folder (median within 500 ms), and a rename made the moment
+`start` returns, across 32 watches in one process.
 
 ### files-index
 
