@@ -401,14 +401,20 @@ fn trash_with(
 /// path it is read at, so a restore of one reports no version: the caller takes it afterwards,
 /// under an identity guard of its own.
 pub fn untrash(root: &Root, endpoint: &str, path: &str) -> Result<Committed, Error> {
-    untrash_with(root, endpoint, path, &handle::sync)
+    untrash_with(root, endpoint, path, &handle::sync, &version::moved_version)
 }
 
+/// Reads the version of the entry a restore moved, bound to the identity it had before the move.
+type MovedVersion<'a> = &'a dyn Fn(&Dir, &str, Option<(u64, u64)>) -> Result<Option<String>, Error>;
+
+/// The restore itself, with the folder sync and the moved-version read injectable so a test can
+/// show what a committed restore reports when that read fails.
 fn untrash_with(
     root: &Root,
     endpoint: &str,
     path: &str,
     sync: &dyn Fn(&Dir) -> Result<(), Error>,
+    moved: MovedVersion<'_>,
 ) -> Result<Committed, Error> {
     refuse_root(path)?;
     if !policy::trash_endpoint(endpoint) {
@@ -443,14 +449,23 @@ fn untrash_with(
     let to_name = leaf_name(path);
     match handle::rename_noclobber(&trash, endpoint, &destination.dir, to_name)? {
         Noclobber::Done => {
+            let mut warning = settle(sync, &[&destination.dir, &trash]);
             let version = match moved_identity {
-                Some(identity) => {
-                    version::moved_version(&destination.dir, to_name, Some(identity))?
-                }
+                Some(identity) => match moved(&destination.dir, to_name, Some(identity)) {
+                    Ok(version) => version,
+                    Err(error) => {
+                        // The restore landed; a version read that failed after it is reported
+                        // beside the success, never as a failed restore.
+                        warning = warning.or(Some(format!(
+                            "the restore landed but its version could not be read: {error}"
+                        )));
+                        None
+                    }
+                },
                 None => None,
             };
             Ok(Committed {
-                warning: settle(sync, &[&destination.dir, &trash]),
+                warning,
                 version,
                 identity: None,
                 recovery: None,
@@ -774,7 +789,7 @@ fn refuse_root(path: &str) -> Result<(), Error> {
 mod tests {
     use std::fs;
 
-    use super::trash_with;
+    use super::{trash_with, untrash_with};
     use crate::Error;
 
     fn root(dir: &std::path::Path) -> files_safe::Root {
@@ -783,6 +798,35 @@ mod tests {
 
     fn walks() -> crate::describe::Walks<'static> {
         crate::describe::Walks::unbounded()
+    }
+
+    #[test]
+    fn a_restore_whose_version_cannot_be_read_is_still_a_success() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::write(temp.path().join(".ace-upload-trash-12"), b"kept\n").expect("trash");
+        let root = root(temp.path());
+
+        let restored = untrash_with(
+            &root,
+            ".ace-upload-trash-12",
+            "back.md",
+            &|_| Ok(()),
+            &|_, _, _| Err(Error::Io(std::io::Error::other("the version read failed"))),
+        )
+        .expect("the restore landed");
+
+        assert_eq!(
+            restored.version, None,
+            "a version the port could not read is reported as unknown"
+        );
+        assert!(
+            restored.warning.is_some(),
+            "the read failure is reported beside the success: {restored:?}"
+        );
+        assert!(
+            temp.path().join("back.md").is_file(),
+            "the file is restored"
+        );
     }
 
     #[test]
