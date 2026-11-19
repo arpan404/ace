@@ -2,9 +2,10 @@ import { formatElapsed } from "@ace/ui-core/time";
 
 /*
  * What each scene of the drawn Mac does (components/mac). A scene first puts the drawing in
- * one known state (`show`), then acts through `Act`, which stage-story.ts provides: the
+ * one known state (`show`), then acts through `Act`, which stage-act.ts provides: the
  * pointer moves to real elements and "clicks" them, and the scene flips the `data-*` state the
- * CSS reads. Every step checks `alive()`, so a newer scene stops an older one.
+ * CSS reads. Every step checks `alive()`, so a newer scene stops an older one. Pass the element
+ * holding one drawn window as `root`, so a scene acts on that window alone.
  */
 
 export type Root = HTMLElement;
@@ -33,7 +34,7 @@ function hover(root: Root, selector: string, on: boolean): void {
 }
 
 /** Opens a thread: its row selected, its title, transcript and strips shown. */
-function select(root: Root, id: string): void {
+export function select(root: Root, id: string): void {
   for (const row of root.querySelectorAll<HTMLElement>("[data-row]")) {
     row.classList.toggle("selected", row.dataset.row === id);
   }

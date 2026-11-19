@@ -1,6 +1,11 @@
+import type { CastId } from "../scripts/feature-camera.ts";
+
 /*
- * One entry per feature page (/features/<slug>/). Each page's title, meta description, sections,
- * tools and questions live here, so the page, its structured data and llms.txt agree.
+ * One entry per feature page (/features/<slug>/). Each page's title, meta description, story,
+ * tools and questions live here, so the page, its structured data and llms.txt agree. The
+ * page tells its story one section at a time while ace, drawn on a MacBook, shows that part
+ * (components/features/FeatureStory.astro): each section says what the drawing does then
+ * (`show.move`) and what the camera frames (`show.focus`).
  */
 
 export type FeatureSlug =
@@ -15,6 +20,52 @@ export type FeatureSlug =
   | "review"
   | "status";
 
+/**
+ * What the drawing does as a section comes into view: a scene of the drawn Mac
+ * (scripts/stage-scenes.ts), a state the app is put in (scripts/feature-moves.ts), or `keep`,
+ * which carries on from the section before.
+ */
+export type StepMove =
+  | "rest"
+  | "keep"
+  | "agents"
+  | "tree-done"
+  | "approval"
+  | "limit"
+  | "phone-ask"
+  | "parallel"
+  | "team"
+  | "fleet"
+  | "devices"
+  | "accounts"
+  | "phone"
+  | "review"
+  | "computer"
+  | "browser"
+  | "remote";
+
+/** A part of ace's window the camera can zoom to. */
+export type StepPart =
+  | "window"
+  | "threads"
+  | "thread"
+  | "canvas"
+  | "dock"
+  | "changes"
+  | "diff"
+  | "commit"
+  | "browser"
+  | "sim";
+
+/** What the camera frames: whole pieces of hardware, or one part of ace's window. */
+export type StepFocus = CastId[] | [StepPart];
+
+export interface FeatureSection {
+  heading: string;
+  body: string[];
+  show: { move: StepMove; focus: StepFocus };
+}
+
 export interface Feature {
   slug: FeatureSlug;
   /** Short name for navigation and cards. */
@@ -28,7 +79,11 @@ export interface Feature {
   intro: string;
   /** What the page covers, as short scannable points under the intro. */
   points: string[];
-  sections: { heading: string; body: string[] }[];
+  /** The hardware in the page's picture; the Mac always comes first. */
+  cast: CastId[];
+  /** Lines from the Mac to the other hardware, each with the verb it carries. */
+  links: { to: Exclude<CastId, "mac">; verb: string }[];
+  sections: FeatureSection[];
   /** ace's MCP tools behind the feature, when it has any. */
   tools: string[];
   questions: { question: string; answer: string }[];
@@ -52,32 +107,43 @@ export const features: Feature[] = [
       "One thread shows the whole tree of agents",
       "Done only when every agent has finished",
     ],
+    cast: ["mac", "build"],
+    links: [{ to: "build", verb: "hands off" }],
     sections: [
       {
         heading: "One agent, many providers",
         body: [
-          "Claude Code can plan a change and hand the test to Codex, the review to Cursor and the docs to OpenCode. Each helper runs in its own thread with its provider's own session, history and tools, signed in through that CLI, so you can open any of them and keep talking to it.",
-          "Agents do it with ace's MCP tools, the same in every CLI: delegate starts helpers with a task, wait collects their results as they finish, agents_status shows where each one stands, and agent_message and agent_cancel steer or stop one.",
+          "Claude Code can plan a change and hand the test to Codex, the review to Cursor and the docs to OpenCode. Each helper runs in its own thread, signed in through its own CLI, so you can open any of them and keep talking to it.",
         ],
+        show: { move: "team", focus: ["thread"] },
+      },
+      {
+        heading: "The same tools in every CLI",
+        body: [
+          "delegate starts helpers with a task, wait collects their results as they finish, agents_status shows where each one stands, and agent_message and agent_cancel steer or stop one. While it waits, the thread says so.",
+        ],
+        show: { move: "agents", focus: ["dock"] },
       },
       {
         heading: "Send work to the right machine",
         body: [
-          "A helper can run on another of your linked machines: the long soak test on the Linux build server, the Windows build on the workstation, the iOS check on the Mac with the Simulator. When that machine is busy, the work waits in its queue instead of failing.",
+          "A helper can run on another of your linked machines: the soak test on the Linux build server, the Windows build on the workstation. When that machine is busy, the work waits in its queue instead of failing.",
         ],
+        show: { move: "agents", focus: ["mac", "build"] },
       },
       {
-        heading: "Status you can trust",
+        heading: "Done only when the whole team is",
         body: [
-          "A thread's status covers its whole tree: every helper, the helpers they started in turn, and their background commands. ace never shows a thread as done while any agent below it is still working or waiting on you, and a question from a helper several levels down shows on the thread you are looking at.",
-          "Stop stops the whole tree. A restart doesn't lose work: results that arrive while ace is down are delivered when it comes back.",
+          "A thread's status covers every helper, the helpers they started and their background commands. A question from a helper several levels down shows on the thread you're looking at. Stop stops the whole tree, and results that arrive while ace is down are delivered when it comes back.",
         ],
+        show: { move: "tree-done", focus: ["window"] },
       },
       {
         heading: "Limits you set",
         body: [
-          "A thread can run up to 64 helpers, up to 8 levels deep. In Settings you choose how many agents a thread runs at once, and the rest wait their turn. A helper never gets more access than the agent that started it: it inherits the parent's permission mode and can only lower it.",
+          "A thread can run up to 64 helpers, up to 8 levels deep. In Settings you choose how many run at once, and the rest wait their turn. A helper never gets more access than the agent that started it.",
         ],
+        show: { move: "keep", focus: ["mac", "build"] },
       },
     ],
     tools: ["delegate", "wait", "agents_status", "agent_message", "agent_cancel", "machines"],
@@ -130,28 +196,45 @@ export const features: Feature[] = [
       "Agents read apps through accessibility, then click and type",
       "You keep using your computer while they work",
       "A live view of every app an agent is driving",
-      "One switch turns it on; you choose apps agents can't use",
+      "On macOS, Windows and Linux (Wayland), off until you turn it on",
     ],
+    cast: ["mac", "build", "workstation"],
+    links: [],
     sections: [
       {
         heading: "Your apps, used in the background",
         body: [
-          "Coding agents are good at code and blind to everything else: the simulator that shows the bug, the design tool with the spec, the settings screen a test depends on. ace gives every agent the same computer-use tools, whichever CLI runs it, so Claude Code, Codex, Cursor and the rest can open an app, read what is on screen and act on it.",
-          "Agents read each app through the system's accessibility interface, so they see real buttons, fields and labels instead of guessing from pixels. They work in the background: your mouse and keyboard stay yours while an agent fills a form in another app.",
+          "Coding agents are blind outside the terminal: the simulator that shows the bug, the design tool with the spec, the settings screen a test depends on. In ace every agent, whichever CLI runs it, can open an app, read what's on screen and act on it.",
         ],
+        show: { move: "computer", focus: ["mac"] },
+      },
+      {
+        heading: "Real buttons, not guessed pixels",
+        body: [
+          "Agents read each app through the system's accessibility interface, so they see real buttons, fields and labels. They work in the background: your mouse and keyboard stay yours while an agent fills a form in another app.",
+        ],
+        show: { move: "keep", focus: ["sim"] },
       },
       {
         heading: "You stay in control",
         body: [
-          "Every app an agent is using shows in ace with the agent's name beside it, a live view, and Take over and Stop. Take over hands the app back to you mid-task; Stop ends the agent's session with it at once.",
-          "Computer use is off until you turn it on, with one switch. You decide which apps agents can never use, such as mail or a password manager, and ace refuses those apps whatever the agent asks.",
+          "Every app an agent is using shows in ace with the agent's name, a live view, and Take over and Stop. Computer use is off until you turn it on, and you choose apps agents may never use, such as mail or a password manager.",
         ],
+        show: { move: "keep", focus: ["dock"] },
       },
       {
         heading: "Permissions stay with your CLI",
         body: [
-          "ace never adds its own approval layer. Each agent's CLI decides what runs, in the permission mode you already chose for it, and asks you the way it always does. When an agent waits on an approval, its thread says Approve, on your desktop and on your phone.",
+          "ace adds no approval layer of its own. Each agent's CLI decides what runs, in the permission mode you chose, and asks you the way it always does. When an agent waits on you, its thread says Approve, on your desktop and on your phone.",
         ],
+        show: { move: "approval", focus: ["dock"] },
+      },
+      {
+        heading: "On Mac, Windows and Linux",
+        body: [
+          "Computer use works on macOS, on Windows, and on Linux under Wayland. On a Mac, letting agents work while the screen is locked is a separate switch, off until you turn it on.",
+        ],
+        show: { move: "rest", focus: ["mac", "build", "workstation"] },
       },
     ],
     tools: ["screen_apps", "screen_state", "screen_act", "screen_display"],
@@ -170,6 +253,11 @@ export const features: Feature[] = [
         question: "Which agents can use computer use?",
         answer:
           "Every agent ace runs: Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent. They all get the same MCP tools.",
+      },
+      {
+        question: "Which systems does computer use work on?",
+        answer:
+          "macOS, Windows and Linux under Wayland. On a Mac, working while the screen is locked is a separate setting, off until you turn it on.",
       },
     ],
     keywords: [
@@ -195,33 +283,54 @@ export const features: Feature[] = [
       "Continue a thread on another machine, uncommitted changes and all",
       "Every machine's threads in one window, and in the phone app",
     ],
+    cast: ["mac", "build", "workstation", "phone"],
+    links: [
+      { to: "build", verb: "hands off" },
+      { to: "workstation", verb: "opens a browser" },
+      { to: "phone", verb: "asks you" },
+    ],
     sections: [
       {
         heading: "One fleet, many machines",
         body: [
-          "Run ace on your laptop, a Linux build server and a Windows workstation, then link them. Linked machines can use each other: an agent on your laptop can delegate a long test run to the build server, or open a browser on the workstation to check a page there.",
-          "Devices travel across the fleet too. An agent on the Linux build server can test your app on the iOS Simulator running on your Mac, and an agent on your laptop can use the Android emulator on your workstation, each with the device approval you'd give locally.",
-          "Each machine sets how much other machines may do on it: nothing, read, or read and act. Every thread, wherever it runs, shows in the same window with its live status, you can start a new one on any machine from there, and an approval can be answered on whichever machine you're at. When a machine's run slots are full, delegated work waits in its queue instead of failing.",
+          "Run ace on your laptop, a Linux build server and a Windows workstation, then link them. An agent on your laptop can delegate a long test run to the build server, or open a browser on the workstation to check a page there.",
         ],
+        show: { move: "agents", focus: ["mac", "build", "workstation"] },
       },
       {
-        heading: "Move work to the machine that should do it",
+        heading: "Devices travel too",
         body: [
-          "Continue on another machine takes a thread's project and branch, uncommitted changes included, to another of your machines and starts a thread there from this one's history. The data goes straight from machine to machine, so you can kick it off from your phone on cellular.",
+          "An agent on the build server can test your app on the iOS Simulator on your Mac, and an agent on your laptop can use the Android emulator on your workstation, each with the device approval you'd give locally.",
         ],
+        show: { move: "devices", focus: ["mac", "build"] },
+      },
+      {
+        heading: "Every thread in one list",
+        body: [
+          "Every thread, wherever it runs, shows in the same window with its live status. Filter by machine, start a thread on any of them, and answer an approval on whichever machine you're at.",
+        ],
+        show: { move: "fleet", focus: ["threads"] },
+      },
+      {
+        heading: "Each machine sets the rules",
+        body: [
+          "A machine decides how much the others may do on it: nothing, read, or read and act. Continue on another machine takes a thread's branch, uncommitted changes included, to another machine and carries on there.",
+        ],
+        show: { move: "rest", focus: ["mac", "workstation"] },
       },
       {
         heading: "Your phone and tablet, paired",
         body: [
-          "Sign in to your ace account on iPhone or iPad and every machine on it is there. Or pair a machine through a link or a QR code, for view only or view and act, and for as long as you choose. From it you follow every machine's threads, answer approvals, watch the browser and drive your desktops' simulators. Android is coming soon.",
-          "Paired devices follow and steer agents; they don't run them. Your code and your agents stay on your computers.",
+          "Sign in to your ace account on iPhone or iPad and every machine on it is there. Or pair a machine with a link or a QR code, for view only or view and act. Paired devices follow and steer agents; they don't run them. Android is coming soon.",
         ],
+        show: { move: "phone-ask", focus: ["mac", "phone"] },
       },
       {
         heading: "Connect the way you already do",
         body: [
-          "Machines and devices connect directly over your local network, or over Tailscale, where ace uses the machine's tailnet name with a valid HTTPS certificate. Away from both, devices signed in to your ace account reach your machines through ace's end-to-end encrypted relay, or through a relay you host yourself. Nothing joins your fleet unless you pair it or sign it in to your account.",
+          "Machines connect directly over your local network or Tailscale. Away from both, devices signed in to your ace account reach them through ace's end-to-end encrypted relay, or a relay you host. Nothing joins your fleet unless you pair it or sign it in.",
         ],
+        show: { move: "keep", focus: ["mac", "build", "workstation", "phone"] },
       },
     ],
     tools: [
@@ -274,30 +383,41 @@ export const features: Feature[] = [
     intro:
       "ace for iPhone and iPad connects to all your machines at once, from anywhere. It isn't a viewer: you approve, review, browse, drive simulators and watch the apps agents are using, from wherever you are.",
     points: [
+      "Allow and Deny on the Lock Screen, from a push notification",
       "Live Activities that end only when the whole agent tree is done",
-      "The live browser at 60 fps, which you can use",
       "Your desktops' simulators and emulators, from the phone",
-      "Terminal, files, diffs, pull requests and the GitHub inbox",
+      "Widgets, and the terminal, files, diffs and pull requests",
     ],
+    cast: ["mac", "phone"],
+    links: [{ to: "phone", verb: "asks you" }],
     sections: [
       {
-        heading: "More than approvals",
+        heading: "Allow and Deny on the Lock Screen",
         body: [
-          "The phone and tablet apps carry the whole workbench: every thread on every paired machine, approvals and questions, the terminal, files and the diff of each thread, pull requests, issues and your GitHub inbox, accounts and usage, automations, prompts and skills. Start a thread, fork one, or continue it on another machine.",
+          "When an agent needs a permission, a push notification arrives with Allow and Deny on it. Answer from the Lock Screen without opening the app, and the agent carries on.",
         ],
-      },
-      {
-        heading: "See what agents see",
-        body: [
-          "Open the browser an agent is using and you get it live at 60 frames a second, and you can click and type in it. Open a tab on the phone and it switches to a phone-sized layout, and the agent is told it is working at that size.",
-          "The simulators and emulators on your desktops are there too: watch them, tap through them, install or open apps, open links, and set location and language. And for computer use, see the apps agents are driving on each machine, live.",
-        ],
+        show: { move: "phone-ask", focus: ["phone"] },
       },
       {
         heading: "Done means done, on the Lock Screen too",
         body: [
-          "A thread you follow shows as a Live Activity on the Lock Screen and in the Dynamic Island, and it only ends when every agent and command in the thread has finished. Notifications arrive while the app is connected, with snooze and quiet hours, and the app can lock itself when you leave it.",
+          "A thread you follow shows as a Live Activity on the Lock Screen and in the Dynamic Island, and ends only when every agent and command in it has finished. Widgets keep your threads on the Home Screen.",
         ],
+        show: { move: "phone", focus: ["phone"] },
+      },
+      {
+        heading: "More than approvals",
+        body: [
+          "The phone and tablet apps carry the whole workbench: every thread on every machine, the terminal, files and diffs, pull requests and your GitHub inbox, accounts and usage, automations and skills. Start a thread, fork one or move it to another machine.",
+        ],
+        show: { move: "keep", focus: ["mac", "phone"] },
+      },
+      {
+        heading: "See what agents see",
+        body: [
+          "Open the browser an agent is using and you get it live at 60 frames a second, and you can click and type in it. Your desktops' simulators and emulators are there too, and the apps agents are driving, live.",
+        ],
+        show: { move: "browser", focus: ["mac", "phone"] },
       },
     ],
     tools: [],
@@ -336,37 +456,51 @@ export const features: Feature[] = [
     intro:
       "Sign in to ace on your computers and your phone, and every machine on your account is a tap away, at home, at the office or on cellular. No pairing codes, no VPN, no ports to open.",
     points: [
-      "Sign in with email, Google or GitHub",
+      "Sign in with your email",
       "Every machine on your account, on every device",
       "End-to-end encrypted: the relay can't read your work",
       "A machine code adds a second lock to any computer",
     ],
+    cast: ["mac", "workstation", "phone"],
+    links: [
+      { to: "workstation", verb: "relay" },
+      { to: "phone", verb: "relay" },
+    ],
     sections: [
       {
-        heading: "One sign-in for your whole fleet",
+        heading: "One sign-in for every machine",
         body: [
-          "Sign in from the desktop app and that computer joins your ace account. A headless build server joins by running ace login, which prints a sign-in link you can open anywhere. Your phone, the web app and your other computers then list every machine on the account and open it in one tap.",
-          "A device signed in to your account gets full access to the machines on it. There is nothing to scan or copy, and a new machine shows up everywhere as soon as it signs in.",
+          "Sign in from the desktop app and that computer joins your ace account. A headless server joins with ace account login, which prints a sign-in link you can open anywhere. Your phone, the web app and your other computers then list every machine on the account.",
         ],
+        show: { move: "rest", focus: ["mac", "workstation", "phone"] },
       },
       {
-        heading: "Works from anywhere, readable only by you",
+        heading: "No codes to scan",
         body: [
-          "When your phone can't reach a machine over your network or Tailscale, ace connects them through its relay on Cloudflare. The connection is end-to-end encrypted between your device and your machine, so the relay forwards what it can't read: never your prompts, code, transcripts or screens.",
-          "Every connection needs a fresh pass from your account that lasts five minutes. Sign a device out and it loses access to your machines within minutes.",
+          "You sign in with your email. A device signed in to your account gets full access to the machines on it, and a new machine shows up everywhere as soon as it signs in.",
         ],
+        show: { move: "rest", focus: ["mac", "phone"] },
       },
       {
-        heading: "A second lock on the machines that matter",
+        heading: "Readable only by you",
         body: [
-          "Set a machine code, a PIN or a password, on any computer. Each device then enters it once before it gets in, so a stolen account sign-in alone doesn't open that machine. The machine checks the code itself, inside the encrypted connection; ace's servers never see it. Five wrong tries lock code entry for 15 minutes.",
+          "Away from your network and Tailscale, ace connects your devices through its relay. The connection is end-to-end encrypted, so the relay forwards what it can't read: never your prompts, code or screens. Sign a device out and it loses access within minutes.",
         ],
+        show: { move: "rest", focus: ["mac", "workstation", "phone"] },
       },
       {
-        heading: "Optional, and still yours to run",
+        heading: "A second lock where it matters",
         body: [
-          "You don't need an account to use ace. Pairing with a link or QR code, your local network, Tailscale and a relay you host yourself all keep working without one. Either way, your agents, code and provider logins stay on your computers.",
+          "Set a machine code on any computer. Each device enters it once before it gets in, so a stolen account sign-in alone doesn't open that machine. The machine checks the code itself; ace's servers never see it.",
         ],
+        show: { move: "remote", focus: ["window"] },
+      },
+      {
+        heading: "Optional, and yours to run",
+        body: [
+          "You don't need an account to use ace. Pairing with a link or QR code, your local network, Tailscale and a relay you host yourself all work without one. Your agents, code and provider logins stay on your computers.",
+        ],
+        show: { move: "keep", focus: ["mac", "workstation", "phone"] },
       },
     ],
     tools: [],
@@ -375,6 +509,11 @@ export const features: Feature[] = [
         question: "Do I need an ace account?",
         answer:
           "No. An account is for reaching your machines through ace's relay from anywhere. Everything else works without one, including pairing over your local network or Tailscale and running your own relay.",
+      },
+      {
+        question: "How does a server without a screen sign in?",
+        answer:
+          "Run ace account login on it. It prints a sign-in link you open on any device, and you sign in with your email.",
       },
       {
         question: "Can ace read my code through the relay?",
@@ -413,28 +552,45 @@ export const features: Feature[] = [
       "Each account signs in through the CLI's own login, kept apart",
       "Pick the account per thread, or set a default per provider",
       "Fresh usage and limits for Claude and Codex accounts",
-      "When a limit hits, resume at reset or move to another account",
+      "At a limit, the thread moves to another account, by you or by ace",
     ],
+    cast: ["mac"],
+    links: [],
     sections: [
       {
         heading: "Accounts kept apart",
         body: [
-          "Each extra account lives in its own private folder, and you sign in to it with the provider CLI's own login, in a terminal inside ace. Your usual home directory stays as it is, so git, gh and ssh keep working. ace never reads or stores the credentials.",
-          "Name accounts, give them a colour, set the default for each provider, and choose the account per thread in the model picker. Claude, Codex, Cursor, OpenCode, Antigravity and Pi all support several accounts.",
+          "Each extra account lives in its own private folder, and you sign in with the provider CLI's own login, in a terminal inside ace. Your home directory stays as it is, so git, gh and ssh keep working. ace never reads or stores the credentials.",
         ],
+        show: { move: "rest", focus: ["threads"] },
+      },
+      {
+        heading: "One account per thread",
+        body: [
+          "Name accounts, give them a colour, set a default per provider, and pick the account for a thread in the model picker. Claude, Codex, Cursor, OpenCode, Antigravity and Pi all take several accounts.",
+        ],
+        show: { move: "rest", focus: ["dock"] },
       },
       {
         heading: "Limits you can trust",
         body: [
-          "For Claude and Codex, ace reads each account's usage every few minutes and during turns. An account only counts as out of quota on a fresh reading at 100%, or on the provider's own limit error, so you are never blocked by a guess.",
-          "When a limit is hit, what you send is held, not lost. Resume now, resume at the reset, snooze the thread until then, or move it to another account of the same provider. Moving between Claude accounts, or between Codex accounts, carries the whole native session over.",
+          "For Claude and Codex, ace reads each account's usage every few minutes and during turns, and a usage page shows them all. An account only counts as out on a fresh reading at 100%, or on the provider's own limit error.",
         ],
+        show: { move: "limit", focus: ["canvas"] },
+      },
+      {
+        heading: "Move by hand, or let ace move it",
+        body: [
+          "At a limit, what you send is held, not lost. Resume at the reset, move the thread to another account yourself, or have ace move it for you. Between Claude accounts, or between Codex accounts, the whole session comes along.",
+        ],
+        show: { move: "accounts", focus: ["canvas"] },
       },
       {
         heading: "Delegation that spreads the load",
         body: [
-          "When an agent hands work to other agents, ace picks their accounts for it: it skips accounts that are signed out, near their limit or exhausted, and prefers the one with the most headroom and the earliest reset.",
+          "When an agent hands work to others, ace picks their accounts: it skips accounts that are signed out, near their limit or exhausted, and prefers the one with the most headroom and the earliest reset.",
         ],
+        show: { move: "keep", focus: ["mac"] },
       },
     ],
     tools: [],
@@ -447,7 +603,12 @@ export const features: Feature[] = [
       {
         question: "What happens when an account hits its limit?",
         answer:
-          "Your messages are held, not lost. Resume at the reset, snooze the thread until then, or move it to another account of the same provider.",
+          "Your messages are held, not lost. Resume at the reset, snooze the thread until then, or move it to another account of the same provider, yourself or automatically.",
+      },
+      {
+        question: "Can ace move a thread to another account by itself?",
+        answer:
+          "Yes. Move a thread yourself, or let ace move it when an account hits its limit. A usage page shows every account's usage and when it resets.",
       },
     ],
     keywords: [
@@ -471,35 +632,45 @@ export const features: Feature[] = [
       "One shared browser: the same tabs and logins for you and agents",
       "Console and network logs the agent can read",
       "Mark up a page and send the notes to the agent",
-      "Use my Chrome: agents work in tabs you share from your own Chrome",
-      "The live browser on your phone, at 60 fps",
+      "Use my Chrome on macOS and Linux: tabs you share from your own Chrome",
     ],
+    cast: ["mac"],
+    links: [],
     sections: [
       {
-        heading: "See the page, not just the code",
+        heading: "An agent that checks its own work",
         body: [
-          "An agent that can't see the page it changed is guessing. In ace, agents open pages in a real Chromium browser, read the page as structured text, click, type and scroll, and check the console and network log for errors, then fix what they find.",
-          "The tab is shared: you watch the agent work in it, and you can take over whenever you like. Screenshots at phone, tablet and desktop widths let an agent check a responsive layout in one step.",
+          "An agent that can't see the page it changed is guessing. In ace, agents open pages in a real Chromium browser, read the page as structured text, click, type and scroll, and fix what they find.",
         ],
+        show: { move: "browser", focus: ["window"] },
       },
       {
-        heading: "Watch it from anywhere",
+        heading: "Console and network, read for you",
         body: [
-          "The browser agents use is one shared session, not a copy per viewer. Open it on your phone, in the web app or on another desktop and it streams live at 60 frames a second, and you can click and type in it. Open a tab on the phone and the page switches to a phone-sized layout, and the agent is told it is working at that size.",
+          "The browser tools return the page's console and network log, so an agent finds the error it caused. Screenshots at phone, tablet and desktop widths check a responsive layout in one step.",
         ],
+        show: { move: "keep", focus: ["thread"] },
+      },
+      {
+        heading: "One tab, shared with you",
+        body: [
+          "You watch the agent in the same tab and can take over at any moment. Open it on your phone, in the web app or on another desktop and it streams live at 60 frames a second.",
+        ],
+        show: { move: "keep", focus: ["dock"] },
       },
       {
         heading: "Point at what's wrong",
         body: [
-          "Mark up a page directly, circling the broken button or the misaligned card, and send the notes to the agent with the page attached. It is the fastest way to say exactly what you mean about a UI.",
+          "Mark up a page directly, circling the broken button or the misaligned card, and send the notes to the agent with the page attached.",
         ],
+        show: { move: "keep", focus: ["browser"] },
       },
       {
         heading: "Your own Chrome, when you need it",
         body: [
-          "Some work needs your real sessions. Use my Chrome lets agents work in your own Chrome profile through an extension, but only in tabs you share from it or tabs they open in a separate ace window. Chrome shows its debugging bar while they do, and Stop or Revoke ends it at once.",
-          "Settings pages, extension pages and the password manager are refused, cookie reads are blocked, and page storage reads are off unless you allow them. It works with Chrome, Chromium, Edge, Brave, Vivaldi and Arc.",
+          "On macOS and Linux, Use my Chrome lets agents work in your own Chrome profile, only in tabs you share or open in a separate window. Settings, extension pages and the password manager are refused, and cookie reads are blocked.",
         ],
+        show: { move: "keep", focus: ["window"] },
       },
     ],
     tools: [
@@ -534,29 +705,46 @@ export const features: Feature[] = [
     name: "Devices",
     title: "iOS Simulators and Android emulators for agents: ace",
     description:
-      "Run iOS Simulators and Android emulators inside ace. Use them yourself or hand one to an agent to test your app, with live screen, UI tree and logs.",
+      "Run iOS Simulators, Android emulators and Android phones in ace. Use them yourself or hand one to an agent to test your app, with live screen, UI tree and logs.",
     headline: "Simulators and emulators in one hub",
     intro:
-      "Run iOS Simulators and Android emulators inside ace. Tap, type and rotate them yourself, or hand a device to an agent to test your app.",
+      "Run iOS Simulators and Android emulators inside ace, and plug in a real Android phone. Tap, type and rotate them yourself, or hand a device to an agent to test your app.",
     points: [
       "Live screen, UI tree, logs and recordings",
       "Approve a device before an agent can use it",
       "Hand a device to any agent in the thread",
-      "The same tools for every agent CLI",
+      "Real Android phones too, over USB or Wi-Fi",
     ],
+    cast: ["mac", "build"],
+    links: [{ to: "build", verb: "borrows the Simulator" }],
     sections: [
       {
-        heading: "Mobile testing that agents can do",
+        heading: "Lend a device, once",
         body: [
-          "The devices hub runs simulators and emulators in ace, beside the thread that is changing your app. Agents read the screen as a UI tree, tap and type, and read the device log, so they can reproduce a bug, fix it and check the fix on the device.",
-          "iOS Simulators need a Mac with Xcode. Android emulators need the Android SDK on the machine that runs them.",
+          "An agent asks before it uses a device, and you allow it once. Hand a device to any agent in a thread and take it back at any time.",
         ],
+        show: { move: "devices", focus: ["dock"] },
       },
       {
-        heading: "Devices are yours to lend",
+        heading: "Agents test like you do",
         body: [
-          "An agent asks before it uses a device, and you approve it once. You can hand a device to any agent in a thread, and take it back at any time.",
+          "Agents read the screen as a UI tree, tap and type, and read the device log, so they can reproduce a bug, fix it and check the fix on the device.",
         ],
+        show: { move: "keep", focus: ["sim"] },
+      },
+      {
+        heading: "From any of your machines",
+        body: [
+          "This build server has no simulator, so the agent on it borrows the iPhone 17 Pro on your Mac. Devices on one linked machine are there for agents on the others.",
+        ],
+        show: { move: "keep", focus: ["mac", "build"] },
+      },
+      {
+        heading: "Simulators, emulators and Android phones",
+        body: [
+          "iOS Simulators run on a Mac with Xcode. Android emulators run wherever the Android SDK is, and real Android phones join over USB or Wi-Fi. Real iPhones aren't supported.",
+        ],
+        show: { move: "keep", focus: ["mac"] },
       },
     ],
     tools: ["sim_list", "sim_start", "sim_ui", "sim_act", "sim_logs", "sim_screenshot"],
@@ -569,7 +757,7 @@ export const features: Feature[] = [
       {
         question: "Does it work with Android?",
         answer:
-          "Yes. Android emulators run in the same hub with the same tools, so any agent can test an Android build.",
+          "Yes. Android emulators and real Android phones, over USB or Wi-Fi, work in the same hub with the same tools, so any agent can test an Android build.",
       },
     ],
     keywords: [
@@ -594,19 +782,43 @@ export const features: Feature[] = [
       "Commit, push and open the pull request in place",
       "Pull requests and issues as full pages",
     ],
+    cast: ["mac"],
+    links: [],
     sections: [
       {
         heading: "Parallel agents, no collisions",
         body: [
-          "Several agents on one repository overwrite each other's files unless each has its own checkout. ace starts a thread in its own git worktree on its own branch, so you can run as many as you like and review each one on its own.",
+          "Agents on one repository overwrite each other's files unless each has its own checkout. ace can start each thread in its own git worktree on its own branch, so you run as many as you like and review each one alone.",
         ],
+        show: { move: "rest", focus: ["threads"] },
       },
       {
         heading: "Review where the work happened",
         body: [
-          "The Changes panel sits beside the conversation: a file tree with added and removed lines, the diff for the last turn or the whole branch, and line comments. Send comments to the agent as a request for changes, or approve and commit.",
-          "Open pull requests and issues as full pages, link them to the thread that wrote the code, and merge once checks pass.",
+          "The Changes panel sits beside the conversation: a file tree with added and removed lines, and the diff for the last turn or the whole branch.",
         ],
+        show: { move: "review", focus: ["changes"] },
+      },
+      {
+        heading: "Comments go back to the agent",
+        body: [
+          "Comment on any line and send your comments to the agent as a request for changes. It picks them up in the same thread.",
+        ],
+        show: { move: "keep", focus: ["diff"] },
+      },
+      {
+        heading: "Commit, push and open the pull request",
+        body: [
+          "When it's right, commit and push from the same panel and open the pull request without leaving the thread.",
+        ],
+        show: { move: "keep", focus: ["commit"] },
+      },
+      {
+        heading: "Pull requests and issues, as pages",
+        body: [
+          "Open pull requests and issues as full pages, link them to the thread that wrote the code, and merge once checks pass. All of it works on GitHub and most of it on GitLab; Gitea and Forgejo get reviews, merging and issues, and Bitbucket Cloud gets reviews.",
+        ],
+        show: { move: "keep", focus: ["window"] },
       },
     ],
     tools: ["thread_start", "thread_fork", "thread_merge", "thread_link_pr"],
@@ -639,13 +851,41 @@ export const features: Feature[] = [
       "The threads that need you, first",
       "The same status on desktop and phone",
     ],
+    cast: ["mac", "phone"],
+    links: [{ to: "phone", verb: "asks you" }],
     sections: [
       {
         heading: "Five words you can trust",
         body: [
-          "Agents start subagents and leave commands running in the background. A status that only watches the main agent says Done while work is still happening. ace follows the whole tree, so Done means every agent and command in the thread has finished.",
-          "Approve and Answer mean a thread is stopped on you: a permission or a question. Those threads come first, on your desktop and on your phone, so you never leave an agent waiting.",
+          "Working, Approve, Waiting, Failed and Done. Every row in the list says which, and shows what the thread is doing right now.",
         ],
+        show: { move: "parallel", focus: ["threads"] },
+      },
+      {
+        heading: "The ones that need you come first",
+        body: [
+          "Approve and Answer mean a thread is stopped on you: a permission or a question. Those threads stand out, on your desktop and on your phone, so you never leave an agent waiting.",
+        ],
+        show: { move: "approval", focus: ["canvas"] },
+      },
+      {
+        heading: "Waiting, never Done too early",
+        body: [
+          "Agents start subagents and leave commands running. A status that watches only the main agent says Done while work still happens. ace follows the whole tree, so the thread says Waiting until they finish.",
+        ],
+        show: { move: "team", focus: ["thread"] },
+      },
+      {
+        heading: "Done means everything is done",
+        body: ["When the last agent and command finish, and only then, the thread says Done."],
+        show: { move: "tree-done", focus: ["window"] },
+      },
+      {
+        heading: "The same status on your phone",
+        body: [
+          "Your iPhone shows the same words, and a Live Activity for a thread you follow ends only when the whole tree has finished.",
+        ],
+        show: { move: "phone", focus: ["mac", "phone"] },
       },
     ],
     tools: ["agents_status", "wait", "threads_find"],
