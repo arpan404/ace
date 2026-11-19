@@ -1,5 +1,6 @@
 //! The model review (ADR 0135): a second model judges a write the gate would run. Only ever
-//! stricter: anything but a clear `allow` asks the person.
+//! stricter: anything but a clear `allow` asks the person, with the review's reason
+//! (ADR 0163, amendment 3).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +14,9 @@ use spade_core::tools::{Registry, ToolDef};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::autonomy::{TOOK_TOO_LONG, line};
 use super::judge::Judged;
+use spade_core::autonomy::escalate::Stop;
 
 /// Longest a review may take before the call goes to the person.
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(60);
@@ -22,7 +25,8 @@ pub(super) const CHECKING: &str = "Checking a step";
 /// What the review came to.
 pub(super) enum Reviewed {
     Allow,
-    Escalate,
+    /// The person decides, with the request's line.
+    Escalate(String),
     Stopped,
 }
 
@@ -42,8 +46,8 @@ pub(super) async fn call(
     launch: spade_core::event::Authorized,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
-    if let Some((verdict, _)) = review::stored(events, &call.id, launch) {
-        return of(verdict);
+    if let Some((verdict, reason)) = review::stored(events, &call.id, launch) {
+        return of(verdict, reason);
     }
     let model = engine.review_model(id);
     engine.set_status(id, Some(CHECKING.to_owned()));
@@ -65,15 +69,23 @@ pub(super) async fn call(
         match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
             .await
         {
-            Judged::Answer(judgment, cost) => (
-                Verdict::from(judgment.verdict),
-                judgment.reason.trim().to_owned(),
+            // Stored as the line the person reads, so a restart asks with the same words.
+            Judged::Answer(judgment, cost) => {
+                let verdict = Verdict::from(judgment.verdict);
+                let reason = match verdict {
+                    Verdict::Allow => judgment.reason.trim().to_owned(),
+                    _ => line(Stop::SecondReview(&judgment.reason)),
+                };
+                (verdict, reason, cost)
+            }
+            Judged::Failed(why, cost) => (
+                Verdict::Escalate,
+                line(Stop::SecondReviewUndecided(why)),
                 cost,
             ),
-            Judged::Failed(why, cost) => (Verdict::Escalate, why.to_owned(), cost),
             Judged::TimedOut(cost) => (
                 Verdict::Escalate,
-                "The review took too long, so you decide.".to_owned(),
+                line(Stop::SecondReviewUndecided(TOOK_TOO_LONG)),
                 cost,
             ),
             Judged::Stopped => return Reviewed::Stopped,
@@ -86,7 +98,7 @@ pub(super) async fn call(
         call_id: call.id.clone(),
         name: name.to_owned(),
         verdict,
-        reason,
+        reason: reason.clone(),
         model,
         cost_micros: cost,
         bound: None,
@@ -94,17 +106,17 @@ pub(super) async fn call(
         launch: Some(launch),
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
-        Ok(true) => of(verdict),
+        Ok(true) => of(verdict, reason),
         Ok(false) => Reviewed::Stopped,
         // Not stored: the person decides rather than the call running unrecorded.
-        Err(_) => Reviewed::Escalate,
+        Err(_) => Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned()),
     }
 }
 
-fn of(verdict: Verdict) -> Reviewed {
+fn of(verdict: Verdict, reason: String) -> Reviewed {
     match verdict {
         Verdict::Allow => Reviewed::Allow,
         // This review never refuses; a refusal stored for the call is still not a run.
-        Verdict::Escalate | Verdict::Refuse => Reviewed::Escalate,
+        Verdict::Escalate | Verdict::Refuse => Reviewed::Escalate(reason),
     }
 }

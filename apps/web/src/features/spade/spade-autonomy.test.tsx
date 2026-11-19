@@ -49,6 +49,46 @@ test("a refused step the bot tried again comes to the person with the reason, an
   );
 });
 
+test("a call the reviewer stopped comes to the person with its reason, and Allow once answers it", async () => {
+  const reason = "The reviewer stopped this: That deletes the tests the person wants kept.";
+  const { spade } = await spadeApp("/spade", (api) => {
+    withSpade(api);
+    const scout = api.addAgent({ id: "scout", name: "Scout" });
+    api.escalate(scout, "k1", "shell", { command: "rm -rf tests" }, reason, "reviewer");
+  });
+  await userEvent.click(await botRow("Scout"));
+  const request = within(await screen.findByRole("group", { name: /^Scout wants to/ }));
+  // The reviewer's reason, in its own words, and what the call would do.
+  expect(request.getByText(reason)).toBeTruthy();
+  expect(request.getByText(/rm -rf tests/)).toBeTruthy();
+  await userEvent.click(request.getByRole("button", { name: /^Allow once/ }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k1")).toEqual([
+      { allowed: true, always: false },
+    ]),
+  );
+});
+
+test("a command asked about again because its script changed offers Allow once and Deny, never Always", async () => {
+  const reason =
+    "A file this command runs changed after it was checked, so you decide on it as it is now.";
+  const { spade } = await spadeApp("/spade", (api) => {
+    withSpade(api);
+    const scout = api.addAgent({ id: "scout", name: "Scout" });
+    api.escalate(scout, "k2", "shell", { command: "sh build.sh" }, reason, "changed");
+  });
+  await userEvent.click(await botRow("Scout"));
+  const request = within(await screen.findByRole("group", { name: /^Scout wants to/ }));
+  expect(request.getByText(reason)).toBeTruthy();
+  expect(request.queryByRole("button", { name: /Always/ })).toBeNull();
+  await userEvent.click(request.getByRole("button", { name: "Deny" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k2")).toEqual([
+      { allowed: false, always: false },
+    ]),
+  );
+});
+
 test("the activity log lists the reviewer's verdicts with their reasons, and how the task went on", async () => {
   await spadeApp("/spade", (api) => {
     withSpade(api);

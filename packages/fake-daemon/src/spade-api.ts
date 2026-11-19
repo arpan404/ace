@@ -287,6 +287,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     name: string,
     args: unknown,
     reviewerReason: string,
+    /** Which of Spade's judges stopped it (ADR 0163, amendment 3), when one did. */
+    stopped?: string,
   ): void {
     this.request(agent, {
       callId,
@@ -294,6 +296,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       args,
       reply: `r${++this.sequence}`,
       reviewerReason,
+      stopped,
     });
   }
 
@@ -319,6 +322,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       reviewerReason?: string;
       ask?: string;
       app?: string | undefined;
+      stopped?: string | undefined;
     },
   ): void {
     const { callId, name, args, reply: id } = call;
@@ -338,6 +342,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
       ...(call.ask === undefined ? {} : { ask: call.ask }),
       ...(call.app === undefined ? {} : { app: call.app }),
+      ...(call.stopped === undefined ? {} : { stopped: call.stopped }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }

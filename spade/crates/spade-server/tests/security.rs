@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use serde_json::json;
+use serde_json::{Value, json};
 use spade_server::tools::Tool;
 use spade_server::workspace::shell::{Confine, Confinement, Kind};
 use spade_store::Store;
@@ -772,6 +772,15 @@ async fn a_classification_that_runs_out_of_time_never_lets_a_full_access_command
     Ok(())
 }
 
+/// The latest request in `events`.
+fn last_request(events: &[Value]) -> Value {
+    events
+        .iter()
+        .rfind(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// Puts the world's bot in Full access, as the person.
 async fn full_access(w: &support::sandbox::World) -> Result {
     let stamp = w.stamp(&w.bot, "full_access");
@@ -788,7 +797,8 @@ async fn full_access(w: &support::sandbox::World) -> Result {
 }
 
 #[tokio::test]
-async fn an_approved_outside_command_doesnt_start_when_what_it_runs_cant_be_read_again() -> Result {
+async fn an_approved_outside_command_is_asked_again_when_what_it_runs_cant_be_read_again() -> Result
+{
     let w = world(true, vec![], |at| {
         vec![
             // Runs no file of its own: the approval binds no file list.
@@ -821,13 +831,33 @@ async fn an_approved_outside_command_doesnt_start_when_what_it_runs_cant_be_read
         )
         .await?;
     assert_eq!(status, 202);
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    let said = output(&events, "c1");
-    assert!(said.contains("couldn't read again"), "{said}");
+    // It doesn't start on that answer: the person is asked again, once (ADR 0163, amendment 3).
+    let events = w
+        .spade
+        .wait_for_count(&w.conversation, "approval_requested", 2)
+        .await?;
+    let again = last_request(&events);
+    assert_eq!(again["stopped"], "unread", "{again}");
+    let reason = again["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("couldn't read again"), "{reason}");
     let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
     assert!(
         !root.join("outside.txt").exists(),
         "it ran outside the sandbox"
+    );
+    // Allowed again, it starts on the check at the spawn alone, which reads it there.
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(
+        root.join("outside.txt").exists(),
+        "what the person allowed ran"
     );
     Ok(())
 }
@@ -857,7 +887,8 @@ fn writes_outside(at: &Path, bytes: usize) -> String {
 }
 
 #[tokio::test]
-async fn an_outside_request_for_a_script_past_the_read_limit_is_never_asked_about() -> Result {
+async fn an_outside_request_for_a_script_past_the_read_limit_asks_told_it_cant_be_read_whole()
+-> Result {
     let w = world(true, vec![], |_| {
         vec![
             Script::reply("").call(
@@ -874,16 +905,22 @@ async fn an_outside_request_for_a_script_past_the_read_limit_is_never_asked_abou
     // Too long to read whole: an approval would hold it to nothing, so it could change after.
     std::fs::write(workspace.join("run.sh"), writes_outside(&root, 40_000))?;
     w.spade.say(&w.conversation, "Run it outside").await?;
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    assert!(asked(&events).is_empty(), "{:?}", types(&events));
-    let said = output(&events, "c1");
-    assert!(said.contains("couldn't be read whole"), "{said}");
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), ["c1"]);
+    let request = last_request(&events);
+    assert_eq!(request["stopped"], "incomplete", "{request}");
+    let reason = request["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("couldn't be read whole"), "{reason}");
     assert!(!root.join("outside.txt").exists());
     Ok(())
 }
 
 #[tokio::test]
-async fn an_approved_outside_script_that_grows_past_the_read_limit_doesnt_start() -> Result {
+async fn an_approved_outside_script_that_grows_past_the_read_limit_is_asked_about_again() -> Result
+{
     let w = world(true, vec![], |_| {
         vec![
             Script::reply("").call(
@@ -912,9 +949,15 @@ async fn an_approved_outside_script_that_grows_past_the_read_limit_doesnt_start(
         )
         .await?;
     assert_eq!(status, 202);
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    let said = output(&events, "c1");
-    assert!(said.contains("couldn't be read whole again"), "{said}");
+    let events = w
+        .spade
+        .wait_for_count(&w.conversation, "approval_requested", 2)
+        .await?;
+    let again = last_request(&events);
+    assert_eq!(again["stopped"], "incomplete", "{again}");
+    let reason = again["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("couldn't be read whole again"), "{reason}");
+    assert!(output(&events, "c1").is_empty(), "it ran");
     assert!(!root.join("outside.txt").exists(), "it ran outside");
     Ok(())
 }
@@ -976,7 +1019,7 @@ async fn an_answer_for_a_contained_command_never_runs_it_outside_once_the_bot_mo
 }
 
 #[tokio::test]
-async fn an_outside_request_spade_cant_parse_is_refused_and_never_asked_about() -> Result {
+async fn an_outside_request_spade_cant_parse_asks_told_it_cant_be_read_whole() -> Result {
     let w = world(true, vec![], |_| {
         vec![
             Script::reply("").call(
@@ -989,11 +1032,17 @@ async fn an_outside_request_spade_cant_parse_is_refused_and_never_asked_about() 
     })
     .await?;
     w.spade.say(&w.conversation, "Run it outside").await?;
-    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    // What it would run can't be told from the text: nothing can be held to it outside.
-    assert!(asked(&events).is_empty(), "{:?}", types(&events));
-    let said = output(&events, "c1");
-    assert!(said.contains("couldn't be read whole"), "{said}");
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    // What it would run can't be told from the text: the person decides, told so.
+    assert_eq!(asked(&events), ["c1"]);
+    let request = last_request(&events);
+    assert_eq!(request["stopped"], "incomplete", "{request}");
+    let reason = request["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("couldn't be read whole"), "{reason}");
+    assert!(output(&events, "c1").is_empty(), "it ran");
     Ok(())
 }
 

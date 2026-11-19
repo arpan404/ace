@@ -182,6 +182,10 @@ impl Engine {
         let transcript = Transcript::fold(events.iter());
         let awaited = transcript.awaiting.iter().any(|c| c == call_id)
             || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
+        // A request a check asked because it couldn't vouch for what a command runs (ADR 0163,
+        // amendment 3) is answered for this call only: never an Always allow, nor the bot's
+        // setting to run its commands outside.
+        let always = always && !answered_once(&events, call_id);
         // "Always for this bot" on a request to run outside the sandbox: the bot's commands run
         // outside it from now on, each reviewed (ADR 0171).
         if awaited && allowed && always && asks_outside(&events, call_id) {
@@ -227,6 +231,18 @@ impl Engine {
         self.live(id).wake.notify_one();
         Ok(())
     }
+}
+
+/// Whether the latest request `call_id` was asked by a check whose answer holds once.
+fn answered_once(events: &[Event], call_id: &str) -> bool {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            stopped,
+            ..
+        }) if c == call_id => Some(stopped.is_some_and(|stopped| stopped.once())),
+        _ => None,
+    }) == Some(true)
 }
 
 /// Whether the request `call_id` was asked for a reason of Spade's own (`ask`).

@@ -128,10 +128,17 @@ async fn the_review_escalates_a_write_it_judges_wrong_with_its_reason() -> Resul
         .ok_or("no verdict stored")?;
     assert_eq!(review["verdict"], "escalate");
     assert_eq!(review["call_id"], "c2");
-    assert_eq!(
-        review["reason"],
-        "The person asked to email Sam, not everyone."
-    );
+    // Stored as the line the person reads, and shown on the request (ADR 0163, amendment 3).
+    let line = "The second review stopped this: The person asked to email Sam, not everyone.";
+    assert_eq!(review["reason"], line);
+    let request = events
+        .iter()
+        .rfind(|e| e["type"] == "approval_requested")
+        .cloned()
+        .ok_or("not asked")?;
+    assert_eq!(request["call_id"], "c2");
+    assert_eq!(request["reviewer_reason"], line);
+    assert_eq!(request["stopped"], "second_review");
     let asked_at = events
         .iter()
         .rposition(|e| e["type"] == "approval_requested");

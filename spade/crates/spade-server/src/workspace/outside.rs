@@ -2,9 +2,10 @@
 //! of a bot's command that nothing holds (one asked to run outside, one whose bot runs its
 //! commands outside, one on a machine with no sandbox) passes [`admit`] at the moment of spawn,
 //! under the lock that launches it, from the folder and with the environment it starts with:
-//! what it runs is read again there; a reading that is incomplete is refused; it must be what the
-//! verdict that let it run was given on ([`Warrant::bound`]); and the launch must be no wider
-//! than that verdict's limit. A run with no warrant never starts plainly.
+//! what it runs is read again there; a reading that is incomplete is refused, unless the person
+//! allowed it knowing so ([`Warrant::incomplete`]); it must be what the verdict that let it run
+//! was given on ([`Warrant::bound`]); and the launch must be no wider than that verdict's limit.
+//! A run with no warrant never starts plainly.
 //!
 //! The same [`read`] is what the gate reads when it decides, so the two can only differ when the
 //! files, the folder or the `PATH` did.
@@ -26,6 +27,10 @@ use super::place::FsPlace;
 pub struct Warrant {
     pub limit: Authorized,
     pub bound: Bound,
+    /// The person allowed it once, told that part of what it runs couldn't be read whole (ADR
+    /// 0163, amendment 3): a reading still incomplete at the spawn may start, if what could be
+    /// read is what they were asked on. Only a person's answer sets it.
+    pub incomplete: bool,
 }
 
 /// What a command ran when its verdict was given.
@@ -148,7 +153,7 @@ pub fn admit(
         return Err(refused(WIDER));
     }
     let now = read(workspace, dir, env, &json!({ "command": command }));
-    if now.incomplete {
+    if now.incomplete && !warrant.incomplete {
         return Err(refused(UNREAD));
     }
     if binding(&now) != warrant.bound {

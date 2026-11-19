@@ -10,7 +10,7 @@ import type {
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
-import type { SpadeFailureKind } from "./wire.ts";
+import type { SpadeFailureKind, SpadeStoppedKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
@@ -107,6 +107,8 @@ type SpadeBubbleOf =
       reason: string | undefined;
       /** Why Spade asked (ADR 0171); the choices on the card follow it. */
       ask?: SpadeAskKind;
+      /** Which of Spade's judges stopped it and put it to the person (ADR 0163, amendment 3). */
+      stopped?: SpadeStoppedKind;
       /** For a driving step, the app or site the card offers to allow for the bot. */
       app?: string;
       /** A helper's call (ADR 0152): its task. */
@@ -310,6 +312,9 @@ function askBubble(
     arguments: request.arguments,
     reason: waiting.reason ?? request.reason,
     ...((waiting.ask ?? request.ask) ? { ask: waiting.ask ?? request.ask } : {}),
+    ...((waiting.stopped ?? request.stopped)
+      ? { stopped: waiting.stopped ?? request.stopped }
+      : {}),
     ...((waiting.app ?? request.app) ? { app: waiting.app ?? request.app } : {}),
     helper: waiting.helper ?? request.helper,
     state: "open",

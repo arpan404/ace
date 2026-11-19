@@ -44,6 +44,7 @@ impl Folder {
         Warrant {
             limit,
             bound: binding(&read),
+            incomplete: false,
         }
     }
 
@@ -128,6 +129,7 @@ fn an_empty_binding_holds_only_while_the_command_runs_nothing_of_its_own() {
     let nothing = Warrant {
         limit: Authorized::Outside,
         bound: Bound::Nothing,
+        incomplete: false,
     };
     assert_eq!(
         folder.admit(Some(&nothing), Authorized::Outside, "ls -la"),
@@ -144,6 +146,7 @@ fn a_command_whose_reading_is_incomplete_never_starts_outside() {
     let any = Warrant {
         limit: Authorized::Outside,
         bound: Bound::Nothing,
+        incomplete: false,
     };
     // Doesn't parse; a program no `PATH` entry has; a command name built at run time.
     for command in [
@@ -157,6 +160,47 @@ fn a_command_whose_reading_is_incomplete_never_starts_outside() {
             "{command}: {refused}"
         );
     }
+}
+
+#[test]
+fn a_persons_allow_on_an_incomplete_reading_starts_it_only_while_what_was_read_is_unchanged() {
+    let folder = Folder::new();
+    // A program no `PATH` entry has, after a script Spade can read.
+    let command = "sh run.sh; spade-nonesuch-xyzzy --all";
+    let asked = read(
+        &folder.workspace(),
+        &folder.workspace(),
+        &folder.env,
+        &json!({ "command": command }),
+    );
+    assert!(asked.incomplete);
+    let allowed = Warrant {
+        limit: Authorized::Outside,
+        bound: binding(&asked),
+        incomplete: true,
+    };
+    assert_eq!(
+        folder.admit(Some(&allowed), Authorized::Outside, command),
+        Ok(())
+    );
+    // The same reading on anyone else's verdict never starts.
+    let reviewed = Warrant {
+        incomplete: false,
+        ..allowed.clone()
+    };
+    let refused = said(folder.admit(Some(&reviewed), Authorized::Outside, command));
+    assert!(refused.contains("couldn't be read whole"), "{refused}");
+    // Nor wider than the person allowed, nor once the part that was read changed.
+    let contained = Warrant {
+        limit: Authorized::Contained,
+        ..allowed.clone()
+    };
+    let refused = said(folder.admit(Some(&contained), Authorized::Outside, command));
+    assert!(refused.contains("wider than"), "{refused}");
+    std::fs::write(folder.workspace().join("run.sh"), "echo rewritten\n")
+        .unwrap_or_else(|_| std::process::abort());
+    let refused = said(folder.admit(Some(&allowed), Authorized::Outside, command));
+    assert!(refused.contains("changed while it waited"), "{refused}");
 }
 
 #[test]

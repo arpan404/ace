@@ -2,8 +2,9 @@
 
 Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: Spade has only one access
 mode, auto-review; Ask and Full access go). Amends [ADR 0144](0144-spade-autonomous-bots.md)
-decisions 1–5, 7 and 8; amended by its own amendment 1 (payments and sends go to the person) and
-amendment 2 (Full access comes back as an opt-in mode, with the hard stops first).
+decisions 1–5, 7 and 8; amended by its own amendment 1 (payments and sends go to the person),
+amendment 2 (Full access comes back as an opt-in mode, with the hard stops first) and amendment 3
+(what Spade's judges stop goes to the person, never back to the bot as a no).
 Follows the research behind the Spade harness audit (a reviewer that
 never sees the bot's own text; refusals go back to the bot; repeated refusals go to the person).
 
@@ -229,6 +230,92 @@ sandboxed_plugin_tools.rs` (a contained plugin server with a token and its netwo
 app-tool rules; one sealed offline with no token runs), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a raise from a socket
 that hasn't proved the person's standing, host token or paired, and an agent's raise are
 refused, a proven socket's is stamped, lowering is never held), and the web's `spade-full-access.test.tsx`.
+
+## Amendment 3: what Spade's judges stop goes to the person (2026-11-19)
+
+Decided by the owner (2026-11-19). Decisions 3 and 4 sent a reviewer's refusal back to the bot as
+the call's result and asked the person only when the bot tried the step again; ADR 0171's
+amendments 4 to 6 refused a command outside the sandbox that Spade couldn't vouch for. A bot told
+no for a judge's sake works around it or gives up, and the person, who could have said yes, never
+sees it. Now, when one of Spade's automated judges says a call is unsafe, the call isn't refused:
+it becomes a request in the chat, with the judge's reason in one plain sentence and what the call
+would do, and it waits for the person's answer like any other request. The bot is told nothing
+until they answer; it is waiting on the person, not refused. The pure rule is
+`spade_core::autonomy::escalate`.
+
+1. **Put to the person** (`approval_requested.stopped` names the judge):
+   - **The reviewer refuses** (`stopped: reviewer`): "The reviewer stopped this: \<its reason\>".
+     Stored as `call_reviewed` `verdict: escalate` with the reviewer's model, so the activity log
+     shows it as escalated. A refusal an older build stored before a restart is put to the person
+     the same way, never run.
+   - **The reviewer can't decide** (failure, a 60 s timeout, two answers Spade can't read, the bot
+     at its cap): asked as before, now tagged `stopped: reviewer`.
+   - **Spade's classifier raises it** (ADR 0172): asked as before (`stopped: classifier`).
+   - **The second review objects or can't decide** (ADR 0135, `stopped: second_review`): it
+     asked before, now with "The second review stopped this: \<its reason\>" on the request,
+     stored as the verdict's reason so a restart asks with the same words.
+   - **Part of a command outside the sandbox couldn't be read whole** (a script too long,
+     outside its folder or unreadable, configuration that runs a program, a program `PATH` can't
+     find; `stopped: incomplete`): whatever the route (the rules, a grant, an Always allow, the
+     reviewer, Full access), the person decides, told so; a route that already asks keeps its line
+     and adds this one. No reviewer is paid for: it couldn't read the call whole either.
+   - **Right before the launch** (`workspace::outside`'s reading, in `engine::calls::again`): what
+     it runs couldn't be read again (`unread`), couldn't be read whole again (`incomplete`), or a
+     file it runs changed after its verdict (`changed`). The verdict it had never runs: Spade stores
+     a verdict bound to what it runs now and asks the person again on that. Only the latest
+     request's answer counts (`turn::next_step`), so an earlier Allow can't start it.
+2. **Still refused, never asked:** a call that hands back a secret (decision 5), and a tool the
+   person declined for the bot (their remembered "no", ADR 0171 amendment 1). A command outside the
+   sandbox Spade couldn't read at all when it was decided (`UNREAD_OUTSIDE`: the classification
+   failed or ran out of time) is still refused: there is nothing to show the person or bind an
+   answer to.
+3. **Not judgments, so not decided here:** what the OS sandbox blocks is a fact, shown as the
+   command's result (a host its network policy refused reads "Blocked \<host\>" in the chat's
+   step line); a driving step whose place changed
+   after it was decided on isn't run and the bot looks again (ADR 0171, amendment 3); a step on a
+   device or in a sensitive place keeps its own request. The check at the spawn (`admit`) still
+   refuses a race in the moment between the last check and the spawn; the bot is told to call
+   again, which gets a fresh decision.
+4. **The person's answer.** Allow once runs exactly the call that was stopped, held to the same
+   warrant as every other answer: the launch it was asked about and the binding the stopped verdict
+   recorded, checked again right before it starts and at the spawn. On an incomplete reading, the
+   person's Allow (and only theirs, `Warrant::incomplete`) lets the spawn start a reading that is
+   still incomplete, as long as what could be read is what they were asked on; it binds nothing
+   it couldn't read. Deny refuses it and the bot reads "The person declined this action." An answer
+   never widens: a judge's request keeps the Always allow the card already offered for that tool
+   (decision 6), and a check that couldn't vouch for a command (`incomplete`, `unread`, `changed`)
+   is answered for this call only: no Always allow, and not the bot's setting to run its commands
+   outside.
+5. **Waiting.** The turn waits on the person (the list shows it waiting on them); a routine's or a
+   background run's request waits in the inbox like every other request. A helper's is asked in its
+   bot's conversation as before.
+6. **Full access** is unchanged: no reviewer and no second review, and its hard stops still ask.
+   An incomplete reading outside the sandbox now asks there too, where it was refused.
+7. **Gone:** the retry rule of decision 4 (`refusals`, `retries_refused`, `<refused_before>`, "Refused
+   again: …"): with every refusal put to the person, nothing is left for it to catch. The reviewer
+   is told a refused step goes to the person. A reviewer that still writes `retries_refused` is
+   read the same; a stored "Refused again" request still shows as before.
+8. **Clients.** The request card shows the judge's line under its sentence, its main button reads
+   Allow once, and `incomplete`, `unread` and `changed` requests offer no Always. A request asked
+   again after an answer opens its card again with the new line.
+
+Consequences: the person sees more requests where the reviewer is strict, and a bot no longer
+learns from a refusal on its own; it learns from the person's answer. Nothing a judge stopped runs
+without the person, and an Allow given on an incomplete reading runs what couldn't be read on the
+person's word alone, which the request says.
+
+Tests: `spade_core::autonomy::escalate` (every judge's stop to its request, a secret and a declined
+tool refused, by the routing itself too; an incomplete reading asks on every route and mode),
+`spade_core::autonomy` (a refusal goes to the person with the reviewer's reason), `spade_core::turn`
+(a call asked again waits on the new answer), `workspace::outside` (a person's Allow on an
+incomplete reading starts only while what was read is unchanged, and no one else's does); through
+the API, `autonomy.rs` (the reviewer refuses, the person allows and the call runs exactly once; the
+person denies and the bot reads their no), `autonomy_scripts.rs` (a script changed after its review
+is asked about again as it is now and runs as allowed; one that can't be read whole asks and runs
+once), `oversight.rs` (the second review's reason is on the request), `security.rs`,
+`outside_launch.rs`, `effects.rs`, `full_access.rs`, `worker_guards.rs` and `classifier_git.rs`
+(each former refusal now asks); the web's `spade-autonomy.test.tsx` (the card shows the reviewer's
+reason, Allow once; a changed command offers no Always) and ui-core's `autonomy.test.ts`.
 
 ## Options considered
 

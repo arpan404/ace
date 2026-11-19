@@ -678,3 +678,12 @@ is provided for a Mac: it runs the probe cases (symlink/recursive/credential rea
 `/dev/tty`, loopback, `/Users`, and a file reached by its real path under `/System/Volumes/Data`,
 all refused) and checks that `git --version` and `git log -1` succeed under read-only once the
 developer dir is resolved. Windows has no read-only profile.
+
+## Note: the reviewer behind the classifier puts its refusals to the person (2026-11-19)
+
+[ADR 0163](0163-spade-auto-review-only.md) amendment 3: a raise already went to the person and
+still does, now tagged `stopped: classifier` on the request. What changed is behind an abstain:
+the reviewer's refusal is put to the person with its reason ("The reviewer stopped this: …")
+instead of going back to the bot, and a command outside the sandbox the classifier can't be shown
+whole (configuration that runs a program, an incomplete reading) asks the person rather than being
+refused. Settling and abstaining are unchanged.
