@@ -321,7 +321,12 @@ narrower one; one that records none, and a grant, holds for a contained launch o
 and environment it starts with, is complete and is what its verdict was given on, and the launch
 is within that verdict's limit. Bare program names are found on its `PATH`: one not found, or a
 command that sets its own `PATH`, is incomplete; so is git, a Node package manager, cargo or
-ripgrep where its configuration names a program to run.
+ripgrep where its configuration names a program to run. A program outside the operating system's
+protected folders (judged by its real path) is bound by the SHA-256 of its content, read whole up
+to 512 MiB; one that can't be read whole is incomplete. On Windows a program is resolved only when
+cmd.exe can't choose otherwise: a same-named file in the starting folder refuses the command
+(ADR 0171, amendment 6). The binding is defence in depth, not race-free; see that amendment's
+"what the binding can't promise".
 
 **Each command is a fresh `sh -c`.** A bot's commands carry only the folder and exported
 variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a

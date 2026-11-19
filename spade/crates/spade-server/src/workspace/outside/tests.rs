@@ -250,6 +250,11 @@ fn sources() -> Vec<(String, String)> {
 /// Every place Spade's server starts a process, and why each is not a bot's command that skips
 /// [`admit`]. A new one fails here until it is routed through the shell (and so `admit`) or
 /// added with its reason.
+///
+/// Scope: this crate's own source (`spade-server/src`) only, not the crates it uses
+/// (`spade-sandbox`'s launcher, `spade-connect`) or ace's daemon. Plugin servers and hooks are
+/// listed as what they are: trusted when the person installs or enables the plugin, contained
+/// where there is a sandbox, started plainly where there is none (ADR 0171, amendment 6).
 const SPAWNS: &[(&str, usize, &str)] = &[
     (
         "workspace/shell.rs",
@@ -371,4 +376,72 @@ fn every_shell_run_is_a_bots_unless_listed_with_its_reason() {
         "a shell run that isn't a bot's was added: a bot's command is `By::Bot` with its \
          verdict's warrant; anything else needs its reason in NOT_A_BOTS"
     );
+}
+
+#[test]
+fn a_program_rewritten_to_the_same_size_with_its_time_put_back_doesnt_start() {
+    let mut folder = Folder::new();
+    let program = folder.toolchain("frob", "#!/bin/sh\necho one\n");
+    let warrant = folder.verdict("frob --all", Authorized::Outside);
+    let changed = std::fs::metadata(&program)
+        .and_then(|meta| meta.modified())
+        .unwrap_or_else(|_| std::process::abort());
+    write_program(&program, "#!/bin/sh\necho two\n");
+    std::fs::File::options()
+        .write(true)
+        .open(&program)
+        .and_then(|file| file.set_modified(changed))
+        .unwrap_or_else(|_| std::process::abort());
+    let refused = said(folder.admit(Some(&warrant), Authorized::Outside, "frob --all"));
+    assert!(refused.contains("changed while it waited"), "{refused}");
+}
+
+#[test]
+fn a_program_linked_from_path_is_bound_by_what_it_links_to() {
+    let mut folder = Folder::new();
+    // A link on `PATH` into a folder of the person's: bound by the target's content.
+    let target = folder.root.join("home/frob");
+    std::fs::create_dir_all(folder.root.join("home")).unwrap_or_else(|_| std::process::abort());
+    write_program(&target, "#!/bin/sh\necho one\n");
+    let link = folder.toolchain("placeholder", "");
+    let bin = link.parent().map(Path::to_path_buf).unwrap_or_default();
+    std::os::unix::fs::symlink(&target, bin.join("frob")).unwrap_or_else(|_| std::process::abort());
+    let read = read(
+        &folder.workspace(),
+        &folder.workspace(),
+        &folder.env,
+        &json!({ "command": "frob" }),
+    );
+    let bound: Vec<&Path> = read.programs.iter().map(|(p, _)| p.as_path()).collect();
+    assert_eq!(bound, [target.as_path()]);
+    let warrant = folder.verdict("frob", Authorized::Outside);
+    write_program(&target, "#!/bin/sh\necho two\n");
+    let refused = said(folder.admit(Some(&warrant), Authorized::Outside, "frob"));
+    assert!(refused.contains("changed while it waited"), "{refused}");
+    // A link to the system's own is the system's: nothing to bind.
+    std::os::unix::fs::symlink("/usr/bin/env", bin.join("myenv"))
+        .unwrap_or_else(|_| std::process::abort());
+    let warrant = folder.verdict("myenv", Authorized::Outside);
+    if cfg!(target_os = "linux") {
+        assert_eq!(warrant.bound, Bound::Nothing);
+    }
+}
+
+#[test]
+fn a_program_too_large_to_read_whole_is_an_incomplete_reading() {
+    let mut folder = Folder::new();
+    let program = folder.toolchain("huge", "#!/bin/sh\n");
+    // Sparse: past the most Spade reads, without writing it.
+    std::fs::File::options()
+        .write(true)
+        .open(&program)
+        .and_then(|file| file.set_len(super::super::place::LONGEST_PROGRAM + 1))
+        .unwrap_or_else(|_| std::process::abort());
+    let read = read(
+        &folder.workspace(),
+        &folder.workspace(),
+        &folder.env,
+        &json!({ "command": "huge" }),
+    );
+    assert!(read.incomplete);
 }

@@ -532,6 +532,54 @@ allowed command doesn't start once an earlier terminal command rewrote its scrip
 stored before a restart still refuses in Full access) and `services.rs` (a kept service starts
 again only as it was allowed, and one an older build recorded only held).
 
+## Amendment 6: a binding holds content, and Windows resolves only without doubt (2026-11-18)
+
+A further review found the binding of amendment 5 weaker than it read.
+
+- **A program is bound by its content.** A program a command runs from outside the system's
+  protected folders is bound by its real (symlink-resolved) path and the SHA-256 of its content,
+  read whole, at most 512 MiB; one larger, unreadable or gone makes the reading incomplete, so
+  nothing is bound to a placeholder. Size and time stamps no longer stand for content: a rewrite
+  of the same size with the time put back is caught.
+- **Only the operating system's own programs are exempt**, by where their real path is, never by
+  the `PATH` folder they were found through: macOS's `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin` and
+  `/System`; Linux's `/usr/bin`, `/bin`, `/usr/sbin` and `/sbin` where the program and its folder
+  are root's and writable by no one else; Windows' `%SystemRoot%\System32`. Everything else
+  (Homebrew's, `/usr/local`, `/opt`, `/nix`, `/snap`, the person's toolchain, a link from any of
+  them into a folder of the person's) is hashed. A program named by a system-looking path is
+  looked up the same way.
+- **Windows resolves a program only where cmd.exe can't choose otherwise.** cmd.exe looks in the
+  folder the command starts in before `PATH`, and tries `PATHEXT`'s endings. Rather than emulate it
+  wholly, Spade refuses (the reading is incomplete) when a file cmd.exe could take for the name is
+  in that folder, when `PATHEXT` is empty or `PATH` has an empty or relative entry, or when nothing
+  matches; otherwise it binds the first `PATH` folder's match in `PATHEXT`'s order.
+
+Tested in `workspace::place` (cmd.exe's lookup refuses a same-named program in the starting
+folder and follows `PATHEXT`'s order otherwise; only a real path in a protected folder is exempt)
+and `workspace::outside` (a program rewritten to the same size with its time put back is refused;
+one linked from a folder on `PATH` into a folder of the person's is bound by its target's
+content; one too large to read whole is incomplete).
+
+### Outside the sandbox: what the binding can't promise
+
+Accepted with the owner (2026-11-18), in the order of ace's priorities: the control for a command
+outside the sandbox is the decision, the person's or the reviewer's, on what it shows them; the
+content binding is defence in depth behind it, and it has two limits this ADR doesn't close.
+
+- **It isn't race-free.** A concurrent writer (another of the bot's own processes, one of its
+  services, another app on the machine) can change a checked file between `admit` reading it and
+  the moment the shell or interpreter opens it. What ships against that: the terminal's lock (no
+  other command of the bot's runs in that terminal in between), the check at the spawn after
+  every await, and the decision itself. Closing it fully would mean launching from immutable
+  copies of everything a command runs; that is out of scope.
+- **It covers bots' commands only.** A plugin's MCP server and its hooks are a separate trust
+  decision, made when the person installs or enables the plugin (ADR 0151); they run contained
+  wherever the machine has a sandbox, and on a machine without one they start plainly, with no
+  verdict and no binding. The enumeration tests (`workspace::outside`) cover Spade's server
+  crate only: they list every process start and every shell run that isn't a bot's in
+  `spade-server/src`, not in the crates it uses (`spade-sandbox`'s launcher, `spade-connect`'s
+  connectors) or in the daemon.
+
 ## Note: Full access (2026-11-18)
 
 This ADR's routes are the auto-review's. [ADR 0163](0163-spade-auto-review-only.md) amendment 2

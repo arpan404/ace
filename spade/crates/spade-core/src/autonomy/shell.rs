@@ -52,8 +52,9 @@ pub struct Assessment {
     pub shown: Vec<Shown>,
     /// Something it runs couldn't be read whole, so `shown` isn't all of it.
     pub incomplete: bool,
-    /// Programs it runs from outside the system's folders and the bot's, as `PATH` finds them.
-    pub programs: Vec<PathBuf>,
+    /// Programs it runs from outside the system's protected folders and the bot's, by real path,
+    /// with the SHA-256 of their content.
+    pub programs: Vec<(PathBuf, String)>,
     /// The tools it runs whose configuration could run a program it never names, by the real
     /// folder each runs in: that folder's configuration is the one to inspect.
     pub config: Vec<(PathBuf, ConfigTools)>,
@@ -97,8 +98,9 @@ pub(super) struct Walk {
     /// folder or unreadable, or the reading's budget spent first. What was read can't stand for
     /// what will run.
     pub incomplete: bool,
-    /// Programs it runs from outside the system's folders and the bot's (`Program::At`).
-    pub programs: Vec<PathBuf>,
+    /// Programs it runs from outside the system's protected folders and the bot's
+    /// (`Program::At`), with their content's digest.
+    pub programs: Vec<(PathBuf, String)>,
     /// The tools it runs that read configuration, by the real folder each runs in.
     pub config: Vec<(PathBuf, ConfigTools)>,
 }
@@ -343,9 +345,15 @@ fn discover(simple: &Simple, place: &dyn Place, depth: usize, walk: &mut Walk) {
             None => walk.kind(Sensitive::Unclear),
         }
     }
-    // A path is run as a script where it is named (`effects`); a name built at run time is
-    // already unclear there.
-    if first.contains('/') || first.contains('$') || first.contains('`') || shell_builtin(first) {
+    // A name built at run time is already unclear (`effects`); a path not the system's is run as
+    // a script where it is named. One that looks like the system's is looked up like a bare name,
+    // so it is the system's only if its real path is.
+    let named = first.contains('/');
+    if first.contains('$')
+        || first.contains('`')
+        || shell_builtin(first)
+        || named && !(first.starts_with('/') && effects::system_program(first))
+    {
         return;
     }
     match place.program(first) {
@@ -355,11 +363,16 @@ fn discover(simple: &Simple, place: &dyn Place, depth: usize, walk: &mut Walk) {
             let run = effects::Run::Exec(real.to_string_lossy().into_owned());
             scripts::show(&run, place, depth, walk);
         }
-        Program::At(real) => {
-            if !walk.programs.contains(&real) {
-                walk.programs.push(real);
+        Program::At(real) => match place.digest(&real) {
+            // Bound by what it is, not where: a rewrite in place is caught.
+            Some(digest) => {
+                if !walk.programs.iter().any(|(had, _)| *had == real) {
+                    walk.programs.push((real, digest));
+                }
             }
-        }
+            // It can't be read whole: nothing can be bound to it.
+            None => walk.kind(Sensitive::Unclear),
+        },
     }
 }
 

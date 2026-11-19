@@ -16,9 +16,10 @@ pub enum Unseen {
 /// Where a bare program name runs from, as the command's `PATH` finds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Program {
-    /// One of the system's own (`/usr/bin`, `/bin`, Homebrew's…).
+    /// One of the operating system's own: its real path lies in a folder the system protects.
     System,
-    /// A file elsewhere: the person's toolchain, or one in the bot's folder.
+    /// A file anywhere else (the person's toolchain, Homebrew's, the bot's folder), by its real
+    /// path.
     At(PathBuf),
     /// Nowhere on the `PATH`, or a `PATH` Spade can't follow (an empty or relative entry).
     Missing,
@@ -43,6 +44,11 @@ pub trait Place {
     /// [`Program::Unknown`]; the launch of a command outside the sandbox never relies on one.
     fn program(&self, _name: &str) -> Program {
         Program::Unknown
+    }
+    /// The SHA-256 of a program's content, so a call can be bound to it. `None` when it can't be
+    /// read whole (too large, unreadable, gone): nothing can be bound to it.
+    fn digest(&self, _real: &Path) -> Option<String> {
+        None
     }
 }
 
@@ -86,6 +92,10 @@ impl Place for Moved<'_> {
 
     fn program(&self, name: &str) -> Program {
         self.inner.program(name)
+    }
+
+    fn digest(&self, real: &Path) -> Option<String> {
+        self.inner.digest(real)
     }
 }
 

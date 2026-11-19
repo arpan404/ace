@@ -199,6 +199,20 @@ to them only by the shell classifier's lists and Spade's classifier, which are g
 command written to pay or send without words they know runs. Keep commands sandboxed (the
 default) where that matters.
 
+Outside the sandbox: what the binding can't promise (accepted with the owner, 2026-11-18; ADR 0171,
+amendment 6). The decision on what a command shows, the person's or the reviewer's, is the
+control; in Full access there is no reviewer, so for a command outside the sandbox it is the rules
+and the classifier's lists. The content binding behind it (ADR 0171, amendments 5 and 6) is
+defence in depth with two limits:
+
+- It isn't race-free: another of the bot's own processes, one of its services or another app can
+  change a checked file between the check at the spawn and the moment the shell opens it. The
+  terminal's lock, the check after every await, and the decision are what ship against it;
+  launching from immutable copies would close it and is out of scope.
+- It covers bots' commands only: a plugin's MCP server and hooks are trusted when the person
+  installs or enables the plugin, run contained wherever there is a sandbox, and start plainly on
+  a machine without one. The enumeration tests are scoped to Spade's server crate.
+
 Tests: `spade_core::effect::full_access` (a write outside the sandbox runs without review; a
 payment, a send as the person, an access change and an unknown effect still ask; a secret is
 still refused; a step on a simulator, in Mail, in a password manager or on a bank's checkout still
