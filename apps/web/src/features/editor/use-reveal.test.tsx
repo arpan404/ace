@@ -20,6 +20,7 @@ function probing() {
         hit: props.hit,
         reveal: (position: Position) => {
           reveals.push(position);
+          return true;
         },
         announce: (position: Position) => {
           announced.push(position);
@@ -77,6 +78,7 @@ test("a jump to a search match reveals its column, and the same line at another 
         hit: undefined,
         reveal: (position: Position) => {
           reveals.push(position);
+          return true;
         },
         announce: () => {},
       }),
@@ -89,4 +91,58 @@ test("a jump to a search match reveals its column, and the same line at another 
     { line: 2, column: 14 },
     { line: 2, column: 2 },
   ]);
+});
+
+test("a jump asked for before the document loaded runs once it has loaded", () => {
+  const reveals: Position[] = [];
+  const announced: Position[] = [];
+  const view = renderHook(
+    (props: { loaded: boolean; line?: number; column?: number }) =>
+      useRevealJump({
+        line: props.line,
+        column: props.column,
+        hit: undefined,
+        // Nothing to scroll yet: the view says the jump did not land.
+        reveal: (position: Position) => {
+          if (!props.loaded) return false;
+          reveals.push(position);
+          return true;
+        },
+        announce: (position: Position) => {
+          announced.push(position);
+        },
+      }),
+    { initialProps: { loaded: false, line: 500, column: 7 } },
+  );
+  expect(reveals).toEqual([]);
+  expect(announced).toEqual([]);
+
+  view.rerender({ loaded: true, line: 500, column: 7 });
+  expect(reveals).toEqual([{ line: 499, column: 7 }]);
+  expect(announced).toHaveLength(1);
+
+  // Landed: a later render does not take the reader back.
+  view.rerender({ loaded: true, line: 500, column: 7 });
+  expect(reveals).toHaveLength(1);
+});
+
+test("a find hit that arrived before the view could scroll is revealed once it can", () => {
+  const reveals: Position[] = [];
+  const view = renderHook(
+    (props: { loaded: boolean }) =>
+      useRevealJump({
+        line: undefined,
+        hit: { line: 40, column: 3 },
+        reveal: (position: Position) => {
+          if (!props.loaded) return false;
+          reveals.push(position);
+          return true;
+        },
+        announce: () => {},
+      }),
+    { initialProps: { loaded: false } },
+  );
+  view.rerender({ loaded: true });
+  view.rerender({ loaded: true });
+  expect(reveals).toEqual([{ line: 40, column: 3 }]);
 });
