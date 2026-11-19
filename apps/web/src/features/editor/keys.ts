@@ -1,6 +1,5 @@
 import type { Position, Selection } from "@ace/editor";
 import { useRef, type KeyboardEvent } from "react";
-import { commentToken } from "./comment.ts";
 import {
   caret,
   documentEnd,
@@ -12,6 +11,7 @@ import {
   stepForward,
 } from "./cursor.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
+import { lineCommand } from "./line-keys.ts";
 import { columnAtVisual } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
@@ -259,11 +259,16 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.onSave();
       return;
     }
-    if (!options.readOnly && mod && key === "/") {
-      const token = commentToken(path);
-      if (!token) return;
+    const command = options.readOnly ? undefined : lineCommand(event, mac, path);
+    if (command) {
       event.preventDefault();
-      state.edit((target) => target.toggleLineComment(token));
+      goal.current = undefined;
+      if (command.kind === "edit") state.edit(command.run);
+      else {
+        commitMove(command.run(doc));
+        return;
+      }
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     // Shift+mod+D is ace's Changes shortcut: leave it for the page.
@@ -273,32 +278,6 @@ export function useEditorKeys(options: EditorKeyOptions) {
         options.onBefore(noAffinity);
         state.select(doc.selections());
       }
-      return;
-    }
-    if (!options.readOnly && key === "Tab") {
-      event.preventDefault();
-      state.edit((target) => (event.shiftKey ? target.outdentLines() : target.indentLines()));
-      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
-      return;
-    }
-    if (!options.readOnly && event.altKey && event.shiftKey && key === "ArrowDown") {
-      event.preventDefault();
-      goal.current = undefined;
-      state.edit((target) => target.duplicateLines());
-      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
-      return;
-    }
-    if (
-      !options.readOnly &&
-      event.altKey &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      (key === "ArrowUp" || key === "ArrowDown")
-    ) {
-      event.preventDefault();
-      goal.current = undefined;
-      state.edit((target) => (key === "ArrowUp" ? target.moveLinesUp() : target.moveLinesDown()));
-      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (key === "Escape") {

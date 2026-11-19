@@ -136,7 +136,8 @@ export function useEditorInput(
     if (event.nativeEvent.isComposing || event.keyCode === 229) return false;
     if (readOnly) return false;
     const word = mac ? event.altKey || event.metaKey : event.ctrlKey || event.altKey;
-    if (event.key === "Enter") {
+    // Cmd+Enter and Shift+Cmd+Enter open a line below or above: the line keys take those.
+    if (event.key === "Enter" && !(mac ? event.metaKey : event.ctrlKey)) {
       event.preventDefault();
       suppress();
       state.edit((target) => target.insertNewline());

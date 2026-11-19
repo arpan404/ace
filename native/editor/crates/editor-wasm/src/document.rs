@@ -2,7 +2,7 @@
 
 //! The document class JavaScript drives.
 
-use editor_core::{Document, FindQuery, Position};
+use editor_core::{Document, FindQuery, Indent, Position};
 use wasm_bindgen::prelude::*;
 
 use crate::applied::Applied;
@@ -156,6 +156,59 @@ impl EditorDocument {
     #[wasm_bindgen(js_name = toggleLineComment)]
     pub fn toggle_line_comment(&mut self, token: &str) -> Applied {
         Applied::new(self.core.toggle_line_comment(token))
+    }
+
+    /// Copies the selected lines above themselves; the carets stay on the upper copy.
+    #[wasm_bindgen(js_name = copyLinesUp)]
+    pub fn copy_lines_up(&mut self) -> Applied {
+        Applied::new(self.core.copy_lines_up())
+    }
+
+    /// Deletes every selected line.
+    #[wasm_bindgen(js_name = deleteLines)]
+    pub fn delete_lines(&mut self) -> Applied {
+        Applied::new(self.core.delete_lines())
+    }
+
+    /// Opens an indented empty line below each caret's line.
+    #[wasm_bindgen(js_name = insertLineBelow)]
+    pub fn insert_line_below(&mut self) -> Applied {
+        Applied::new(self.core.insert_line_below())
+    }
+
+    /// Opens an indented empty line above each caret's line.
+    #[wasm_bindgen(js_name = insertLineAbove)]
+    pub fn insert_line_above(&mut self) -> Applied {
+        Applied::new(self.core.insert_line_above())
+    }
+
+    /// Joins each selection's lines, or a caret's line with the next.
+    #[wasm_bindgen(js_name = joinLines)]
+    pub fn join_lines(&mut self) -> Applied {
+        Applied::new(self.core.join_lines())
+    }
+
+    /// Tab: indents the lines of a multi-line selection, or inserts one step at every caret.
+    pub fn tab(&mut self) -> Applied {
+        Applied::new(self.core.tab())
+    }
+
+    /// Wraps each selection in `open` and `close`, or unwraps it when it already is a comment.
+    #[wasm_bindgen(js_name = toggleBlockComment)]
+    pub fn toggle_block_comment(&mut self, open: &str, close: &str) -> Applied {
+        Applied::new(self.core.toggle_block_comment(open, close))
+    }
+
+    /// The indent step as `[tabs (0 or 1), size]`.
+    pub fn indent(&self) -> Vec<u32> {
+        let indent = self.core.indent();
+        vec![u32::from(indent.tabs), indent.size]
+    }
+
+    /// Sets the indent step: a tab, or `size` spaces.
+    #[wasm_bindgen(js_name = setIndent)]
+    pub fn set_indent(&mut self, tabs: bool, size: u32) {
+        self.core.set_indent(Indent { tabs, size });
     }
 
     /// Undoes the last step, or returns `undefined` when there is nothing to undo.

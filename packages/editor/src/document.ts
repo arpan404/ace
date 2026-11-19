@@ -1,6 +1,6 @@
 import { flattenSelections, readApplied, readRanges, readSelections } from "./flat.ts";
 import { wasm } from "./loader.ts";
-import type { Applied, Change, FindQuery, Position, Range, Selection } from "./types.ts";
+import type { Applied, Change, FindQuery, Indent, Position, Range, Selection } from "./types.ts";
 import type { WasmDocument } from "./wasm-types.ts";
 
 /**
@@ -129,6 +129,52 @@ export class EditorDocument {
   /** Comments the selected lines with `token`, or removes it when all are commented. */
   toggleLineComment(token: string): Applied {
     return readApplied(this.#inner.toggleLineComment(token));
+  }
+
+  /** Copies the selected lines above themselves; the carets stay on the upper copy. */
+  copyLinesUp(): Applied {
+    return readApplied(this.#inner.copyLinesUp());
+  }
+
+  /** Deletes every selected line; each caret lands on the line that moves into its place. */
+  deleteLines(): Applied {
+    return readApplied(this.#inner.deleteLines());
+  }
+
+  /** Opens an empty line below each caret's line, indented like it. */
+  insertLineBelow(): Applied {
+    return readApplied(this.#inner.insertLineBelow());
+  }
+
+  /** Opens an empty line above each caret's line, indented like it. */
+  insertLineAbove(): Applied {
+    return readApplied(this.#inner.insertLineAbove());
+  }
+
+  /** Joins each selection's lines into one, or a caret's line with the next. */
+  joinLines(): Applied {
+    return readApplied(this.#inner.joinLines());
+  }
+
+  /** Tab: indents a multi-line selection's lines, or inserts one indent step at every caret. */
+  tab(): Applied {
+    return readApplied(this.#inner.tab());
+  }
+
+  /** Wraps each selection in a block comment, or unwraps one that already is. */
+  toggleBlockComment(open: string, close: string): Applied {
+    return readApplied(this.#inner.toggleBlockComment(open, close));
+  }
+
+  /** How one indent step is written. */
+  indent(): Indent {
+    const [tabs = 0, size = 2] = this.#inner.indent();
+    return { tabs: tabs === 1, size };
+  }
+
+  /** Sets how indent commands, Tab and new lines write one indent step. */
+  setIndent(indent: Indent): void {
+    this.#inner.setIndent(indent.tabs, indent.size);
   }
 
   /** Undoes the last step, or `undefined` when there is nothing to undo. */

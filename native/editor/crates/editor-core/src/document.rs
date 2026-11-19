@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use crate::applied::{OffsetMapper, Outcome};
 use crate::buffer::{Buffer, LineEnding};
 use crate::history::{Entry, History};
+use crate::indent::Indent;
 use crate::position::Position;
 use crate::selection::Selection;
 use crate::transaction::{Applied, Edit, EditSet, Transaction};
@@ -27,6 +28,8 @@ pub struct Document {
     pub(crate) search_text: RefCell<Option<(u64, String)>>,
     /// Whether the current next-occurrence chain started from a word under a caret.
     pub(crate) word_chain: bool,
+    /// How an indent step is written.
+    pub(crate) indent: Indent,
 }
 
 impl Document {
@@ -40,7 +43,21 @@ impl Document {
             version: 0,
             search_text: RefCell::new(None),
             word_chain: false,
+            indent: Indent::default(),
         }
+    }
+
+    /// How one indent step is written: tabs, or a number of spaces.
+    pub fn indent(&self) -> Indent {
+        self.indent
+    }
+
+    /// Sets how indent commands, Tab and new lines write one indent step.
+    pub fn set_indent(&mut self, indent: Indent) {
+        self.indent = Indent {
+            tabs: indent.tabs,
+            size: indent.size.clamp(1, 16),
+        };
     }
 
     /// The whole text, with its original line endings.
@@ -225,6 +242,27 @@ impl Document {
             typing,
         );
         outcome.applied
+    }
+
+    /// Applies an edit set and leaves the selections at `after`, given as (anchor, head) byte
+    /// offsets in the text after the edit.
+    pub(crate) fn apply_with_offsets(
+        &mut self,
+        edits: EditSet,
+        after: Vec<(usize, usize)>,
+        typing: bool,
+    ) -> Applied {
+        if edits.is_empty() {
+            return self.unchanged();
+        }
+        let outcome = self.run(&edits);
+        let after = after
+            .into_iter()
+            .map(|(anchor, head)| {
+                Selection::new(self.buffer.position(anchor), self.buffer.position(head))
+            })
+            .collect();
+        self.finish(edits, outcome, after, typing)
     }
 
     /// Applies an edit set built by a command and leaves a caret at the end of every change.

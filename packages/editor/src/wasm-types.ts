@@ -30,6 +30,15 @@ export interface WasmDocument {
   moveLinesDown(): WasmApplied;
   duplicateLines(): WasmApplied;
   toggleLineComment(token: string): WasmApplied;
+  copyLinesUp(): WasmApplied;
+  deleteLines(): WasmApplied;
+  insertLineBelow(): WasmApplied;
+  insertLineAbove(): WasmApplied;
+  joinLines(): WasmApplied;
+  tab(): WasmApplied;
+  toggleBlockComment(open: string, close: string): WasmApplied;
+  indent(): Uint32Array;
+  setIndent(tabs: boolean, size: number): void;
   undo(): WasmApplied | undefined;
   redo(): WasmApplied | undefined;
   commit(): void;

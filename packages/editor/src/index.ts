@@ -7,6 +7,7 @@ export {
   type Change,
   type EditorError,
   type FindQuery,
+  type Indent,
   type LineEdit,
   type LineMark,
   type LineMarkKind,
