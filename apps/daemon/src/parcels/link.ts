@@ -23,6 +23,8 @@ export interface ParcelLinkDeps {
   relay: RelayLink;
   /** The paths the machine last said it serves (`describe`), kept across restarts. */
   paths(profile: RemoteProfile): MachinePath[];
+  /** Whether a relay address is ace's hosted relay, by this machine's own settings. */
+  hosted(url: string): boolean;
   now(): number;
 }
 
@@ -39,7 +41,7 @@ export class ParcelLink {
   readonly machines: MachineLink;
   constructor(deps: ParcelLinkDeps) {
     this.deps = deps;
-    this.machines = new MachineLink({ paths: deps.paths, now: deps.now });
+    this.machines = new MachineLink({ paths: deps.paths, hosted: deps.hosted, now: deps.now });
   }
   /** The route that answered last for this machine, while it's still preferred. */
   lastRoute(profile: RemoteProfile): RouteKind | undefined {

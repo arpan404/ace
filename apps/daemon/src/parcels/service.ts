@@ -17,6 +17,7 @@ import { loadHostId } from "../local-files.ts";
 import { pinnedRequest } from "../machines/transport.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { ParcelFileError, ParcelFiles } from "./files.ts";
+import { isHostedRelay } from "../relay-account.ts";
 import { ParcelLink } from "./link.ts";
 import { arrivalText, receivedView, sentView } from "./messages.ts";
 import { ParcelPuller } from "./puller.ts";
@@ -111,6 +112,7 @@ export function startParcels(context: ServiceContext): void {
     pinned: options.parcels?.pinned ?? pinnedRequest,
     relay,
     paths: (profile) => rows.paths(profile.id)?.paths ?? [],
+    hosted: (url) => isHostedRelay(url, config.hostedRelayUrl),
     now,
   });
   const room = () => Math.max(0, QUOTA_BYTES - rows.heldBytes());

@@ -13,6 +13,8 @@ import {
 export interface MachineLinkDeps {
   /** The paths the machine last said it serves (`describe`), kept across restarts. */
   paths(profile: RemoteProfile): MachinePath[];
+  /** Whether a relay address is ace's hosted relay, as this machine's own settings name it. */
+  hosted(url: string): boolean;
   now(): number;
 }
 
@@ -54,14 +56,14 @@ export class MachineLink {
   /** Every route to the machine, the one that answered last first. */
   routes(profile: RemoteProfile): MachineRoute[] {
     return preferredFirst(
-      machineRoutes(profile, this.deps.paths(profile)),
+      machineRoutes(profile, this.deps.paths(profile), this.deps.hosted),
       this.preferred.get(profile.id),
       this.deps.now(),
     );
   }
   /** Its relays only, in their own order. */
   relays(profile: RemoteProfile): MachineRoute[] {
-    return machineRoutes(profile, this.deps.paths(profile)).filter(
+    return machineRoutes(profile, this.deps.paths(profile), this.deps.hosted).filter(
       (route) => route.kind === "relay",
     );
   }
