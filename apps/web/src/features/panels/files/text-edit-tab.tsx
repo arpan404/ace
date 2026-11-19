@@ -41,15 +41,22 @@ function Editor(props: { name: string; session: TextEditSession }) {
   const { session } = props;
   const editor = useRef<EditorHandle>(null);
   const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** An edit the composer has not been handed yet. */
+  const pending = useRef(false);
   const [text, setText] = useState(() => session.typed());
   const [failed, setFailed] = useState(false);
-  const typeSettled = () => {
+  const typeNow = () => {
     if (settle.current !== undefined) clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      settle.current = undefined;
-      const next = editor.current?.text();
-      if (next !== undefined) session.type(next);
-    }, 150);
+    settle.current = undefined;
+    const next = editor.current?.text();
+    if (!pending.current || next === undefined) return;
+    pending.current = false;
+    session.type(next);
+  };
+  const typeSettled = () => {
+    pending.current = true;
+    if (settle.current !== undefined) clearTimeout(settle.current);
+    settle.current = setTimeout(typeNow, 150);
   };
   useEffect(
     () => () => {
@@ -87,6 +94,13 @@ function Editor(props: { name: string; session: TextEditSession }) {
           label={`Editing ${props.name}`}
           focusOnMount
           onEdit={typeSettled}
+          // Send or the tab's close button takes focus first: what was just typed goes with it.
+          onBlur={typeNow}
+          onTextDispose={(last) => {
+            if (!pending.current) return;
+            pending.current = false;
+            session.type(last);
+          }}
         />
       </div>
     </section>
