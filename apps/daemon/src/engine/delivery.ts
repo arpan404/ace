@@ -1,4 +1,5 @@
 import { contextNotice } from "@ace/context";
+import { stopsWholeThread } from "./stop-scope.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
@@ -332,7 +333,8 @@ export async function executeIntent(
     // A Stop of the whole thread stops the agent's background shells and monitors too (ADR
     // 0052's follow-up): left running, they would keep the thread waiting and keep writing.
     // Each is bounded like the interrupt; one that won't stop closes the session below.
-    if (stopsWholeThread(p))
+    const whole = stopsWholeThread(p, state.agents[state.rootKey ?? ""]?.agent.id);
+    if (whole)
       for (const key of stoppableTasks(repo.requireState(actor.id)))
         try {
           await interruptWithin(session.stopTask(key));
@@ -342,7 +344,7 @@ export async function executeIntent(
     if (failures.length) {
       const error =
         failures.length === 1 ? failures[0] : new AggregateError(failures, "Stop failed");
-      if (!stopsWholeThread(p)) throw error;
+      if (!whole) throw error;
       // A Stop always settles. When the provider can't stop the tree itself (its location was
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
@@ -404,13 +406,4 @@ function stoppableTasks(state: import("@ace/core").ThreadState): string[] {
   return Object.entries(state.tasks)
     .filter(([, task]) => task.status === "running" && task.owner !== "ace" && !task.internal)
     .map(([key]) => key);
-}
-
-/** A Stop of the whole thread, as opposed to interrupting one agent or one run. */
-/**
- * A cascading Stop of the root stops the whole thread. Its run id only fences out a stale Stop,
- * which is dropped before the provider is asked, so naming the run doesn't narrow it.
- */
-function stopsWholeThread(p: { cascade: boolean; agentId?: string | undefined }): boolean {
-  return p.cascade && p.agentId === undefined;
 }
