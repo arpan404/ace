@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { MachineEntry } from "@ace/client/machines";
+import { MachineEntry, type MachineTarget } from "@ace/client/machines";
 import {
   ProductionTransportError,
   createMachinesRuntime,
@@ -361,7 +361,7 @@ function setupLifecycle(initial: MachineEntry[]) {
     setFailStart(hostId: string, error: unknown, targetUrl?: string) {
       failStart.set(targetUrl === undefined ? hostId : `${hostId}|direct|${targetUrl}`, error);
       for (const runtime of byHost.get(hostId) ?? []) {
-        if (targetUrl === undefined || runtime.binding.target.url === targetUrl) {
+        if (targetUrl === undefined || targetUrlOf(runtime.binding.target) === targetUrl) {
           runtime.failStart = error;
         }
       }
@@ -391,8 +391,12 @@ function movedEntry(hostId: string): MachineEntry {
   };
 }
 
+function targetUrlOf(target: MachineTarget): string {
+  return target.kind === "account" ? target.relayUrl : target.url;
+}
+
 function startKey(candidate: MachineEntry): string {
-  return `${candidate.hostId}|${candidate.target.kind}|${candidate.target.url}`;
+  return `${candidate.hostId}|${candidate.target.kind}|${targetUrlOf(candidate.target)}`;
 }
 
 it("a failed replacement close keeps the old runtime attached without a duplicate", async () => {
@@ -471,7 +475,7 @@ it("a failed replacement build re-opens the previous binding", async () => {
         seen.push(candidate);
         return runtime;
       }
-      if (candidate.target.url === movedEntry("studio").target.url) {
+      if (targetUrlOf(candidate.target) === targetUrlOf(movedEntry("studio").target)) {
         throw new Error("no transport for new target");
       }
       const runtime = new CloseableRuntime(candidate);

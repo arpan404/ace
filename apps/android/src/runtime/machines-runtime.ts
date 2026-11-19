@@ -431,8 +431,10 @@ function sameBinding(a: MachineEntry, b: MachineEntry): boolean {
 }
 
 function sameTarget(a: MachineTarget, b: MachineTarget): boolean {
-  if (a.kind !== b.kind || a.url !== b.url) return false;
-  if (a.kind === "direct" && b.kind === "direct") return a.fingerprint === b.fingerprint;
-  if (a.kind === "relay" && b.kind === "relay") return a.ticketReference === b.ticketReference;
+  if (a.kind === "direct" && b.kind === "direct")
+    return a.url === b.url && a.fingerprint === b.fingerprint;
+  if (a.kind === "relay" && b.kind === "relay")
+    return a.url === b.url && a.ticketReference === b.ticketReference;
+  if (a.kind === "account" && b.kind === "account") return a.relayUrl === b.relayUrl;
   return false;
 }
