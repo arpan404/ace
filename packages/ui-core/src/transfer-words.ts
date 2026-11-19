@@ -37,7 +37,7 @@ export function runningWords(transfer: Transfer): string {
 
 /**
  * A working thread on its way: "Getting Studio ready · 312 MB of 1.2 GB" while the agent goes on
- * here, "Stopping at a safe point", then "Moving to Studio" until the other machine answers.
+ * here, "Stopping the work here", then "Moving to Studio" until the other machine answers.
  */
 function liveWords(transfer: Transfer): string | undefined {
   const to = transfer.target.name;
@@ -47,7 +47,7 @@ function liveWords(transfer: Transfer): string | undefined {
         ? `Getting ${to} ready · ${formatBytes(transfer.sentBytes)} of ${formatBytes(transfer.totalBytes)}`
         : `Getting ${to} ready`;
     case "stopping":
-      return "Stopping at a safe point";
+      return "Stopping the work here";
     case "handing":
       return `Moving to ${to}`;
     default:

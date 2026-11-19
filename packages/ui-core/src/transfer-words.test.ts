@@ -45,7 +45,7 @@ test("a working thread on its way says where the move stands, in one sentence", 
   expect(runningWords(moving({ stage: "readying" }))).toBe(
     "Getting Studio ready · 312 MB of 1.2 GB",
   );
-  expect(runningWords(moving({ stage: "stopping" }))).toBe("Stopping at a safe point");
+  expect(runningWords(moving({ stage: "stopping" }))).toBe("Stopping the work here");
   expect(runningWords(moving({ stage: "handing" }, { phase: "importing" }))).toBe(
     "Moving to Studio",
   );
