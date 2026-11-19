@@ -13,6 +13,7 @@ import {
 import { isMarkdownPath, pathParts } from "@ace/ui-core";
 import { Fragment, type ReactNode } from "react";
 import { EditorIcon } from "@/components/editor-icon.tsx";
+import { OpenInAppItems } from "./open-with-menu.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
@@ -131,7 +132,8 @@ export function FileToolbar(props: {
 }) {
   const { path, actions } = props;
   const markdown = path !== undefined && isMarkdownPath(path);
-  const editor = actions.editor;
+  const apps = actions.apps;
+  const editor = apps.editor;
   const offline = props.online ? undefined : "ace is offline";
   const saving = actions.saving?.path === path ? actions.saving : undefined;
   return (
@@ -200,27 +202,12 @@ export function FileToolbar(props: {
             icon={<EditorIcon id={editor?.id} />}
             actionLabel={
               offline ??
-              (editor
-                ? `Open in ${editor.name}`
-                : (actions.editorUnavailable ?? "No editors installed"))
+              (editor ? `Open in ${editor.name}` : (apps.unavailable ?? "No editors installed"))
             }
-            menuLabel="Open in another editor"
-            disabled={!props.online || !actions.editors?.length}
-            onAction={() => void actions.openInEditor(path, props.line)}
-            menu={actions.editors?.map((each) => {
-              return (
-                <MenuItem
-                  key={each.id}
-                  icon={<EditorIcon id={each.id} />}
-                  onClick={() => void actions.openInEditor(path, props.line, each.id)}
-                >
-                  {each.name}
-                  {each.id === editor?.id && (
-                    <span className="ml-3 text-xs text-subtle-foreground">default</span>
-                  )}
-                </MenuItem>
-              );
-            })}
+            menuLabel="Open in another app"
+            disabled={!props.online || !apps.editors?.length}
+            onAction={() => void apps.openInEditor(path, props.line)}
+            menu={<OpenInAppItems apps={apps} path={path} kind="file" line={props.line} />}
           />
         </div>
       )}

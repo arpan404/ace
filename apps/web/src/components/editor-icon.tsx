@@ -1,4 +1,4 @@
-import { FileCodeIcon } from "@ace/icons";
+import { FileCodeIcon, type Icon } from "@ace/icons";
 import { useState, type ReactNode } from "react";
 import { useEditorAppIcon } from "@/lib/editors.ts";
 import { cn } from "@/lib/cn.ts";
@@ -17,10 +17,17 @@ const marks: Record<string, { src: string; monochrome?: boolean }> = {
 };
 
 /** The installed app's OS icon, or its published brand mark in a browser. */
-export function EditorIcon(props: { id: string | undefined; size?: number; className?: string }) {
+export function EditorIcon(props: {
+  id: string | undefined;
+  size?: number;
+  className?: string;
+  /** The glyph when there is neither an OS icon nor a brand mark; a code file by default. */
+  fallback?: Icon;
+}) {
   const native = useEditorAppIcon(props.id ?? "");
   const size = props.size ?? 16;
   const mark = marks[props.id ?? ""];
+  const Glyph = props.fallback ?? FileCodeIcon;
   const fallback = mark ? (
     mark.monochrome ? (
       <span
@@ -48,7 +55,7 @@ export function EditorIcon(props: { id: string | undefined; size?: number; class
       />
     )
   ) : (
-    <FileCodeIcon aria-hidden size={size} className={props.className} />
+    <Glyph aria-hidden size={size} className={props.className} />
   );
   return native ? (
     <NativeIcon

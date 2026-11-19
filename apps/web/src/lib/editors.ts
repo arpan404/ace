@@ -23,6 +23,8 @@ export function useEditors(): {
   unavailable: string | undefined;
   /** The daemon machine's file manager by name ("Finder"), for `host.open`'s files app. */
   fileManager: string | undefined;
+  /** The terminals installed there, which open through `host.open`; empty until listed. */
+  terminals: readonly InstalledEditor[];
 } {
   const { storage } = useLayout();
   const ready = useConnectionState() === "ready";
@@ -52,6 +54,7 @@ export function useEditors(): {
     },
     error: query.error,
     fileManager: ready && !query.error && !query.isFetching ? query.data?.fileManager : undefined,
+    terminals: (editors && query.data?.terminals) ?? [],
     unavailable: !ready
       ? "Connect to this machine to list editors"
       : query.error

@@ -56,6 +56,16 @@ function desktopOpener(scope: object): OpenInEditor | undefined {
     : undefined;
 }
 
+/**
+ * Whether this device opens `editorId` itself: the desktop app knows the editor, or a browser
+ * has its URL handler. Any other installed app (a bundle-only editor, an IDE without a URL
+ * scheme) opens through the daemon (`host.open`), which starts it on its own machine.
+ */
+export function opensHere(editorId: string, scope: object = globalThis): boolean {
+  if (desktopOpener(scope)) return Object.hasOwn(desktopEditors, editorId);
+  return editorUrl({ editorId, editorName: "", path: "/" }) !== undefined;
+}
+
 export async function launchEditor(target: LaunchTarget, scope: object = globalThis) {
   const desktop = desktopOpener(scope);
   if (desktop) {
