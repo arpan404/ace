@@ -141,7 +141,11 @@ export class IncomingTransfers {
   async close(): Promise<void> {
     this.closed = true;
     for (const controller of this.running.values()) controller.abort();
-    await Promise.allSettled([...this.imports.values(), ...this.writes.values()]);
+    await Promise.allSettled([
+      ...this.imports.values(),
+      ...this.writes.values(),
+      ...this.cancels.values(),
+    ]);
   }
   private file(transferId: string) {
     return join(this.deps.directory, `${transferId}.part`);
@@ -325,13 +329,8 @@ export class IncomingTransfers {
       if (bytes !== call.file.bytes)
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.file.bytes} bytes.`);
       if ((await fileDigest(file)) !== call.file.sha256) {
-        if (this.owned(device, call.transferId).state !== "receiving")
-          return this.view(this.owned(device, call.transferId));
-        await this.removeFiles(call.transferId);
-        this.settle(record.transferId, "failed", {
-          code: "transfer_corrupt",
-          message: "The file arrived damaged. Start the transfer again.",
-        });
+        // Claimed before its files go, so a commit or cancel that came meanwhile keeps its own.
+        if (this.claimCorrupt(call.transferId)) await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     } else if (record.method !== "remote")
@@ -345,13 +344,8 @@ export class IncomingTransfers {
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.ignored.bytes} bytes.`);
       // Checked before anything is written; the names inside are never read until it matches.
       if ((await fileDigest(ignored)) !== call.ignored.sha256) {
-        if (this.owned(device, call.transferId).state !== "receiving")
-          return this.view(this.owned(device, call.transferId));
-        await this.removeFiles(call.transferId);
-        this.settle(record.transferId, "failed", {
-          code: "transfer_corrupt",
-          message: "The file arrived damaged. Start the transfer again.",
-        });
+        // Claimed before its files go, so a commit or cancel that came meanwhile keeps its own.
+        if (this.claimCorrupt(call.transferId)) await this.removeFiles(call.transferId);
         return this.view(this.owned(device, call.transferId));
       }
     }
@@ -360,14 +354,14 @@ export class IncomingTransfers {
       ? await this.identityLanding(record, call.identity)
       : undefined;
     // Awaited above: a cancel, or another copy of this commit, may have moved it on meanwhile.
-    // Nothing is awaited from this check to the claim, so only one copy claims it.
-    const current = this.owned(device, call.transferId);
-    if (current.state !== "receiving") return this.view(current);
-    this.rows.update(
+    // Only a transfer still receiving is claimed, so only one copy ever claims it.
+    const claimed = this.rows.claim(
       call.transferId,
+      ["receiving"],
       { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
       this.deps.now(),
     );
+    if (!claimed) return this.view(this.owned(device, call.transferId));
     const importing = this.owned(device, call.transferId);
     this.import(importing);
     return this.view(importing);
@@ -450,19 +444,26 @@ export class IncomingTransfers {
       await this.rollback(current);
       // Shutting down: the row stays importing, and the next start runs it again.
       if (this.closed) return;
-      if (current.state !== "importing") return;
+      // Each outcome is claimed from the row as it is now, not as it was before the rollback: a
+      // cancel that came meanwhile stands.
       if (error instanceof NeedsFullBundle && current.method === "remote") {
         // Origin's history isn't usable here: the sender sends the whole repository instead.
-        await removeQuietly(file);
-        this.rows.update(
+        const reopened = this.rows.claim(
           record.transferId,
+          ["importing"],
           { state: "receiving", method: "bundle", hasOrigin: false, commit: undefined },
           this.deps.now(),
         );
+        if (reopened) await removeQuietly(file);
         return;
       }
-      await this.removeFiles(record.transferId);
-      this.settle(record.transferId, "failed", failure(error));
+      const failed = this.rows.claim(
+        record.transferId,
+        ["importing"],
+        { state: "failed", error: failure(error) },
+        this.deps.now(),
+      );
+      if (failed) await this.removeFiles(record.transferId);
     } finally {
       for (const path of mine) this.held.delete(path);
     }
@@ -568,12 +569,20 @@ export class IncomingTransfers {
       this.deps.now(),
     );
   }
-  private settle(
-    transferId: string,
-    state: "failed" | "cancelled",
-    error?: { code: string; message: string },
-  ) {
-    this.rows.update(transferId, { state, ...(error ? { error } : {}) }, this.deps.now());
+  /** A damaged upload fails the transfer, unless something else claimed it first. */
+  private claimCorrupt(transferId: string): boolean {
+    return this.rows.claim(
+      transferId,
+      ["receiving"],
+      {
+        state: "failed",
+        error: {
+          code: "transfer_corrupt",
+          message: "The file arrived damaged. Start the transfer again.",
+        },
+      },
+      this.deps.now(),
+    );
   }
   /**
    * Cancel works until the import's cutoff: the thread being made or, without one, everything
@@ -598,7 +607,16 @@ export class IncomingTransfers {
         "The transfer can no longer be cancelled: the work is landing on this machine.",
       );
     }
-    this.rows.update(transferId, { state: "cancelled" }, this.deps.now());
+    // Claimed from the row as it is: a transfer another call settled meanwhile keeps that.
+    if (
+      !this.rows.claim(
+        transferId,
+        ["receiving", "cloning", "importing"],
+        { state: "cancelled" },
+        this.deps.now(),
+      )
+    )
+      return this.view(this.owned(device, transferId));
     const undo = (async () => {
       this.running.get(transferId)?.abort();
       await flight;

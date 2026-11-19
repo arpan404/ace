@@ -2,13 +2,44 @@ import { createHash } from "node:crypto";
 import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { Device, HostId, WorkspaceId, type TransferBegin } from "@ace/protocol";
 import { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
 import { IncomingTransfers } from "./incoming.ts";
 import type { TargetProjects } from "./landing.ts";
 import type { TransferArchive, TransferGit } from "./ports.ts";
+
+/**
+ * Removing a transfer's files can be held once, at the file system, so a test can land a call in
+ * the middle of another's clean-up: the window two writers of a transfer's state race in.
+ */
+const removal = vi.hoisted(() => ({
+  hold: undefined as { reached: () => void; until: Promise<void> } | undefined,
+}));
+vi.mock("./files.ts", async (original) => {
+  const real = await original<typeof import("./files.ts")>();
+  return {
+    ...real,
+    removeQuietly: async (path: string) => {
+      const hold = removal.hold;
+      removal.hold = undefined;
+      if (hold) {
+        hold.reached();
+        await hold.until;
+      }
+      return real.removeQuietly(path);
+    },
+  };
+});
+
+/** Holds the next file removal; `reached` resolves once a removal waits there. */
+function holdRemoval() {
+  const reached = Promise.withResolvers<void>();
+  const until = Promise.withResolvers<void>();
+  removal.hold = { reached: reached.resolve, until: until.promise };
+  return { reached: reached.promise, release: until.resolve };
+}
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -69,14 +100,28 @@ async function target() {
     log: () => {},
   });
   cleanup.push(() => incoming.close());
-  return { incoming, release, part: (id: string) => join(root, "incoming", `${id}.part`) };
+  // Released before anything closes, so a failed assertion never strands teardown on it.
+  cleanup.push(async () => release());
+  /** The transfer's rows as stored: how many, and the state of the first. */
+  const stored = (transferId: string) => {
+    const rows = store
+      .statement("SELECT state FROM transfer_incoming WHERE transfer_id=?")
+      .all(transferId);
+    return { rows: rows.length, state: rows[0]?.["state"] };
+  };
+  return {
+    incoming,
+    release,
+    stored,
+    part: (id: string) => join(root, "incoming", `${id}.part`),
+  };
 }
 
 /** Lets every settled promise run its continuations. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 it("a cancel that lands while a commit is checking its file stays cancelled", async () => {
-  const { incoming, release } = await target();
+  const { incoming, release, stored } = await target();
   await incoming.call(device, begin("t-cancel"));
   await incoming.chunk(device, "t-cancel", 0, bytes);
   // The commit waits on reading the registration its identity names.
@@ -93,9 +138,7 @@ it("a cancel that lands while a commit is checking its file stays cancelled", as
   release();
   await expect(committing).resolves.toMatchObject({ state: "cancelled" });
   await settle();
-  await expect(
-    incoming.call(device, { op: "status", transferId: "t-cancel" }),
-  ).resolves.toMatchObject({ state: "cancelled" });
+  expect(stored("t-cancel").state).toBe("cancelled");
 });
 
 it("a second cancel answers only once the first has undone the transfer", async () => {
@@ -121,11 +164,61 @@ it("a second cancel answers only once the first has undone the transfer", async 
 });
 
 it("two copies of a begin sent at once both get the one transfer", async () => {
-  const { incoming } = await target();
+  const { incoming, stored } = await target();
   const [one, two] = await Promise.all([
     incoming.call(device, begin("t-begin")),
     incoming.call(device, begin("t-begin")),
   ]);
   expect(one).toMatchObject({ transferId: "t-begin", state: "receiving" });
   expect(two).toMatchObject({ transferId: "t-begin", state: "receiving" });
+  expect(stored("t-begin")).toEqual({ rows: 1, state: "receiving" });
+});
+
+const damaged = { ...file, sha256: "0".repeat(64) };
+
+it("a damaged upload fails the transfer before its files go, so a sound copy of the commit never starts it", async () => {
+  const { incoming, stored } = await target();
+  await incoming.call(device, begin("t-damaged"));
+  await incoming.chunk(device, "t-damaged", 0, bytes);
+  const removing = holdRemoval();
+  const bad = incoming.call(device, { op: "commit", transferId: "t-damaged", file: damaged });
+  await removing.reached;
+  // A copy with the right digest comes while the damaged one's files are being removed.
+  const sound = await incoming.call(device, { op: "commit", transferId: "t-damaged", file });
+  removing.release();
+  await bad;
+  expect(sound.state).toBe("failed");
+  expect(stored("t-damaged").state).toBe("failed");
+});
+
+it("a cancel during a damaged upload's clean-up answers with what the transfer ended as", async () => {
+  const { incoming, stored } = await target();
+  await incoming.call(device, begin("t-ended"));
+  await incoming.chunk(device, "t-ended", 0, bytes);
+  const removing = holdRemoval();
+  const bad = incoming.call(device, { op: "commit", transferId: "t-ended", file: damaged });
+  await removing.reached;
+  const cancelled = await incoming.call(device, { op: "cancel", transferId: "t-ended" });
+  removing.release();
+  await bad;
+  expect(cancelled.state).toBe(stored("t-ended").state);
+});
+
+it("closing waits for a cancel still undoing its transfer", async () => {
+  const { incoming, release, part } = await target();
+  await incoming.call(device, begin("t-close"));
+  await incoming.chunk(device, "t-close", 0, bytes);
+  // The import waits on Git; the cancel waits for the import, then removes the files.
+  await incoming.call(device, { op: "commit", transferId: "t-close", file });
+  let undone = false;
+  const cancelling = incoming.call(device, { op: "cancel", transferId: "t-close" }).then(() => {
+    undone = true;
+  });
+  await settle();
+  const closing = incoming.close();
+  release();
+  await closing;
+  expect(undone).toBe(true);
+  await expect(stat(part("t-close"))).rejects.toThrow();
+  await cancelling;
 });

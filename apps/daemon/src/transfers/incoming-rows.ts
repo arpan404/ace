@@ -78,6 +78,11 @@ const decode = (row: Row): IncomingRecord => ({
 });
 
 /** The target's durable rows, keyed by transfer id, so a repeated call is idempotent. */
+/** What a write may change on a row. */
+type IncomingChange = Partial<
+  Omit<IncomingRecord, "transferId" | "deviceId" | "begin" | "updatedAt">
+>;
+
 export class IncomingRows {
   private store: Store;
   constructor(store: Store) {
@@ -204,11 +209,27 @@ export class IncomingRows {
         at,
       );
   }
-  update(
+  update(transferId: string, change: IncomingChange, at: number): void {
+    this.write(transferId, change, at, []);
+  }
+  /**
+   * Writes `change` only while the row is in one of `from`, in one statement, and says whether
+   * it did: two writers that race on a transfer's state never both win (ADR 0192).
+   */
+  claim(
     transferId: string,
-    change: Partial<Omit<IncomingRecord, "transferId" | "deviceId" | "begin" | "updatedAt">>,
+    from: readonly IncomingTransferState[],
+    change: IncomingChange,
     at: number,
-  ): void {
+  ): boolean {
+    return this.write(transferId, change, at, from) > 0;
+  }
+  private write(
+    transferId: string,
+    change: IncomingChange,
+    at: number,
+    from: readonly IncomingTransferState[],
+  ): number {
     const columns: [string, unknown][] = [];
     if (change.state) columns.push(["state", change.state]);
     if (change.method) columns.push(["method", change.method]);
@@ -228,11 +249,13 @@ export class IncomingRows {
     if ("error" in change)
       columns.push(["error", change.error ? JSON.stringify(change.error) : null]);
     columns.push(["updated_at", at]);
-    this.store
+    const only = from.length ? ` AND state IN (${from.map(() => "?").join(",")})` : "";
+    const done = this.store
       .statement(
-        `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?`,
+        `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?${only}`,
       )
-      .run(...columns.map(([, value]) => value as string | number | null), transferId);
+      .run(...columns.map(([, value]) => value as string | number | null), transferId, ...from);
+    return Number(done.changes);
   }
   delete(transferId: string): void {
     this.store.statement("DELETE FROM transfer_incoming WHERE transfer_id=?").run(transferId);
