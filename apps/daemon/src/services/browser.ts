@@ -248,6 +248,9 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
 
 import { sendBrowserMessage, sendBrowserStream } from "./browser-transport.ts";
 import { connectBrowser } from "@ace/browser";
+import { SettingsError } from "@ace/settings";
+import { engineSetting } from "../browser-engine-setting.ts";
+import { settingWriteRefusal } from "../answer-gate.ts";
 import { WebSocket } from "ws";
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createBrowserSession(context: SocketContext): SocketService {
@@ -274,6 +277,18 @@ export function createBrowserSession(context: SocketContext): SocketService {
     local: context.local === true,
     // Subscribes naming a media connection go to ace-media (D1) while it serves.
     media: { owner: () => mediaOwner(context), delivery: () => options.mediaDelivery?.() },
+    // An engine move keeps the thread's choice as the person's settings write would (ADR 0193).
+    ...(options.settings
+      ? {
+          engine: engineSetting(options.settings, options.store, async () => {
+            const refused = await settingWriteRefusal("browser.backend", {
+              device: context.device(),
+              unproven: context.personProven?.() !== true,
+            });
+            return refused ? new SettingsError(refused.code, refused.message) : undefined;
+          }),
+        }
+      : {}),
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();
