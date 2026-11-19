@@ -160,6 +160,8 @@ export class IncomingTransfers {
   private retries = new Set<string>();
   /** Swept transfers whose files are still being removed: a begin of the same id waits. */
   private sweeping = new Map<string, Promise<void>>();
+  /** Sweeps running now, whole, so closing waits for each to stop rather than for one removal. */
+  private sweeps = new Set<Promise<void>>();
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
   constructor(deps: IncomingDeps) {
@@ -211,7 +213,7 @@ export class IncomingTransfers {
       ...this.imports.values(),
       ...this.writes.values(),
       ...this.cancels.values(),
-      ...this.sweeping.values(),
+      ...this.sweeps,
     ]);
   }
   private file(transferId: string) {
@@ -937,8 +939,15 @@ export class IncomingTransfers {
     }
   }
   /** Settled rows and their files go after 24 hours. */
-  private async sweep(): Promise<void> {
+  private sweep(): Promise<void> {
+    const run = this.sweepExpired().finally(() => this.sweeps.delete(run));
+    this.sweeps.add(run);
+    return run;
+  }
+  /** The sweep itself; it starts no removal once closing began (`close` waits for the rest). */
+  private async sweepExpired(): Promise<void> {
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
+      if (this.closed) return;
       const { transferId } = record;
       if (this.sweeping.has(transferId)) continue;
       // Claimed before its files go: a row a commit or cancel moved on meanwhile stays. Until

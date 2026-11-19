@@ -255,3 +255,25 @@ it("a transfer whose id ends like another's payload never reaches that payload's
     ignoredOffset: ignored.length,
   });
 });
+
+it("closing stops the sweep and waits for it, so nothing is swept once close has returned", async () => {
+  const clock = { at: 2 };
+  const { incoming, state } = await target({ clock });
+  for (const id of ["t-old-1", "t-old-2"]) {
+    await incoming.call(device, begin(id));
+    await incoming.call(device, { op: "cancel", transferId: id });
+  }
+  // Days later a begin sweeps both, and holds removing the first one's files.
+  clock.at = 3 * 24 * 60 * 60 * 1000;
+  const removing = hold("removeQuietly");
+  const sweeping = incoming.call(device, begin("t-next")).catch(() => undefined);
+  await removing.reached;
+  const closing = incoming.close();
+  removing.release();
+  await closing;
+  const left = () => ["t-old-1", "t-old-2"].filter((id) => state(id) !== undefined);
+  expect(left()).toHaveLength(1);
+  await sweeping;
+  await settle();
+  expect(left()).toHaveLength(1);
+});
