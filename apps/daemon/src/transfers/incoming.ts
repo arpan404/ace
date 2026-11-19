@@ -122,6 +122,8 @@ export class IncomingTransfers {
   /** After a restart: imports that were running start again from the file that is still here. */
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
+    // Rows from before the side tables are indexed first, in pages (ADR 0170).
+    await this.rows.ready();
     for (const record of this.rows.unsettled()) {
       // Past the cutoff the result stands: finish setting it up instead of undoing it.
       if (record.result) {

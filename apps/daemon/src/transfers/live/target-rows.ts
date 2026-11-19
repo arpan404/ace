@@ -57,6 +57,10 @@ const decode = (raw: unknown): LiveStart => {
   };
 };
 
+/** Starts still to finish, by transfer id; retention never drops a transfer listed here. */
+export const livePendingTable =
+  "CREATE TABLE IF NOT EXISTS transfer_live_pending (transfer_id TEXT PRIMARY KEY)";
+
 /** How many pending starts one read returns; recovery reads on until none are left. */
 export const pendingBatch = 64;
 
@@ -76,7 +80,7 @@ export class LiveStarts {
         session TEXT NOT NULL, result TEXT NOT NULL, running INTEGER, failure TEXT,
         attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL DEFAULT 0,
         at INTEGER NOT NULL)`);
-      db.exec("CREATE TABLE IF NOT EXISTS transfer_live_pending (transfer_id TEXT PRIMARY KEY)");
+      db.exec(livePendingTable);
     });
   }
   get(transferId: string): LiveStart | undefined {
