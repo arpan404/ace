@@ -78,7 +78,9 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
      child settled, so a second attempt after `remote_child_unconfirmed` fails the same way until
      the machine answers. A child that can never answer (3) keeps the thread from moving while it
      works; once it is at rest, ADR 0101's idle path moves it. The read filters before its limit
-     of 64, through `machine_children_parent`, so many settled children never hide that one.
+     of 64, through `machine_children_parent`, so many settled children never hide that one. It
+     covers every parent of the tree, 256 a query; a tree of more than 4,096 threads, or a read
+     that fails, fails the move (`remote_children_unread`) instead of passing on part of it.
 
    Bounded at 60 seconds; a tree that never comes to rest fails the move before the hand-over
    (`process_still_running` when a shell is what still runs, else `tree_still_working`), with

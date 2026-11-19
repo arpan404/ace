@@ -19,15 +19,17 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function source() {
+/** `tree`: the thread's tree here, as the engine reads it; just the thread when absent. */
+async function source(tree?: string[]) {
   const root = await mkdtemp(join(tmpdir(), "ace-live-adapters-"));
   const store = new Store(join(root, "store.sqlite"));
   cleanups.push(async () => {
     store.close();
     await rm(root, { recursive: true, force: true });
   });
-  // No engine or agent control: the tree is the thread itself.
-  const context = { store, services: {}, now: () => 1_000 } as unknown as ServiceContext;
+  // No agent control; an engine only to say what the tree is.
+  const services = tree ? { engine: { cleanupThreads: () => tree } } : {};
+  const context = { store, services, now: () => 1_000 } as unknown as ServiceContext;
   const ports = liveSourcePorts(context, {
     ownership: new ThreadOwnership(store),
     git: {} as TransferGit,
@@ -36,16 +38,20 @@ async function source() {
     sleep: async () => {},
   });
   let next = 0;
-  const child = (role: string, row: { settled?: number; stoppedUnconfirmed?: number }) =>
+  const child = (
+    role: string,
+    row: { settled?: number; stoppedUnconfirmed?: number; parent?: string },
+  ) =>
     store
       .statement(
         `INSERT INTO machine_children (id, request_key, parent_thread, parent_agent, machine, role,
           provider, created_at, settled, settled_at, stopped_unconfirmed)
-          VALUES (?, ?, 't', 'a', 'elsewhere', ?, 'claude', 1, ?, ?, ?)`,
+          VALUES (?, ?, ?, 'a', 'elsewhere', ?, 'claude', 1, ?, ?, ?)`,
       )
       .run(
         `c-${++next}`,
         `k-${next}`,
+        row.parent ?? "t",
         role,
         row.settled ?? 0,
         row.settled ? 5 : null,
@@ -69,4 +75,20 @@ it("finds the unconfirmed child behind many confirmed ones", async () => {
   child("reviewer", { settled: 1, stoppedUnconfirmed: 1 });
   child("tests", {});
   expect(ports.remoteChildren("t")).toEqual({ running: ["tests"], unconfirmed: ["reviewer"] });
+});
+
+it("reads the children of every parent in a large tree", async () => {
+  const tree = Array.from({ length: 300 }, (_, index) => `t-${index}`);
+  const { ports, child } = await source(tree);
+  // Under the 300th thread of the tree, past any one read's parents.
+  child("reviewer", { settled: 1, stoppedUnconfirmed: 1, parent: "t-299" });
+  child("tests", { parent: "t-280" });
+  expect(ports.remoteChildren("t-0")).toEqual({ running: ["tests"], unconfirmed: ["reviewer"] });
+});
+
+it("fails the move rather than read part of a tree too large to read whole", async () => {
+  const { ports } = await source(Array.from({ length: 5_000 }, (_, index) => `t-${index}`));
+  expect(() => ports.remoteChildren("t-0")).toThrow(
+    expect.objectContaining({ code: "remote_children_unread" }),
+  );
 });

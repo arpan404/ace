@@ -49,6 +49,9 @@ function account(context: ServiceContext, provider: ProviderKind, instanceId?: s
 
 const role = (row: Record<string, unknown>) => String(row["role"]).slice(0, 256);
 
+/** The most threads one move's tree may hold for its children elsewhere to be read whole. */
+const maxTreeThreads = 4096;
+
 /** The thread and every delegated child it owns here, as settling reads it. */
 function tree(context: ServiceContext, threadId: string): ThreadId[] {
   return context.services.engine?.cleanupThreads(id(threadId)) ?? [id(threadId)];
@@ -116,27 +119,45 @@ export function liveSourcePorts(
         .filter((edge) => edge.phase !== "settled")
         .map((edge) => store.getThread(edge.childId)?.title ?? edge.childId),
     remoteChildren(threadId) {
-      const parents = tree(context, threadId).slice(0, 256);
-      const among = `parent_thread IN (${parents.map(() => "?").join(",")})`;
-      try {
-        // Both through machine_children_parent (parent_thread, settled), filtered before the
-        // limit, so a tree with many settled children still finds the one that matters.
-        const running = store
-          .statement(`SELECT role FROM machine_children WHERE ${among} AND settled=0 LIMIT 64`)
-          .all(...parents);
+      const parents = tree(context, threadId);
+      // Every parent of the tree is read; one too large to read whole fails the move.
+      if (parents.length > maxTreeThreads)
+        throw new TransferError(
+          "remote_children_unread",
+          "The thread has too many subagents to check them all, so it stayed here.",
+        );
+      const running: string[] = [];
+      const unconfirmed: string[] = [];
+      // Through machine_children_parent (parent_thread, settled), 256 parents a read, each read
+      // filtered before its limit. Any read that fails throws: the move never takes an unread
+      // tree for a stopped one.
+      for (let at = 0; at < parents.length; at += 256) {
+        const chunk = parents.slice(at, at + 256);
+        const among = `parent_thread IN (${chunk.map(() => "?").join(",")})`;
+        if (running.length < 64)
+          running.push(
+            ...store
+              .statement(
+                `SELECT role FROM machine_children WHERE ${among} AND settled=0 LIMIT ${64 - running.length}`,
+              )
+              .all(...chunk)
+              .map(role),
+          );
         // Whenever it settled, in this attempt or an earlier one: unconfirmed until its machine
         // answers. 1: every cancel went unanswered; 3: it can never answer; lost. 2 answered late.
-        const unconfirmed = store
-          .statement(
-            `SELECT role FROM machine_children WHERE ${among} AND settled=1
-               AND (stopped_unconfirmed IN (1,3) OR lost_at IS NOT NULL) LIMIT 64`,
-          )
-          .all(...parents);
-        return { running: running.map(role), unconfirmed: unconfirmed.map(role) };
-      } catch {
-        // No machine children were ever delegated here.
-        return { running: [], unconfirmed: [] };
+        if (unconfirmed.length < 64)
+          unconfirmed.push(
+            ...store
+              .statement(
+                `SELECT role FROM machine_children WHERE ${among} AND settled=1
+                   AND (stopped_unconfirmed IN (1,3) OR lost_at IS NOT NULL)
+                   LIMIT ${64 - unconfirmed.length}`,
+              )
+              .all(...chunk)
+              .map(role),
+          );
       }
+      return { running, unconfirmed };
     },
     queued: (threadId) => engineOf(context).queue(id(threadId)).messages.length,
     hold(threadId, transferId, change) {
