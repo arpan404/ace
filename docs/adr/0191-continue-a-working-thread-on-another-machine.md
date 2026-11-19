@@ -43,7 +43,12 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
    move then fails.
 2. **Stops the tree's terminals** with the same call settling a thread uses
    (`stopThreadTerminals` for the thread and every child it owns here). Their output stays
-   readable. ace's Stop itself leaves terminals alone: they are the person's shells.
+   readable. ace's Stop itself leaves terminals alone: they are the person's shells. Amended
+   2026-11-19 (post-merge review): from the moment the move starts stopping, before the Stop is
+   sent, no terminal opens for any thread of the tree (`holdTerminals` on the workspace, refused
+   as `thread_moving`, checked at the open and again right before the shell spawns). It lifts
+   when the stop ends: by then the ownership record holds the thread, or the move failed. The
+   hold lives in memory; a stop run again after a restart takes it again.
 3. **Waits until the tree reads at rest, with nothing of it still running.** Three things, read
    together on each look:
    - the normal status rules: the root's status, which folds in every child through its summary
@@ -53,6 +58,9 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
      reads done by design (ADR 0116), so status alone never shows it ended. The list is the one
      the whole-thread Stop stops (`stoppableTasks`, `engine/stop-scope.ts`), read for the root
      and every child here;
+   - no terminal of the tree open. One still open (opened before a restart, whose hold was
+     lost) is stopped and the tree looked at again, so the record below never holds a thread
+     with a terminal running;
    - every child on another machine stopped with its machine's confirmation. Ordinary status
      reads a remote child stopped once every cancel went unanswered (ADR 0052, "Stop is
      final"), and that stays: the person's Stop must always settle. The move asks more: a child

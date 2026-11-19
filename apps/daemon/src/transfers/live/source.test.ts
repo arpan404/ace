@@ -73,6 +73,7 @@ async function source(over: Partial<LiveSourcePorts>) {
     stop: () => undefined,
     atRest: () => true,
     shells: () => [],
+    holdTerminals: () => () => undefined,
     terminals: () => [],
     stopTerminals: async () => undefined,
     children: () => [],
@@ -135,4 +136,77 @@ it("waits for a child on another machine to confirm its stop", async () => {
   await stop();
   expect(checks).toBeGreaterThanOrEqual(3);
   expect(ownership.get("t-1")?.state).toBe("stopping");
+});
+
+/**
+ * The tree's terminals as the workspace keeps them: an open is refused while the move holds
+ * them (`holdOpens`; false is a restart that lost the hold), and stopping ends every open one.
+ */
+function terminalWorld(holdOpens = true) {
+  const open: string[] = [];
+  let held = false;
+  return {
+    open,
+    tryOpen(name: string) {
+      if (held) return "thread_moving";
+      open.push(name);
+      return "opened";
+    },
+    ports: {
+      holdTerminals: () => {
+        held = holdOpens;
+        return () => {
+          held = false;
+        };
+      },
+      terminals: () => [...open],
+      stopTerminals: async () => {
+        open.length = 0;
+      },
+    } satisfies Partial<LiveSourcePorts>,
+  };
+}
+
+it("refuses a terminal opened while the move waits on a child elsewhere", async () => {
+  const world = terminalWorld();
+  let checks = 0;
+  let opened: string | undefined;
+  const { stop, ownership } = await source({
+    ...world.ports,
+    remoteChildren: () => {
+      // While the child there is still stopping, the person opens a terminal.
+      if (++checks === 2) opened = world.tryOpen("dev server");
+      return { running: checks < 4 ? ["reviewer"] : [], unconfirmed: [] };
+    },
+  });
+  await stop();
+  expect(opened).toBe("thread_moving");
+  expect(world.open).toEqual([]);
+  expect(ownership.get("t-1")?.state).toBe("stopping");
+  // The hold on opens lifts with the stop: the ownership record holds the thread from here.
+  expect(world.tryOpen("after")).toBe("opened");
+});
+
+it("stops a terminal still open at the safe point before it holds the thread", async () => {
+  // After a restart, the stop runs again; a terminal opened meanwhile was never held.
+  const world = terminalWorld(false);
+  let checks = 0;
+  let openAtHold: string[] | undefined;
+  const { stop, ownership } = await source({
+    ...world.ports,
+    remoteChildren: () => {
+      if (++checks === 2) world.tryOpen("dev server");
+      return { running: checks < 3 ? ["reviewer"] : [], unconfirmed: [] };
+    },
+    // The final payload is packed after the hold: what was open then.
+    archive: {
+      packFolder: async () => {
+        openAtHold = [...world.open];
+        return { bytes: 1, sha256: "0".repeat(64), entries: 0, skipped: 0, files: 0 };
+      },
+    },
+  });
+  await stop();
+  expect(ownership.get("t-1")?.state).toBe("stopping");
+  expect(openAtHold).toEqual([]);
 });

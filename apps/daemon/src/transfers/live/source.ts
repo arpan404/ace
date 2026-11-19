@@ -35,6 +35,11 @@ export interface LiveSourcePorts {
    * (ADR 0116), so being at rest alone never shows it ended.
    */
   shells(threadId: string): string[];
+  /**
+   * Refuses new terminals in the thread's tree until the returned release: from the start of
+   * the stop, before the ownership record holds the thread.
+   */
+  holdTerminals(threadId: string): () => void;
   /** Open terminals in the thread's tree, by name. */
   terminals(threadId: string): string[];
   /** Ends the processes in the tree's terminals, as settling a thread does. */
@@ -100,21 +105,45 @@ export class LiveSource {
     interrupted(): void;
   }): Promise<LivePlan> {
     const { ports } = this;
-    const { record, plan, signal } = input;
+    const { record } = input;
     const { transferId, target } = record.transfer;
     const threadId = need(record.transfer.threadId);
     if (!record.request.agent)
       ports.hold(threadId, transferId, { title: `Moving to ${target.name}` });
-    // What the Stop stops, said in the continue message so the agent there can start it again.
-    const left = {
-      shells: [...ports.shells(threadId), ...ports.terminals(threadId)].slice(0, 32),
-      children: ports
-        .children(threadId)
-        .map((title) => title.slice(0, 256))
-        .slice(0, 32),
-      remoteChildren: ports.remoteChildren(threadId).running.slice(0, 32),
-      queued: ports.queued(threadId),
-    };
+    // No terminal opens in the tree from here: one opened while the move waits would keep
+    // writing after the hand-over. Lifted when this returns, once the ownership record holds the
+    // thread, or when it fails.
+    const releaseTerminals = ports.holdTerminals(threadId);
+    try {
+      // What the Stop stops, said in the continue message so the agent there can start it again.
+      const left = {
+        shells: [...ports.shells(threadId), ...ports.terminals(threadId)].slice(0, 32),
+        children: ports
+          .children(threadId)
+          .map((title) => title.slice(0, 256))
+          .slice(0, 32),
+        remoteChildren: ports.remoteChildren(threadId).running.slice(0, 32),
+        queued: ports.queued(threadId),
+      };
+      return await this.stopHeld(input, threadId, left);
+    } finally {
+      releaseTerminals();
+    }
+  }
+  private async stopHeld(
+    input: {
+      record: OutgoingRecord;
+      plan: TransferPlan;
+      directory: string;
+      signal: AbortSignal;
+      interrupted(): void;
+    },
+    threadId: string,
+    left: TransferLive["left"],
+  ): Promise<LivePlan> {
+    const { ports } = this;
+    const { record, plan, signal } = input;
+    const { transferId, target } = record.transfer;
     // Always the whole Stop, even for a thread at rest: a shell its last turn left running
     // stops too. Only a thread that was working is owed the message to carry on.
     if (!ports.atRest(threadId, holdTask(transferId))) input.interrupted();
@@ -133,9 +162,12 @@ export class LiveSource {
             512,
           ),
         );
-      const shells = ports.shells(threadId);
+      // Read in the same step as the hold below: a terminal still open here (one an earlier
+      // run of this stop, before a restart, didn't hold) is stopped and looked at again.
+      const shells = [...ports.shells(threadId), ...ports.terminals(threadId)];
       if (ports.atRest(threadId, holdTask(transferId)) && !shells.length && !remote.running.length)
         break;
+      if (ports.terminals(threadId).length) await ports.stopTerminals(threadId);
       if (ports.now() >= until)
         throw shells.length
           ? new TransferError(
@@ -148,8 +180,8 @@ export class LiveSource {
             );
       await ports.sleep(250, signal);
     }
-    // At rest, with no process left running: from here new input waits for the hand-over. Written in the same step that saw
-    // the tree at rest, so nothing started in between.
+    // At rest, with no process or terminal left running: from here new input waits for the
+    // hand-over. Written in the same step that saw the tree at rest, so nothing started between.
     ports.ownership.change(threadId, {
       to: "stopping",
       transferId,

@@ -100,6 +100,8 @@ export function liveSourcePorts(
           .filter((terminal) => !terminal.exited)
           .map((terminal) => terminal.name.slice(0, 256)),
       ),
+    holdTerminals: (threadId) =>
+      services.workspaceActions?.holdTerminals(tree(context, threadId)) ?? (() => {}),
     // The tree's terminals end as settling a thread ends them; their output stays readable.
     stopTerminals: async (threadId) => {
       for (const owner of tree(context, threadId).toReversed())
