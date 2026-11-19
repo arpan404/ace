@@ -157,19 +157,35 @@ hand the machine to an account it signed in to itself, whose own person's grant 
 machine therefore keeps an **owner**, the account whose person's grants carry the person's
 standing here, in `ace-owner.json`:
 
-- **The first owner** is the account of the first person's proof the machine takes (§3), from
-  the app signed in as the person. Trust on first use: on a machine no proof has reached yet, a
-  reader that proves first with its own account becomes the owner. The person sees that as their
-  own app failing to act as them; the reset below recovers.
+- **The first owner** is the account that the first person's proof's own grant names (§3): the
+  session of a window signed in through a browser. It is never the account the machine is
+  signed in to, which the host token can switch before anyone proves. A handover made before
+  the person's first proof therefore doesn't make the handover's account the owner.
+- **First use is a residual.** A reader present before the person's very first proof can prove
+  first, with a person's grant of an account it signed in to itself, and become the owner. The
+  person sees it in Settings ("This machine belongs to … · Not you?") and recovers with the
+  local reset below.
 - **A handover changes nothing**: a person's grant from any other account proves nothing, on any
   socket, whatever account the machine is signed in to.
-- **Changing it** takes the owner's own proven socket (`account.owner.release`), or a local reset
-  that a reader can't do: removing `ace-owner.json` with the daemon stopped (a write to
-  `ACE_HOME`). Either way every paired device stops being the person's and every pending
-  person's link is cancelled (§7); the devices stay paired with their other access. The next
-  person's proof sets the new owner.
+- **Changing it** ends every paired device's person standing and cancels every pending person's
+  link (§7). The devices stay paired with their other access, and the next person's proof sets
+  the new owner. It takes one of two things:
+  - a socket that proved the owner's own grant (`account.owner.release`; a paired device's key
+    is not enough), from Settings' "Let it go";
+  - a local reset that a reader can't do: removing `ace-owner.json` with the daemon stopped (a
+    write to `ACE_HOME`).
 - **Every change ends every standing**: each socket's standing records the owner generation it
-  was proven under, and counts only while that is current.
+  was proven under, and counts only while that is current. Claims and releases run one at a
+  time:
+  - a release moves the generation as it starts, drops what is kept beyond sockets, removes
+    the file, then moves the generation again;
+  - while it runs, nothing is proven or claimed;
+  - a proof (account or paired) is committed only if the generation it read as it began is
+    still current and no change is under way, so a proof begun before a release never lands
+    after it, and never reclaims the machine.
+- **The app shows it**: the daemon reports `owner` in its account status, and Settings says
+  whose the machine is, with "Let it go" for the owner and "Not you?" (the reset steps) for
+  anyone else (`apps/web/src/features/ace-account/machine-owner-row.tsx`).
 
 ### 4. Device grant formats, and older daemons
 
@@ -222,17 +238,20 @@ A different recipient, handle or reason is a different digest.
 
 ### 7. Pairing
 
-A pairing link records whether its maker had the person's standing (`pairing_codes.person`). The
-maker had it only if its socket proved the person's standing (§3, or below). Both ways of making
-links check this: `fleet.request pairing`, and `POST /v1/pairings` with a paired device's
-credential. The host token never makes a person's link, however recently anyone signed in.
+A pairing link records whether its maker had the person's standing (`pairing_codes.person`). Only
+`fleet.request pairing` from a socket that proved the person's standing on that very socket (§3,
+or below) makes a person's link. A link made over HTTP (`POST /v1/pairings`) is always an
+ordinary pairing, whoever's bearer token asks for it. A bearer token proves nothing: the CLI
+keeps a paired device's bearer in its profile on disk, so a reader of `ACE_HOME` holds it. The
+host token never makes a person's link either, however recently anyone signed in.
 
 A paired device's **bearer token is never the person**. A reader of `ACE_HOME` holds the relay
 host key, so on a self-hosted relay it can register as the host, and a paired client reconnecting
 there hands it that token. So the redeeming app names `standingKey`, the public half of a P-256
 key it keeps and never exports (the web app keeps it as a non-extractable `CryptoKey` in its
 origin's IndexedDB, `apps/web/src/boot/paired-standing-key.ts`). The daemon stores it with the
-device (`devices.standing_key`) when the link was a person's. On each socket the device proves
+device (`devices.standing_key`) when the link was a person's. A device that names no key never
+carries the person's bit at all (`Devices.create`), so nothing it does derives from it. On each socket the device proves
 with `device.standing { proof }`: that key's signature over
 `ace-paired-standing/v1\n<host>\n<nonce>\n<binding>\n<deviceId>`, the same challenge and channel
 binding as §3. A collected token, or a proof made for another socket or channel, proves nothing;
@@ -291,8 +310,9 @@ Nothing else is the person:
   - driving the app's UI, or tampering with its renderer;
   - OS keychains that release the app's session to any process of the user (Linux Secret
     Service, Windows DPAPI, browser profiles).
-- **Owner on first use.** On a machine no person's proof has reached yet, whoever proves first
-  owns it (§3a).
+- **Owner on first use.** A reader present before the person's very first proof can prove first
+  and own the machine (§3a). Settings shows the owner so the person sees it, and the local reset
+  recovers.
 - **A link redeemed through an impersonated relay registration.** The pairing code travels on the
   relay channel pinned to the host key, which a reader holds: one that answers as the host on a
   self-hosted relay while the person redeems a person's link takes the code and can redeem it

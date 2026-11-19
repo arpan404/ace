@@ -17,7 +17,7 @@ import { machineAccountBridge, type MachineAccountRequest } from "@/boot/machine
 import type { MachineAccountAccess } from "@/features/ace-account/index.ts";
 import type { ClientApi } from "@ace/client";
 import { accessOptions } from "./access-source.ts";
-import { machineCodeAdminSource } from "./machine-code-admin-source.ts";
+import { machineCodeAdminSource, releaseOwnerOver } from "./machine-code-admin-source.ts";
 
 const Failure = z.object({ error: z.string().max(256) });
 
@@ -124,5 +124,7 @@ export function machineAccountSource(
     setCode: (value) =>
       bridge ? bridge({ op: "setCode", code: value }) : code ? code.setCode(value) : offline(),
     clearCode: () => (bridge ? bridge({ op: "clearCode" }) : code ? code.clearCode() : offline()),
+    // Over the window's own connection, the one that proved the owner, even in the desktop app.
+    releaseOwner: () => (client ? releaseOwnerOver(client) : offline()),
   };
 }

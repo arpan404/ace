@@ -12,6 +12,11 @@ export interface MachineAccountAccess {
   signOut(): Promise<MachineAccountStatus>;
   setCode(code: string): Promise<MachineAccountStatus>;
   clearCode(): Promise<MachineAccountStatus>;
+  /**
+   * Lets the machine go (ADR 0190 §3a) over this window's connection, which must have proved
+   * the owner's own grant: false when it hasn't.
+   */
+  releaseOwner(): Promise<boolean>;
 }
 
 const statusKey = (machine: string) => ["ace-account", "machine", machine] as const;
