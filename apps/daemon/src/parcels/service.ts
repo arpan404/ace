@@ -20,7 +20,7 @@ import { ParcelFileError, ParcelFiles } from "./files.ts";
 import { ParcelLink } from "./link.ts";
 import { arrivalText, receivedView, sentView } from "./messages.ts";
 import { ParcelPuller } from "./puller.ts";
-import { RelayLink } from "./relay-link.ts";
+import { RelayLink } from "../machines/relay-link.ts";
 import { PARCEL_DEADLINE_MS, projectRelative } from "./rules.ts";
 import { ParcelSender, type SenderThread } from "./sender.ts";
 import { ParcelRows, type InRow } from "./store.ts";
@@ -32,6 +32,8 @@ export interface DaemonParcels {
   target: ParcelTarget;
   /** Machine calls through a relay, for any op whose direct attempt never reached the machine. */
   relayCalls: import("../machines/relay-fallback.ts").RelayCalls;
+  /** The routes and relay streams to each machine, which transfers use too (ADR 0192). */
+  links: import("../transfers/routes.ts").MachineLinks;
   /** The agents' `data_send` and `data_receive`. */
   agent(caller: McpAttribution, operation: ParcelOperation): Promise<AgentControlResult>;
   /** A linked machine described itself: its paths are kept for when its address fails. */
@@ -393,6 +395,7 @@ export function startParcels(context: ServiceContext): void {
         }),
       prefers: (profile) => link.prefersRelay(profile),
     },
+    links: { machines: link.machines, relay },
     described,
     async agent(caller, operation) {
       if (operation.op === "data.receive") return receive(caller, operation);

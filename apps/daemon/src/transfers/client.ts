@@ -19,16 +19,13 @@ export type TransferTransport = (
   options: MachineTransportOptions,
 ) => Promise<unknown>;
 
-/** Projects move only over the pinned TLS link (ADR 0101): a relay-only link sends nothing. */
+/**
+ * One request to the pinned TLS address the profile names (ADR 0101). `routedTransfers` calls it
+ * for each direct route and goes through a relay for the others (ADR 0192).
+ */
 export const transferTransport: TransferTransport = async (profile, route, options) => {
   const direct = directOf(profile);
-  if (!direct)
-    throw new MachineFailure(
-      "refused",
-      "not_supported",
-      "That machine is linked through a relay only, and projects and threads move only over a direct link (LAN or Tailscale). Link it again where its address answers.",
-      true,
-    );
+  if (!direct) throw new MachineFailure("offline", undefined, "No direct address to reach it at");
   return pinnedRequest(direct, route, options);
 };
 
