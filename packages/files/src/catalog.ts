@@ -60,6 +60,15 @@ export const TrashRecord = z.object({
    */
   pending: z.boolean().default(false),
   /**
+   * True when a delete located its entry but could not prove the tree it holds is the version
+   * the delete was guarded by.
+   *
+   * A stranded entry is restorable and never expires: nothing has verified what it holds, so
+   * retention would eventually destroy a version nobody has seen. Only a recorded successful
+   * verification settles it into an ordinary trash entry, and a restore removes it.
+   */
+  stranded: z.boolean().default(false),
+  /**
    * The entry's own version before its delete, so a later reconciliation can prove that the
    * entry at the trash endpoint is the one this receipt moved.
    *

@@ -395,6 +395,11 @@ fn trash_with(
 /// The trashed entry is the daemon's own and the destination is the client's, so only the
 /// destination is held to the client policy. A destination that appeared is `CONFLICT` with its
 /// version, and the trashed entry stays where it is for another try.
+///
+/// A file's version is read through the moved entry's own identity, so a name another program
+/// takes after the move never lends its version to this restore. A folder's digest records the
+/// path it is read at, so a restore of one reports no version: the caller takes it afterwards,
+/// under an identity guard of its own.
 pub fn untrash(root: &Root, endpoint: &str, path: &str) -> Result<Committed, Error> {
     untrash_with(root, endpoint, path, &handle::sync)
 }
@@ -412,7 +417,7 @@ fn untrash_with(
         )));
     }
     let trash = root.dir().try_clone()?;
-    match trash.symlink_metadata(endpoint) {
+    let metadata = match trash.symlink_metadata(endpoint) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             // A delete never parks a link, so an endpoint that is one was planted by something
             // else; moving it to a client path would install a link the client never named.
@@ -420,16 +425,37 @@ fn untrash_with(
                 "{endpoint} is not a trashed entry"
             )));
         }
-        Ok(_) => {}
+        Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             return Err(Error::Io(std::io::Error::from(ErrorKind::NotFound)));
         }
         Err(error) => return Err(error.into()),
-    }
+    };
+    let folder = metadata.is_dir();
+    // The identity the restored entry must still have: a name another program takes after the
+    // move describes that program's entry, never the one this restore carried.
+    let moved_identity = if folder {
+        None
+    } else {
+        Some(version::identity_of_entry(&trash, endpoint, &metadata)?)
+    };
     let destination = policy::client_parent(root, path)?;
     let to_name = leaf_name(path);
     match handle::rename_noclobber(&trash, endpoint, &destination.dir, to_name)? {
-        Noclobber::Done => Ok(Committed::plain(settle(sync, &[&destination.dir, &trash]))),
+        Noclobber::Done => {
+            let version = match moved_identity {
+                Some(identity) => {
+                    version::moved_version(&destination.dir, to_name, Some(identity))?
+                }
+                None => None,
+            };
+            Ok(Committed {
+                warning: settle(sync, &[&destination.dir, &trash]),
+                version,
+                identity: None,
+                recovery: None,
+            })
+        }
         Noclobber::Exists => Err(Error::Conflict {
             path: path.to_owned(),
             current: version_at(root, &destination.dir, &destination.name, path)?,

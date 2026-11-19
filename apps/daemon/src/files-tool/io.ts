@@ -135,7 +135,10 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
     },
     async untrash(root, endpoint, path) {
       try {
-        await run(root, (client, number) => client.untrash(number, endpoint, path));
+        const restored = await run(root, (client, number) =>
+          client.untrash(number, endpoint, path),
+        );
+        return { version: restored.version };
       } catch (error) {
         throw refused(error);
       }

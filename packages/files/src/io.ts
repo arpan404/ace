@@ -125,7 +125,7 @@ export interface FilesIo {
     own: string | null,
   ): Promise<void>;
   /** Move a generated trash endpoint back to a client path, which must be absent. */
-  untrash(root: string, endpoint: string, path: string): Promise<void>;
+  untrash(root: string, endpoint: string, path: string): Promise<Restored>;
   /** Delete a file or a folder and everything inside it. The daemon's own cleanup only. */
   remove(root: string, path: string): Promise<void>;
   /**
@@ -164,6 +164,18 @@ export interface MoveOutcome {
   identity: string | null;
   /** The visible name an entry was preserved under when its move could not complete. */
   recovery: string | null;
+}
+
+/**
+ * What a restore reported about the entry it put back.
+ *
+ * A restore reports a version only when the port read one through the entry it moved. A folder's
+ * digest records the path it is read at, so a restored folder reports `null` and the caller takes
+ * its version afterwards; a name another program took after the restore never lends its version
+ * to it.
+ */
+export interface Restored {
+  version: string | null;
 }
 
 export interface IoOptions {

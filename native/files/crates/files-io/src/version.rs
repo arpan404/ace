@@ -147,6 +147,19 @@ pub(crate) fn identity_of_entry(
     Ok((facts.0, facts.1))
 }
 
+/// The identity of the entry a handle is open on, so a name cannot lend another entry's identity
+/// between the read and the call that records it.
+#[cfg(unix)]
+pub(crate) fn identity_of_handle(_file: &File, metadata: &Metadata) -> Result<(u64, u64), Error> {
+    Ok(identity(metadata))
+}
+
+#[cfg(windows)]
+pub(crate) fn identity_of_handle(file: &File, _metadata: &Metadata) -> Result<(u64, u64), Error> {
+    let facts = windows::handle_facts(file)?;
+    Ok((facts.0, facts.1))
+}
+
 /// Whether two entries in their folders are the same entry, which a case-only rename on a
 /// case-insensitive volume needs. A link is compared as itself, never followed.
 pub(crate) fn same_entry(
