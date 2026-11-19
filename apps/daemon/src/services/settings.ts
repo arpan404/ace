@@ -72,7 +72,6 @@ export function createSettingsSession(context: SocketContext): SocketService {
             authorize("admin")),
       ),
     set: async (key, value, commit) => {
-      const market = options.marketAgent;
       const refused = await settingWriteRefusal(key, {
         device: context.device(),
         unproven: context.personProven?.() !== true,

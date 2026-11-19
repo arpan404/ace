@@ -9,6 +9,8 @@ export type StandingProver = (
   challenge: StandingChallenge,
 ) => Promise<{ grant: string; proof: string } | undefined>;
 
+const noop = () => {};
+
 /** How often a socket proves again: well inside the five minutes a person's grant lives. */
 export const STANDING_REPROVE_MS = 4 * 60_000;
 
@@ -25,7 +27,7 @@ export function keepStanding(
 ): { proveNow(): Promise<void>; stop(): void } {
   const selection = client.standingChallenge?.();
   let stopped = false;
-  let cancel: () => void = () => {};
+  let cancel: () => void = noop;
   let proving: string | undefined;
   const proveNow = async (): Promise<void> => {
     const challenge = selection?.getSnapshot();

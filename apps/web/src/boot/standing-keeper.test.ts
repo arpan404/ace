@@ -48,6 +48,7 @@ const challenge = (nonce: string): StandingChallenge => ({
   binding: "channel",
   device: "phone",
 });
+const noop = () => {};
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("each new socket proves the person's standing for its own nonce, and again before the grant runs out", async () => {
@@ -73,7 +74,7 @@ test("each new socket proves the person's standing for its own nonce, and again 
 
 test("a proof made for a socket that was replaced meanwhile is not sent", async () => {
   const c = client();
-  let release: () => void = () => {};
+  let release: () => void = noop;
   const keeper = keepStanding(
     c.api as never,
     async (asked) => {
