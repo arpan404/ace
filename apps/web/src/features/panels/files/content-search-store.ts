@@ -38,8 +38,9 @@ const emptyQuery: ContentQuery = {
 
 /**
  * One thread's content search, shared by every Files tab of the thread so opening a result
- * keeps the list. A change to the query waits for typing to pause, then cancels the search
- * before it (the daemon stops walking) and starts again from an empty list.
+ * keeps the list. A change to the query cancels the search before it (the daemon stops walking)
+ * and empties the list at once, so no row of the old query stays to be clicked; only the new
+ * search waits for typing to pause.
  */
 export class ContentSearchStore {
   readonly #client: ClientApi;
@@ -76,21 +77,19 @@ export class ContentSearchStore {
   /** Change the query; the search follows once typing pauses (at once with `now`). */
   update(patch: Partial<ContentQuery>, now = false): void {
     const query = { ...this.#state.query, ...patch };
-    this.#set({ query });
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#timer = undefined;
-    if (!query.pattern) {
-      this.#cancel();
-      this.#set({
-        status: "idle",
-        files: [],
-        lines: 0,
-        matches: 0,
-        summary: undefined,
-        error: undefined,
-      });
-      return;
-    }
+    this.#cancel();
+    this.#set({
+      query,
+      status: query.pattern ? "searching" : "idle",
+      files: [],
+      lines: 0,
+      matches: 0,
+      summary: undefined,
+      error: undefined,
+    });
+    if (!query.pattern) return;
     if (now) this.run();
     else this.#timer = setTimeout(() => this.run(), searchDelay);
   }
@@ -167,21 +166,66 @@ export class ContentSearchStore {
   }
 }
 
-const stores = new WeakMap<ClientApi, Map<string, ContentSearchStore>>();
+/** Searches of threads with no Files tab open that are kept, newest last, for a quick return. */
+export const idleSearchesKept = 4;
+
+type Registry = {
+  stores: Map<string, ContentSearchStore>;
+  /** Files tabs open per thread. */
+  holders: Map<string, number>;
+  /** Threads with no Files tab open, the least recently closed first. */
+  idle: string[];
+};
+
+const registries = new WeakMap<ClientApi, Registry>();
+
+function registry(client: ClientApi): Registry {
+  let found = registries.get(client);
+  if (!found) {
+    found = { stores: new Map(), holders: new Map(), idle: [] };
+    registries.set(client, found);
+  }
+  return found;
+}
 
 /** The thread's search store for this client, made on first use. */
 export function contentSearchStore(client: ClientApi, threadId: string): ContentSearchStore {
-  let threads = stores.get(client);
-  if (!threads) {
-    threads = new Map();
-    stores.set(client, threads);
-  }
-  let store = threads.get(threadId);
+  const { stores } = registry(client);
+  let store = stores.get(threadId);
   if (!store) {
     store = new ContentSearchStore(client, threadId);
-    threads.set(threadId, store);
+    stores.set(threadId, store);
   }
   return store;
+}
+
+/**
+ * Hold the thread's search while a Files tab of it is open; call the result when the tab closes.
+ * Once no tab holds it the search stays for a while, but only the newest few idle ones are kept,
+ * so a long session does not keep every searched thread's results.
+ */
+export function retainContentSearch(client: ClientApi, threadId: string): () => void {
+  const held = registry(client);
+  held.holders.set(threadId, (held.holders.get(threadId) ?? 0) + 1);
+  held.idle = held.idle.filter((id) => id !== threadId);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const count = (held.holders.get(threadId) ?? 1) - 1;
+    if (count > 0) {
+      held.holders.set(threadId, count);
+      return;
+    }
+    held.holders.delete(threadId);
+    held.idle.push(threadId);
+    while (held.idle.length > idleSearchesKept) {
+      const evicted = held.idle.shift();
+      if (evicted === undefined) break;
+      held.stores.get(evicted)?.dispose();
+      held.stores.delete(evicted);
+    }
+  };
 }
 
 export function useContentSearch(store: ContentSearchStore): ContentSearchState {

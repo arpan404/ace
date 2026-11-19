@@ -9,10 +9,10 @@ import { TestClock } from "./test-clock.ts";
 
 const threadId = ThreadId.parse("main");
 
-function request(requestId: string, pattern = "needle"): SearchRequest {
+function request(requestId: string, pattern = "needle", thread = threadId): SearchRequest {
   const operation = FileOperation.parse({ op: "search", pattern });
   if (operation.op !== "search") throw new Error("expected a search");
-  return { requestId, threadId, operation };
+  return { requestId, threadId: thread, operation };
 }
 
 /** A stand-in ace-files whose searches the test drives: report files, then finish. */
@@ -147,6 +147,33 @@ it("a newer search of the same thread cancels the one before it", async () => {
   expect(h.lines("new")).toBe(1);
 });
 
+it("a request id still in use is refused and the running search keeps its id", async () => {
+  const h = harness();
+  h.searches.start(request("same", "first"));
+  await h.settle();
+  h.searches.start(request("same", "second", ThreadId.parse("other")));
+  await h.settle();
+  expect(h.fake.running).toHaveLength(1);
+  expect(h.end("same")).toMatchObject({ type: "files.error", code: "INVALID_ARGUMENT" });
+  expect(h.searches.abort("same")).toBe(true);
+  await Promise.all(h.tasks);
+  expect(h.fake.running[0]?.options.signal?.aborted).toBe(true);
+});
+
+it("an id is free again once its search has ended", async () => {
+  const h = harness();
+  h.searches.start(request("reused", "first"));
+  await h.settle();
+  h.fake.running[0]?.finish();
+  await Promise.all(h.tasks);
+  h.searches.start(request("reused", "second", ThreadId.parse("other")));
+  await h.settle();
+  expect(h.fake.running).toHaveLength(2);
+  expect(h.searches.abort("reused")).toBe(true);
+  await h.settle();
+  expect(h.fake.running[1]?.options.signal?.aborted).toBe(true);
+});
+
 it("an abort or a closed connection stops the search", async () => {
   const h = harness();
   h.searches.start(request("aborted"));
@@ -176,6 +203,33 @@ it("a read grant lost mid-search sends nothing more and ends forbidden", async (
   await Promise.all(h.tasks);
   expect(h.lines("revoked")).toBe(0);
   expect(h.end("revoked")).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+});
+
+it("a search with no hits stops within a second of its grant being lost", async () => {
+  let allowed = true;
+  const h = harness({ allowed: () => allowed });
+  h.searches.start(request("quiet"));
+  await h.settle();
+  allowed = false;
+  h.clock.advance(1000);
+  await Promise.all(h.tasks);
+  expect(h.fake.running[0]?.options.signal?.aborted).toBe(true);
+  expect(h.end("quiet")).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+});
+
+it("a finished search waiting on a backed-up link stops once its grant is lost", async () => {
+  let allowed = true;
+  const h = harness({ allowed: () => allowed, buffered: () => 1024 * 1024 });
+  h.searches.start(request("stuck"));
+  await h.settle();
+  h.fake.running[0]?.options.onMatches(file("a.ts", 3));
+  h.fake.running[0]?.finish(3);
+  await h.settle();
+  allowed = false;
+  h.clock.advance(1000);
+  await Promise.all(h.tasks);
+  expect(h.lines("stuck")).toBe(0);
+  expect(h.end("stuck")).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
 });
 
 it("a machine without ace-files answers with the retryable code", async () => {

@@ -19,7 +19,11 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { ContentSearch } from "./content-search.tsx";
-import { contentSearchStore, useContentSearch } from "./content-search-store.ts";
+import {
+  contentSearchStore,
+  retainContentSearch,
+  useContentSearch,
+} from "./content-search-store.ts";
 import { FileToolbar } from "./file-toolbar.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { FileViewer, NoFile } from "./file-viewer.tsx";
@@ -176,6 +180,7 @@ export function FileTab(props: TabViewProps) {
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
   const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });
+  useEffect(() => retainContentSearch(client, threadId), [client, threadId]);
   const searchStore = useMemo(() => contentSearchStore(client, threadId), [client, threadId]);
   const searchState = useContentSearch(searchStore);
   const searchInput = useRef<HTMLInputElement>(null);

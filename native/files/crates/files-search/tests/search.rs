@@ -240,6 +240,44 @@ fn reports_every_match_on_a_line() -> TestResult {
 }
 
 #[test]
+fn zero_width_matches_keep_their_place_at_a_line_edge() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    write(temp.path(), "short.txt", "abc\n")?;
+    write(temp.path(), "long.txt", format!("{}\n", "x".repeat(1000)))?;
+    let root = Root::open(temp.path())?;
+    for (pattern, short, long) in [("$", (3, 3), (400, 400)), ("^", (0, 0), (0, 0))] {
+        let mut query = query(pattern);
+        query.regex = true;
+        let (files, _summary) = run(&root, &query)?;
+        let ranges = |path: &str| {
+            files
+                .iter()
+                .find(|file| file.path == path)
+                .map(|file| file.lines[0].ranges.clone())
+        };
+        assert_eq!(
+            ranges("short.txt"),
+            Some(vec![short]),
+            "{pattern} on a short line"
+        );
+        let long_line = files.iter().find(|file| file.path == "long.txt");
+        let column = long_line.map(|file| file.lines[0].column);
+        let expected_column = if pattern == "$" { 600 } else { 0 };
+        assert_eq!(
+            column,
+            Some(expected_column),
+            "{pattern} column on a cut line"
+        );
+        assert_eq!(
+            ranges("long.txt"),
+            Some(vec![long]),
+            "{pattern} on a cut line"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn preview_offsets_survive_multibyte_text() -> TestResult {
     let temp = tempfile::tempdir()?;
     write(temp.path(), "accent.txt", "héllo needle\n")?;
