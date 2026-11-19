@@ -33,8 +33,10 @@ mod exclude;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+mod net;
 mod observed;
 mod translate;
+mod wake;
 mod watch;
 #[cfg(windows)]
 mod windows;

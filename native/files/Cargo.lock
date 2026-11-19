@@ -324,9 +324,11 @@ dependencies = [
 name = "files-watch"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
  "dispatch2",
  "files-safe",
  "globset",
+ "libc",
  "notify",
  "objc2-core-foundation",
  "objc2-core-services",

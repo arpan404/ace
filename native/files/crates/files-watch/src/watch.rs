@@ -6,6 +6,7 @@
 //! inside itself: the drop would wait for the thread that is running it. Dropping the handle
 //! from any other thread stops the OS watch and joins the worker.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -29,7 +30,9 @@ use crate::batch::{Batch, ChangeKind};
 use crate::coalesce::Coalescer;
 use crate::error::Error;
 use crate::exclude::Excluder;
+use crate::net::{self, Net};
 use crate::translate::{self, Notice};
+use crate::wake::Wake;
 
 /// How many backend events may wait for the worker before the rest are dropped. A full
 /// channel switches the window to a rescan of the root, because events were lost.
@@ -129,7 +132,18 @@ impl Watcher {
                 Backend::Polling(watcher)
             }
         };
+        // Read before `start` returns, so a name that appears afterwards is news to the net too.
+        let net = Net::new(&root, &excluder, options.max_batch);
+        let mut wake = Wake::start(events.clone());
+        if let Some(wake) = &mut wake {
+            wake.follow(&root, net.folders());
+        }
         let worker = Worker {
+            net,
+            wake,
+            poked: BTreeSet::new(),
+            poke_due: None,
+            last_poke: None,
             root,
             excluder,
             options,
@@ -151,6 +165,14 @@ impl Watcher {
             polling,
             worker: Some(running),
         })
+    }
+
+    /// Names the folders a person has open, replacing the last set. The watcher checks each of
+    /// them, and the root, about once a second, and reports a name that appeared or went away
+    /// there even when the OS watch never said so. At most 512 folders are kept.
+    pub fn focus(&self, folders: Vec<String>) {
+        // A full queue means the worker is busy with a burst; the next call replaces this one.
+        let _ = self.control.try_send(Command::Focus(folders));
     }
 
     /// The backend in use, including a switch to polling after a watch limit was hit.
@@ -182,6 +204,14 @@ enum Command {
     /// for a root rescan, so the tree is still tracked and the client hears what it missed.
     #[cfg_attr(not(windows), allow(dead_code))]
     Failed(String),
+    /// The folders the safety net checks, besides the root.
+    Focus(Vec<String>),
+    /// The kernel said an open folder changed; `rearm` when its handle went with it.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Poke {
+        folder: String,
+        rearm: bool,
+    },
     Stop,
 }
 
@@ -234,6 +264,12 @@ impl Events {
         self.enqueue(Command::Event(event));
     }
 
+    /// An open folder changed. A full queue drops the word: the net's timer checks it anyway.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn poke(&self, folder: String, rearm: bool) {
+        let _ = self.sender.try_send(Command::Poke { folder, rearm });
+    }
+
     fn enqueue(&self, command: Command) {
         match self.sender.try_send(command) {
             Ok(()) => {}
@@ -260,7 +296,20 @@ struct Worker {
     /// The folders and stored names this window has already read. Cleared when a batch is
     /// delivered, so the next window judges folders as they are then.
     readings: Readings,
+    /// The open folders, checked without the OS watch's help.
+    net: Net,
+    /// Handles on the open folders the kernel reports changes on, where the platform has them.
+    wake: Option<Wake>,
+    /// Open folders the kernel said changed, waiting for their check.
+    poked: BTreeSet<String>,
+    /// When the poked folders are checked: at once after a quiet spell, then at most every
+    /// [`POKE_GAP`], so a burst in an open folder does not list it for every file.
+    poke_due: Option<Instant>,
+    last_poke: Option<Instant>,
 }
+
+/// The shortest time between two checks the kernel's word starts.
+const POKE_GAP: Duration = Duration::from_millis(50);
 
 impl Worker {
     fn run(mut self) {
@@ -269,6 +318,7 @@ impl Worker {
             self.options.max_wait,
             self.options.max_batch,
         );
+        let mut next_check = Instant::now() + net::INTERVAL;
         loop {
             if self.stop.load(Ordering::Acquire) {
                 break;
@@ -286,6 +336,13 @@ impl Worker {
                 coalescer.overflow(None, Instant::now());
             }
             let now = Instant::now();
+            if now >= next_check {
+                self.check_net(&mut coalescer, now);
+                next_check = now + net::INTERVAL;
+            }
+            if self.poke_due.is_some_and(|due| now >= due) {
+                self.check_poked(&mut coalescer, now);
+            }
             let wait = coalescer.wait(now);
             // A queued event is always ready, so receiving first would let a burst that never
             // stops hold `recv_timeout(0)` open forever and the window would never close. The
@@ -294,13 +351,13 @@ impl Worker {
                 self.settle(&mut coalescer, now);
                 continue;
             }
-            let received = match wait {
-                Some(remaining) => self.commands.recv_timeout(remaining),
-                None => self
-                    .commands
-                    .recv()
-                    .map_err(|_| RecvTimeoutError::Disconnected),
-            };
+            let until_check = self
+                .poke_due
+                .map_or(next_check, |due| due.min(next_check))
+                .saturating_duration_since(now);
+            let received = self
+                .commands
+                .recv_timeout(wait.map_or(until_check, |wait| wait.min(until_check)));
             match received {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Command::Event(Ok(event))) => {
@@ -325,7 +382,27 @@ impl Worker {
                     }
                     self.adopt_folders(&mut translation.notices, now, &mut coalescer);
                     for notice in translation.notices {
+                        self.net.noticed(&notice.change.path);
                         coalescer.push(notice, now);
+                    }
+                }
+                Ok(Command::Focus(folders)) => {
+                    self.net.focus(&self.root, &self.excluder, folders);
+                    if let Some(wake) = &mut self.wake {
+                        wake.follow(&self.root, self.net.folders());
+                    }
+                }
+                Ok(Command::Poke { folder, rearm }) => {
+                    if rearm && let Some(wake) = &mut self.wake {
+                        wake.rearm(&self.root, &folder);
+                    }
+                    self.poked.insert(folder);
+                    if self.poke_due.is_none() {
+                        let now = Instant::now();
+                        self.poke_due = Some(
+                            self.last_poke
+                                .map_or(now, |last| (last + POKE_GAP).max(now)),
+                        );
                     }
                 }
                 Ok(Command::Event(Err(error))) => {
@@ -340,11 +417,46 @@ impl Worker {
                 }
                 Ok(Command::Failed(message)) => self.backend_failed(message),
                 Err(RecvTimeoutError::Timeout) => {
-                    self.settle(&mut coalescer, Instant::now());
+                    // The wait may have ended for the net's check rather than the window.
+                    let now = Instant::now();
+                    if coalescer.wait(now) == Some(Duration::ZERO) {
+                        self.settle(&mut coalescer, now);
+                    }
                 }
             }
         }
         self.backend.stop();
+    }
+
+    /// Checks the open folders, and adds what the OS watch did not report to the window.
+    fn check_net(&mut self, coalescer: &mut Coalescer, now: Instant) {
+        let found = self.net.check(&self.root, &self.excluder);
+        self.absorb(found, coalescer, now);
+    }
+
+    /// Checks the folders the kernel said changed.
+    fn check_poked(&mut self, coalescer: &mut Coalescer, now: Instant) {
+        self.poke_due = None;
+        self.last_poke = Some(now);
+        for folder in std::mem::take(&mut self.poked) {
+            let found = self.net.check_folder(&self.root, &self.excluder, &folder);
+            self.absorb(found, coalescer, now);
+        }
+    }
+
+    /// Adds what a check of the net found to the window.
+    fn absorb(&mut self, found: net::Found, coalescer: &mut Coalescer, now: Instant) {
+        for folder in found.rescans {
+            coalescer.overflow(Some(folder).filter(|folder| !folder.is_empty()), now);
+        }
+        if found.notices.is_empty() {
+            return;
+        }
+        let mut notices = found.notices;
+        self.adopt_folders(&mut notices, now, coalescer);
+        for notice in notices {
+            coalescer.push(notice, now);
+        }
     }
 
     /// Reports the files of a folder that just appeared, and adds whatever watches it needs.
@@ -453,6 +565,7 @@ impl Worker {
     }
 
     fn deliver(&mut self, batch: Batch) {
+        self.net.delivered(&batch);
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend

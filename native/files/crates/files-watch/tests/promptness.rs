@@ -15,8 +15,7 @@ mod support;
 
 use support::{Session, changes};
 
-/// How long a typical lone change in a quiet folder may take to reach the sink. The watcher's
-/// own share is the debounce plus FSEvents' 20 ms latency; the rest is the OS handing it over.
+/// The longest a lone change in a quiet folder may take to reach the sink.
 const PROMPT: Duration = Duration::from_millis(500);
 
 /// What the daemon passes, so the latency measured is the one the Files panel sees.
@@ -39,10 +38,9 @@ fn timed(session: &Session, path: &str, kind: ChangeKind, change: impl FnOnce())
 
 #[test]
 fn a_lone_create_delete_and_rename_in_a_quiet_folder_arrive_within_half_a_second() {
-    // Every change must arrive. How soon is judged on the median: fseventsd is one process
-    // serving every client on the machine, and when it is saturated it hands over single events
-    // seconds late whoever watches. A watcher that holds changes back itself (a long debounce,
-    // a missed wake-up, a stream that defers) moves the median, which is what this guards.
+    // The root is always one of the open folders, so on macOS the kernel's word on it arrives
+    // without waiting for fseventsd, which on a loaded machine hands a lone change over hundreds
+    // of milliseconds late.
     let session = Session::start(daemon_options(), |root| {
         for index in 0..10 {
             std::fs::write(root.join(format!("old{index}.txt")), b"x").unwrap();
@@ -74,10 +72,11 @@ fn a_lone_create_delete_and_rename_in_a_quiet_folder_arrive_within_half_a_second
     }
     took.sort();
     let median = took[took.len() / 2];
+    let slowest = took[took.len() - 1];
     eprintln!("lone changes: median {median:?}, all {took:?}");
     assert!(
-        median <= PROMPT,
-        "a lone change must typically arrive within {PROMPT:?}: median {median:?}, all {took:?}"
+        slowest <= PROMPT,
+        "a lone change must arrive within {PROMPT:?}: median {median:?}, all {took:?}"
     );
 }
 
@@ -138,6 +137,7 @@ fn a_rename_made_the_moment_the_watch_starts_is_reported_with_many_watches_runni
     // starts at "now" as the OS sees it misses a change made right after the call returns when
     // the OS is slow to register it, and the rename is then never reported at all.
     const WATCHES: usize = 32;
+    support::caught_up();
     let folders: Vec<tempfile::TempDir> = (0..WATCHES)
         .map(|_| prepared(|root| std::fs::write(root.join("before.txt"), b"x").unwrap()))
         .collect();
@@ -173,4 +173,27 @@ fn a_rename_made_the_moment_the_watch_starts_is_reported_with_many_watches_runni
         );
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+#[test]
+fn a_change_in_an_open_folder_arrives_promptly_right_after_a_burst_elsewhere() {
+    // A burst anywhere on the volume queues behind fseventsd for every client; on a loaded Mac a
+    // write after twenty thousand creates waited more than a minute and a half. The folder a
+    // person has open must not wait behind it.
+    let burst = tempfile::tempdir().unwrap();
+    let session = Session::start(daemon_options(), |root| {
+        std::fs::create_dir(root.join("src")).unwrap();
+    });
+    session.focus(vec!["src".to_owned()]);
+    for index in 0..20_000 {
+        std::fs::write(burst.path().join(format!("f{index}")), b"x").unwrap();
+    }
+    let took = timed(&session, "src/after.txt", ChangeKind::Created, || {
+        std::fs::write(session.path("src/after.txt"), b"x").unwrap();
+    });
+    eprintln!("change after a burst elsewhere: {took:?}");
+    assert!(
+        took <= Duration::from_secs(2),
+        "an open folder's change waited {took:?} behind a burst elsewhere"
+    );
 }

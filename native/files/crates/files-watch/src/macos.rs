@@ -43,6 +43,7 @@ use crate::translate::Notice;
 use crate::watch::Events;
 
 mod flags;
+pub(crate) mod wake;
 
 /// How long FSEvents may hold records before it hands them over. With `NoDefer` the first record
 /// after a quiet spell is delivered at once and this only groups the ones that follow it.

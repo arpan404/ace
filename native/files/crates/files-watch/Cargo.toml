@@ -13,6 +13,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cap-std = "4"
 files-safe = { path = "../files-safe" }
 globset = "0.4"
 notify = "8"
@@ -22,6 +23,7 @@ thiserror = "2"
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
   "std",

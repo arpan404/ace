@@ -35,6 +35,7 @@ pub struct Session {
 impl Session {
     pub fn start(options: WatchOptions, prepare: impl FnOnce(&Path)) -> Session {
         let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        caught_up();
         let dir = tempfile::tempdir().unwrap();
         prepare(dir.path());
         // FSEvents replays the last second of the journal when a stream starts, which would
@@ -62,6 +63,11 @@ impl Session {
             debounce,
             _serial: serial,
         }
+    }
+
+    /// Names the folders the watcher's caller has open.
+    pub fn focus(&self, folders: Vec<String>) {
+        self._watcher.focus(folders);
     }
 
     pub fn path(&self, rel: &str) -> PathBuf {
@@ -231,4 +237,39 @@ fn named_change_covers(change: &Change, path: &str) -> bool {
         return false;
     }
     change.path == path || (change.directory && covers(Some(&change.path), path))
+}
+
+/// How long [`caught_up`] waits for the OS watcher to report a fresh write.
+const CATCH_UP: Duration = Duration::from_secs(180);
+
+/// Waits until the OS watcher reports a write made now, so a test starts with nothing queued ahead
+/// of it.
+///
+/// fseventsd is one process serving every client on a Mac, and a burst written by an earlier test
+/// (or by anything else on the machine) can keep it busy for a minute and more; a test that starts
+/// in that backlog sees its own events late. The write goes into a subfolder nobody has open, so
+/// only the OS watch can report it: the watcher's own checks of open folders would not.
+pub fn caught_up() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let seen = Arc::new(Mutex::new(false));
+    let recorded = Arc::clone(&seen);
+    let watcher = Watcher::start(
+        Root::open(dir.path()).unwrap(),
+        options(),
+        Box::new(move |batch| {
+            if let Batch::Changes(changes) = batch
+                && changes.iter().any(|change| change.path == "sub/sentinel")
+            {
+                *recorded.lock().unwrap_or_else(PoisonError::into_inner) = true;
+            }
+        }),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("sub/sentinel"), b"x").unwrap();
+    let deadline = Instant::now() + CATCH_UP;
+    while !*seen.lock().unwrap_or_else(PoisonError::into_inner) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    drop(watcher);
 }
