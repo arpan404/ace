@@ -12,13 +12,13 @@ function machineThere(offers: boolean) {
   const sent: ClientMessage[] = [];
   const queue: ServerMessage[] = [];
   let wake: (() => void) | undefined;
-  let closed = false;
+  const state = { closed: false };
   const push = (message: ServerMessage) => {
     queue.push(message);
     wake?.();
   };
   const next = async (): Promise<ServerMessage | undefined> => {
-    while (!queue.length && !closed) await new Promise<void>((resolve) => (wake = resolve));
+    while (!queue.length && !state.closed) await new Promise<void>((resolve) => (wake = resolve));
     return queue.shift();
   };
   const channel = {
@@ -45,7 +45,7 @@ function machineThere(offers: boolean) {
       for (let message = await next(); message; message = await next()) yield message;
     },
     close() {
-      closed = true;
+      state.closed = true;
       wake?.();
     },
   };

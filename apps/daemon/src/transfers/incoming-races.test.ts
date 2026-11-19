@@ -18,9 +18,9 @@ afterEach(async () => {
 /** A dependency each test reaches only where it says; anything else waits on `gate` and fails. */
 function held<T extends object>(gate: Promise<void>, own: Partial<T> = {}): T {
   return new Proxy(own as T, {
-    get: (target, name) =>
-      name in target
-        ? Reflect.get(target, name)
+    get: (given, name) =>
+      name in given
+        ? Reflect.get(given, name)
         : async () => {
             await gate;
             throw new Error(`Not reached in this test: ${String(name)}`);
@@ -52,10 +52,7 @@ async function target() {
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const store = new Store(join(root, "events.sqlite"));
   cleanup.push(async () => store.close());
-  let release = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   const workspaceId = WorkspaceId.parse("workspace-held");
   const incoming = new IncomingTransfers({
     store,

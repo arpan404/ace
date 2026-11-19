@@ -14,10 +14,8 @@ import type { TransferTarget } from "./transfers/serve.ts";
 /** A relay `machine` stream from a paired machine: it sends `frames`, then waits for answers. */
 function stream(frames: ClientMessage[]) {
   const sent: ServerMessage[] = [];
-  let close = () => {};
-  const closed = new Promise<undefined>((resolve) => {
-    close = () => resolve(undefined);
-  });
+  const { promise: closed, resolve } = Promise.withResolvers<undefined>();
+  const close = () => resolve(undefined);
   const channel = {
     closed,
     async send(message: ServerMessage) {
