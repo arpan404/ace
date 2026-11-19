@@ -33,15 +33,10 @@ export const PREFER_MS = 5 * 60 * 1000;
  * on this machine it reaches this machine.
  *
  * What a machine says it serves (`describe`) only adds addresses for a key this side holds
- * (ADR 0192):
- * - a direct address must be under the TLS key the link pinned. A machine linked through a relay
- *   only pinned none, so its addresses are under the one key it announced on that pinned stream;
- *   one announcing two keys gets none of them;
- * - a Tailscale name it announces is never tried: a publicly trusted certificate for a `ts.net`
- *   name passes the pin check without the key (ADR 0097), so such a name proves nothing here;
- * - a relay must be under the relay host key the link pinned. A machine linked on its address only
- *   pinned none, so its relays are under the one key it announced over the pinned TLS link; one
- *   announcing two gets none.
+ * (ADR 0192): the TLS key and relay host key the link pinned, or the one the pairing enrolled
+ * later (`enrollPins`) for a kind the link pinned none of. A Tailscale name it announces is never
+ * tried: a publicly trusted certificate for a `ts.net` name passes the pin check without the key
+ * (ADR 0097), so such a name proves nothing here.
  *
  * Whether a relay is ace's hosted one is this machine's own knowledge (`hosted`), never the label
  * the other machine gave it.
@@ -54,6 +49,7 @@ export function machineRoutes(
   },
   paths: readonly MachinePath[],
   hosted: (url: string) => boolean,
+  pins: EnrolledPins = {},
 ): MachineRoute[] {
   const routes: MachineRoute[] = [];
   const known = new Set<string>();
@@ -66,11 +62,7 @@ export function machineRoutes(
     });
     known.add(originOf(saved.origin));
   }
-  const directKey =
-    saved.fingerprint ??
-    onlyKey(paths, (path) =>
-      path.kind === "lan" || path.kind === "tailscale" ? path.fingerprint : undefined,
-    );
+  const directKey = saved.fingerprint ?? pins.tls;
   for (const kind of ["lan", "tailscale"] as const)
     for (const path of paths)
       if (
@@ -93,11 +85,7 @@ export function machineRoutes(
       hosted: hosted(saved.relay.url),
     });
   }
-  const relayKey =
-    saved.relay?.relayHostId ??
-    onlyKey(paths, (path) =>
-      path.kind === "relay" || path.kind === "account" ? path.relayHostId : undefined,
-    );
+  const relayKey = saved.relay?.relayHostId ?? pins.relay;
   for (const path of paths)
     if (
       (path.kind === "relay" || path.kind === "account") &&
@@ -117,6 +105,43 @@ export function machineRoutes(
   for (const route of relays) if (route.kind === "relay" && !route.hosted) routes.push(route);
   for (const route of relays) if (route.kind === "relay" && route.hosted) routes.push(route);
   return routes;
+}
+
+/** Keys a pairing took on after it was made, for kinds its link pinned none of (ADR 0192). */
+export interface EnrolledPins {
+  /** The TLS key of a machine linked through a relay only. */
+  tls?: string | undefined;
+  /** The relay host key of a machine linked on its address only. */
+  relay?: string | undefined;
+}
+
+/**
+ * The pins after a description: a kind the link pinned none of takes the one key the description
+ * names for it, once. A pin, once taken, never changes; a description naming another key, or two,
+ * changes nothing; changing it takes linking again. So a key is only ever taken while the routes
+ * of its kind don't exist yet: the description came over a route the link itself pinned, never
+ * over a route a description opened (ADR 0192).
+ */
+export function enrollPins(
+  saved: { fingerprint?: string | undefined; relay?: { relayHostId: string } | undefined },
+  pins: EnrolledPins,
+  paths: readonly MachinePath[],
+): EnrolledPins {
+  const tls =
+    saved.fingerprint === undefined
+      ? (pins.tls ??
+        onlyKey(paths, (path) =>
+          path.kind === "lan" || path.kind === "tailscale" ? path.fingerprint : undefined,
+        ))
+      : undefined;
+  const relay =
+    saved.relay === undefined
+      ? (pins.relay ??
+        onlyKey(paths, (path) =>
+          path.kind === "relay" || path.kind === "account" ? path.relayHostId : undefined,
+        ))
+      : undefined;
+  return { ...(tls ? { tls } : {}), ...(relay ? { relay } : {}) };
 }
 
 /** The one key the paths name, or undefined when they name none or more than one. */

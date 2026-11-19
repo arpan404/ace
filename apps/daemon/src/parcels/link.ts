@@ -7,7 +7,7 @@ import {
 } from "../machines/transport.ts";
 import type { ConnectionProfile } from "../machines/connections.ts";
 import { NoRelayRoute } from "../machines/relay-fallback.ts";
-import type { MachineRoute, RouteKind } from "../machines/link-routes.ts";
+import type { EnrolledPins, MachineRoute, RouteKind } from "../machines/link-routes.ts";
 import { MachineLink } from "../machines/machine-link.ts";
 import type { RelayLink } from "../machines/relay-link.ts";
 
@@ -25,6 +25,8 @@ export interface ParcelLinkDeps {
   paths(profile: RemoteProfile): MachinePath[];
   /** Whether a relay address is ace's hosted relay, by this machine's own settings. */
   hosted(url: string): boolean;
+  /** Keys the pairing enrolled after it was made (ADR 0192). */
+  pins?(profile: RemoteProfile): EnrolledPins;
   now(): number;
 }
 
@@ -41,7 +43,12 @@ export class ParcelLink {
   readonly machines: MachineLink;
   constructor(deps: ParcelLinkDeps) {
     this.deps = deps;
-    this.machines = new MachineLink({ paths: deps.paths, hosted: deps.hosted, now: deps.now });
+    this.machines = new MachineLink({
+      paths: deps.paths,
+      hosted: deps.hosted,
+      ...(deps.pins ? { pins: deps.pins } : {}),
+      now: deps.now,
+    });
   }
   /** The route that answered last for this machine, while it's still preferred. */
   lastRoute(profile: RemoteProfile): RouteKind | undefined {

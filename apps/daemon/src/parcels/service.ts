@@ -18,6 +18,7 @@ import { pinnedRequest } from "../machines/transport.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { ParcelFileError, ParcelFiles } from "./files.ts";
 import { isHostedRelay } from "../relay-account.ts";
+import { enrollPins } from "../machines/link-routes.ts";
 import { ParcelLink } from "./link.ts";
 import { arrivalText, receivedView, sentView } from "./messages.ts";
 import { ParcelPuller } from "./puller.ts";
@@ -113,6 +114,7 @@ export function startParcels(context: ServiceContext): void {
     relay,
     paths: (profile) => rows.paths(profile.id)?.paths ?? [],
     hosted: (url) => isHostedRelay(url, config.hostedRelayUrl),
+    pins: (profile) => rows.pins(profile.id, profile.deviceId),
     now,
   });
   const room = () => Math.max(0, QUOTA_BYTES - rows.heldBytes());
@@ -319,6 +321,11 @@ export function startParcels(context: ServiceContext): void {
       const path = MachinePath.safeParse(entry);
       return path.success ? [path.data] : [];
     });
+    // A kind of key the link didn't pin is taken once, then kept (ADR 0192).
+    const before = rows.pins(profile.id, profile.deviceId);
+    const after = enrollPins(profile, before, paths);
+    if (after.tls !== before.tls || after.relay !== before.relay)
+      rows.savePins(profile.id, profile.deviceId, after, now());
     rows.savePaths(profile.id, paths, now());
   };
 

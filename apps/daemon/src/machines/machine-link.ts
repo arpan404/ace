@@ -8,6 +8,7 @@ import {
   type MachineRoute,
   type PreferredRoute,
   type RouteKind,
+  type EnrolledPins,
 } from "./link-routes.ts";
 
 export interface MachineLinkDeps {
@@ -15,6 +16,8 @@ export interface MachineLinkDeps {
   paths(profile: RemoteProfile): MachinePath[];
   /** Whether a relay address is ace's hosted relay, as this machine's own settings name it. */
   hosted(url: string): boolean;
+  /** Keys this pairing enrolled after it was made (`enrollPins`); none when absent. */
+  pins?(profile: RemoteProfile): EnrolledPins;
   now(): number;
 }
 
@@ -56,16 +59,19 @@ export class MachineLink {
   /** Every route to the machine, the one that answered last first. */
   routes(profile: RemoteProfile): MachineRoute[] {
     return preferredFirst(
-      machineRoutes(profile, this.deps.paths(profile), this.deps.hosted),
+      machineRoutes(profile, this.deps.paths(profile), this.deps.hosted, this.deps.pins?.(profile)),
       this.preferred.get(profile.id),
       this.deps.now(),
     );
   }
   /** Its relays only, in their own order. */
   relays(profile: RemoteProfile): MachineRoute[] {
-    return machineRoutes(profile, this.deps.paths(profile), this.deps.hosted).filter(
-      (route) => route.kind === "relay",
-    );
+    return machineRoutes(
+      profile,
+      this.deps.paths(profile),
+      this.deps.hosted,
+      this.deps.pins?.(profile),
+    ).filter((route) => route.kind === "relay");
   }
   /** Nothing answered on any route: none is preferred any more. */
   forget(profile: RemoteProfile): void {

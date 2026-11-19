@@ -1,3 +1,4 @@
+import type { EnrolledPins } from "../machines/link-routes.ts";
 import type { MachinePath, ParcelFacts } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
@@ -128,7 +129,10 @@ export class ParcelRows {
       CREATE INDEX IF NOT EXISTS parcel_in_thread ON parcel_in(to_thread, created_at);
       CREATE INDEX IF NOT EXISTS parcel_in_state ON parcel_in(state, updated_at);
       CREATE TABLE IF NOT EXISTS parcel_paths (
-        profile_id TEXT PRIMARY KEY, paths TEXT NOT NULL, updated_at INTEGER NOT NULL);`),
+        profile_id TEXT PRIMARY KEY, paths TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS parcel_pins (
+        profile_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, tls TEXT, relay TEXT,
+        updated_at INTEGER NOT NULL);`),
     );
   }
   insertOut(row: OutRow): void {
@@ -335,6 +339,24 @@ export class ParcelRows {
     this.store
       .statement("INSERT OR REPLACE INTO parcel_paths VALUES (?,?,?)")
       .run(profileId, JSON.stringify(paths.slice(0, 16)), now);
+  }
+  /**
+   * The keys a pairing enrolled after it was made (ADR 0192). A row from an earlier pairing under
+   * the same profile (another device there) counts for nothing: linking again starts over.
+   */
+  pins(profileId: string, deviceId: string): EnrolledPins {
+    const raw = this.store
+      .statement("SELECT device_id,tls,relay FROM parcel_pins WHERE profile_id=?")
+      .get(profileId);
+    if (!raw || String(raw["device_id"]) !== deviceId) return {};
+    const tls = text(raw["tls"]);
+    const relay = text(raw["relay"]);
+    return { ...(tls ? { tls } : {}), ...(relay ? { relay } : {}) };
+  }
+  savePins(profileId: string, deviceId: string, pins: EnrolledPins, now: number): void {
+    this.store
+      .statement("INSERT OR REPLACE INTO parcel_pins VALUES (?,?,?,?,?)")
+      .run(profileId, deviceId, pins.tls ?? null, pins.relay ?? null, now);
   }
   /** Parcels waiting for a parent to pull them since before `before`, for the deadline. */
   staleOutbox(before: number, limit = 32): OutRow[] {
