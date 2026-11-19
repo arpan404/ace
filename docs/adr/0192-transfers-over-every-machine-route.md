@@ -40,9 +40,14 @@ for a key this side already holds:
   - Later descriptions add and drop addresses under the pin, but never change it. One naming
     another key changes nothing: whoever holds an enrolled relay key can't move the pairing to a
     key of its own.
-  - A new key takes linking again. Linking again is a new pairing (another device there), and the
-    old pin no longer counts. A machine whose TLS key or relay host key really changes keeps
-    working over its original route meanwhile.
+  - A new key takes linking again. A pin belongs to one pairing exactly: its profile, its device
+    there and a hash of its credential. Linking again, even under the same name, is another
+    pairing, and the old pin no longer counts. A machine whose TLS key or relay host key really
+    changes keeps working over its original route meanwhile.
+  - A description is kept for the pairing the `describe` was sent as (`MachineDirectory.callAs`),
+    never for one looked up again by name when the answer comes. It is kept only if that pairing
+    is still the one saved (id, device and credential) at that moment, so a machine replaced
+    under the same name while its describe was in flight pins nothing for the replacement.
   - A machine linked before this build has no pin yet. Its relay or extra addresses come back
     after its next description over the address it was linked on, which the machine list asks
     for often.
@@ -97,8 +102,20 @@ every transfer call is idempotent under its transfer id:
   settled. A copy of a cancel that comes while the first is still undoing the transfer waits for
   that clean-up and answers with its result. Closing the daemon waits for those clean-ups too.
 
-An import that fails claims `failed` from `importing`, as does reopening it for a full bundle,
-always from the row as it is then, never from a copy read before its rollback.
+An import that fails claims `failed` from `importing`, always from the row as it is then, never
+from a copy read before its rollback. Completion claims `completed` from `importing` too.
+
+A transfer by origin that can't land is reopened for the whole repository as a bundle. That
+happens only after its import has left (so the next commit's import can start), and only after
+its old upload is removed. It then starts a new upload. A commit notes which upload it checks, and
+claims only that one: a copy of the commit that was still checking the old upload never claims the
+reopened transfer. Nothing is awaited between that check and the claim. The upload count is kept
+in memory, not on the row: a commit waiting in its checks is a request in flight, which never
+outlives the daemon, and a restart starts every transfer's upload count again.
+
+The retention sweep deletes an expired row only if it is still in the state and unchanged since
+the sweep read it, and only then removes its files. A commit that claimed the transfer in between
+keeps its row and its upload; one that comes after the delete is refused.
 
 The sender's own retry loop already resent all of these after a lost answer. No call needed to
 stay on one route.
@@ -106,7 +123,9 @@ stay on one route.
 Every route checks that the pairing is still saved before it sends. Opening a relay stream takes
 time, and its `hello` carries the pairing's token. So the pairing is checked again right before
 that hello, and the hello goes only while some caller still waits for the stream (several callers
-may share one opening). A send checks once more after the stream is open.
+may share one opening). Each opening keeps its own waiters, and closing the pool (links changed)
+voids every opening that hasn't said hello yet, so an old opening never says hello for a caller of
+a newer one. A send checks once more after the stream is open.
 
 **On the relay.** A relay `machine` stream carries a new frame, `machine.transfer`, which takes
 either one control call or one chunk piece and is answered by `machine.answer`. It shares the
@@ -169,13 +188,18 @@ can't check it.
   changed, no route of a kind without a pin, announced `ts.net` names, and ace's relay classified
   by this machine's settings.
 - `machines/directory-transfers.test.ts`: a relay-only machine is listed as taking transfers.
+- `parcels/descriptions.test.ts`: a description enrolls durably in `parcel_pins`, nothing is kept
+  for a pairing replaced while its describe was in flight, and linking again with a new credential
+  starts over.
 - `machines/relay-link.test.ts`: no transfer frame for an older machine; not even the token's
   hello for a caller that gave up or a pairing removed while the stream opened; a shared opening
   still served for the caller that waits; separate streams for ace's relay and the person's own.
 - `relay-machine-host.test.ts`: a stream through ace's relay refuses bulk past the bound.
 - `transfers/incoming-races.test.ts`: a cancel during a commit stays cancelled, a damaged upload's
   clean-up loses nothing to a sound copy or a cancel, a second cancel and closing wait for a
-  cancel's clean-up, and two copies of a begin leave one stored row.
+  cancel's clean-up, two copies of a begin leave one stored row, a reopened transfer says
+  receiving only after its old upload is gone, a commit checked against the old upload never
+  claims the new one, and the retention sweep and a commit agree.
 - `transfers/route-policy.test.ts`: the hosted-relay bound and splitting into pieces.
 - `transfers/routes.test.ts`: falling through to a relay, refusals that stay put, a 4 MiB chunk in
   pieces, a resent chunk, a lost answer carried again on the relay with the exact bytes landing,
