@@ -149,7 +149,7 @@ export class RemoteAuth {
       pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
       installId,
       pairing.person,
-      pairing.person ? standingKey : undefined,
+      standingKey,
     );
     // The install's record got a new credential and scopes: what the old one opened ends, so
     // no ticket, socket or lease carries the old authority or picks up the new.

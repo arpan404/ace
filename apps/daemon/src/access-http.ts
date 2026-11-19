@@ -216,10 +216,9 @@ export function accessHttp({
           // remote access can change or turn off while they wait.
           const app = await pairingApp?.();
           const input = pairing() ? await body(request) : undefined;
-          // The person's standing goes on only from someone who has it (ADR 0190): a device the
-          // person paired. The host token is what any process that reads it holds, so its links
-          // make no person's device, however recently someone signed in.
-          const person = !auth.local(token) && auth.deviceBearer(token)?.person === true;
+          // A link made over HTTP is always an ordinary pairing (ADR 0190): a bearer token proves
+          // nothing of the person, whoever holds it, so a person's link comes only from a socket
+          // that proved the person's standing on that socket (`fleet.request pairing`).
           const creator = actor();
           const { id, url, expiresAt } = issuePairing(
             auth,
@@ -227,7 +226,7 @@ export function accessHttp({
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),
-            person,
+            false,
             app,
           );
           result = { url, expiresAt, id };

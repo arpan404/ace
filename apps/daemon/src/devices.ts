@@ -159,6 +159,10 @@ export class Devices {
     person = false,
     standingKey?: string,
   ): { device: Device; token: string } {
+    // A device that names no standing key can never prove the person's standing, so it never
+    // carries the person's bit either (ADR 0190).
+    const personal = person && standingKey !== undefined;
+    const key = personal ? standingKey : undefined;
     const token = generateSecret(this.runtime.randomBytes);
     const held = installId === undefined ? undefined : this.byInstall.get(installId, at);
     if (held) {
@@ -175,8 +179,8 @@ export class Devices {
         JSON.stringify(device.scopes),
         at,
         device.expiresAt ?? null,
-        person ? 1 : 0,
-        standingKey ?? null,
+        personal ? 1 : 0,
+        key ?? null,
         device.id,
       );
       return { device, token };
@@ -202,8 +206,8 @@ export class Devices {
       device.lastSeenAt,
       device.expiresAt ?? null,
       installId ?? null,
-      person ? 1 : 0,
-      standingKey ?? null,
+      personal ? 1 : 0,
+      key ?? null,
     );
     return { device, token };
   }

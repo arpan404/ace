@@ -63,8 +63,8 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       // Read the setting first: the address must be current when the code is issued, since
       // remote access can change or turn off while the setting read waits.
       const app = await access.pairingApp?.();
-      // The person's standing goes on only from someone who has it (ADR 0190): a device that is
-      // the person's, or the host token right after a browser sign-in.
+      // A person's link comes only from a socket that proved the person's standing on that very
+      // socket (ADR 0190); a link made any other way is an ordinary pairing.
       const person = issuerIsPerson(context);
       // The creator grants only scopes it holds; the host credential holds every one.
       const issued = issuePairing(
