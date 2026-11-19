@@ -9,7 +9,7 @@
  * twice: side by side for wide screens (`--x`, `--y`) and stacked for narrow or upright ones (`--tx`,
  * `--ty`). Without the script the story reads as the headline and its captions, in order.
  */
-import { builtInAgents } from "../../content/agents.ts";
+import { builtInAgents, currentModels } from "../../content/agents.ts";
 import { product } from "../../content/product.ts";
 import {
   zoomCaptions,
@@ -74,9 +74,17 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 
     <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
     <div class="dial" data-zoom-dial hidden>
+      <div class="well" data-dial-well></div>
       {
         builtInAgents.map((agent, index) => (
-          <button type="button" class="seat" data-dial-seat aria-pressed={index === 0 ? "true" : "false"}>
+          <button
+            type="button"
+            class="seat"
+            data-dial-seat
+            data-model={currentModels[agent.label]?.model}
+            data-effort={currentModels[agent.label]?.effort}
+            aria-pressed={index === 0 ? "true" : "false"}
+          >
             <BrandMark brand={agent.brand} size={18} />
             <span>{agent.label}</span>
           </button>
@@ -209,6 +217,12 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     overflow: visible;
     background: none;
     transform-origin: 0 0;
+  }
+
+  /* The chosen agent's mark, at the size the app's picker draws it. */
+  .ghost :global(.model .provider svg) {
+    width: 15px;
+    height: 15px;
   }
 
   .ghost :global(.composer) {
@@ -428,6 +442,16 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     display: none;
   }
 
+  /* The wheel's reach: scrolling or dragging anywhere in it turns the wheel. No scroll bar. */
+  .well {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: auto;
+    touch-action: none;
+    cursor: ns-resize;
+  }
+
   .seat {
     position: absolute;
     left: 0;
@@ -574,6 +598,11 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
      appears a line at a time. */
   .zoom :global(.ace .composer) {
     background: var(--a-canvas);
+  }
+
+  /* One account per agent in this story, so the picker carries no account letter. */
+  .zoom :global(.ace .composer [data-account]) {
+    display: none;
   }
 
   .zoom :global(.ace .placeholder.filled) {

@@ -1,116 +1,115 @@
 ---
 /*
- * The agents ace runs, stated large right after the story that shows them at work: one card
- * per built-in agent with its mark, and one for every agent that speaks ACP. Each links to its
- * page; /agents/ has the full list.
+ * The agents ace runs, right after the story that shows them at work: the statement on one side
+ * and, on the other, the list as ace's own Agents settings would show it on a machine where
+ * every CLI is signed in: mark, name, the model its CLI offers first, and that it is signed in.
+ * Each row opens the agent's page; /agents/ has the rest.
  */
 import { agentGuides } from "../content/agent-guides.ts";
+import { currentModels } from "../content/agents.ts";
 import BrandMark from "./BrandMark.astro";
-import Icon from "./Icon.astro";
+import AppIcon from "./mac/AppIcon.astro";
 ---
 
 <section class="section page agents" aria-label="Agents ace runs">
-  <h2 class="section-title reveal">It runs the agents you already pay for, through their own CLIs.</h2>
-  <ul class="reveal" data-stagger>
+  <div class="say reveal">
+    <h2 class="section-title">It runs the agents you already pay for.</h2>
+    <p class="lede">
+      Each one signs in through its own CLI, on the subscription you have. ace never asks for a key.
+    </p>
+    <a class="text-link" href="/agents/">All agents, and any that speaks ACP</a>
+  </div>
+  <ul class="card reveal" data-stagger>
     {
       agentGuides.map((guide) => (
         <li>
-          <a class="card" href={`/agents/${guide.slug}/`}>
-            <span class="mark">
-              <BrandMark brand={guide.brand} size={34} />
-            </span>
-            <Icon name="arrow-right" size={16} />
+          <a href={`/agents/${guide.slug}/`}>
+            <BrandMark brand={guide.brand} size={22} />
             <span class="name">{guide.label}</span>
+            <span class="model">{currentModels[guide.label]?.model}</span>
+            <span class="in">
+              <AppIcon name="check-circle" size={14} />
+              Signed in
+            </span>
           </a>
         </li>
       ))
     }
-    <li class="any">
-      <a class="card" href="/agents/">
-        <Icon name="arrow-right" size={16} />
-        <span class="name">Any agent that speaks ACP</span>
-      </a>
-    </li>
   </ul>
 </section>
 
 <style>
-  h2 {
-    max-width: 13em;
-    font-size: clamp(36px, 5.6vw, 72px);
+  .agents {
+    display: grid;
+    gap: 32px clamp(40px, 7vw, 96px);
+    align-items: start;
   }
 
-  /* Two across on a phone, four on a tablet, all seven in a row on a wide screen. The last card
-     takes two places wherever a row would otherwise end short. */
+  @media (min-width: 900px) {
+    .agents {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .say .text-link {
+    display: inline-block;
+    margin-top: 20px;
+  }
+
+  /* The list: flat rows ruled with hairlines, as the app rules a list. */
   ul {
+    padding: 6px;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  li a {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    margin-top: clamp(32px, 5vw, 56px);
-  }
-
-  .any {
-    grid-column: span 2;
-  }
-
-  @media (min-width: 600px) {
-    ul {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 1040px) {
-    ul {
-      grid-template-columns: repeat(8, minmax(0, 1fr));
-    }
-  }
-
-  a {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-content: space-between;
-    gap: 28px 8px;
-    height: 100%;
-    min-height: 132px;
-    padding: 18px 18px 16px;
-    border-radius: 22px;
+    grid-template-columns: 22px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 14px;
+    min-height: 56px;
+    padding: 0 14px;
+    border-radius: 8px;
     color: inherit;
     text-decoration: none;
-    transition: border-color var(--motion-base) var(--ease-out);
+    transition: background-color var(--motion-fast) var(--ease-out);
   }
 
-  a:hover {
-    border-color: var(--border-strong);
-  }
-
-  .mark {
-    display: grid;
-  }
-
-  a > :global(svg) {
-    grid-column: 2;
-    grid-row: 1;
-    color: var(--faint);
-    transition:
-      color var(--motion-fast) var(--ease-out),
-      transform var(--motion-base) var(--ease-out);
-  }
-
-  a:hover > :global(svg) {
-    color: var(--foreground);
-    transform: translateX(3px);
+  li a:hover {
+    background: var(--wash);
   }
 
   .name {
-    grid-column: 1 / -1;
-    align-self: end;
     font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    line-height: 1.2;
+    font-weight: 500;
+    letter-spacing: -0.015em;
   }
 
-  .any a {
+  .model {
     color: var(--muted);
+    font-size: 14px;
+  }
+
+  .in {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 92px;
+    color: var(--status-done);
+    font-size: 13px;
+  }
+
+  @media (max-width: 519px) {
+    .in {
+      display: none;
+    }
   }
 </style>

@@ -30,8 +30,6 @@
   --line: #b4b9c1;
   /* The one colour, used rarely: the agent's own pointer, a light on a horizon, focus. */
   --accent: #ff7a2f;
-  /* A section that stands a step off the page's ground. */
-  --band: #111418;
   /* The soft light at the top of every page. */
   --glow: rgb(255 255 255 / 0.05);
   /* A drawn screen's bezel, its hairline and the shadow under it. */
@@ -90,7 +88,6 @@ html[data-theme="light"] {
 
   --line: #3a4048;
   --accent: #e8590c;
-  --band: #eaebe6;
   --glow: rgb(255 255 255 / 0.9);
   --metal-hi: #f1f2f4;
   --metal: #c9cbcf;
@@ -218,32 +215,24 @@ code {
   padding-inline: var(--gutter);
 }
 
+/*
+ * A section. The app separates things with a hairline before it adds space, and so does the
+ * site: every section opens with one rule across the text column, then its room. Nothing sits
+ * on a raised or tinted sheet.
+ */
 .section {
+  position: relative;
   padding-top: var(--section);
 }
 
-/*
- * A band: a full-width sheet with rounded shoulders, a step off the page's ground, that one or
- * more sections sit on. Bands and bare ground alternate down a page, so each part reads as its
- * own. A soft light falls on each from its top left. A band has no outline: its tone alone sets
- * it apart.
- */
-.band {
-  margin-top: var(--section);
-  padding-bottom: var(--section);
-  border-radius: clamp(28px, 5vw, 64px) clamp(28px, 5vw, 64px) 0 0;
-  background-color: var(--band);
-  background-image: radial-gradient(70rem 30rem at 12% -6rem, var(--glow), transparent 70%);
-  background-repeat: no-repeat;
-}
-
-/* A band that ends where the ground resumes closes its lower corners too. */
-.band.closed {
-  border-radius: clamp(28px, 5vw, 64px);
-}
-
-.band > .section:first-child {
-  padding-top: clamp(64px, 9vw, 112px);
+.section::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--section) * 0.42);
+  right: var(--gutter);
+  left: var(--gutter);
+  height: 1px;
+  background: var(--border);
 }
 
 /* Section heading block: mono eyebrow, title, lede. */
@@ -312,10 +301,10 @@ code {
   color: var(--foreground);
 }
 
-/* The site's one kind of card: a rounded surface on the page's plain ground. */
+/* The site's one kind of card: a flat surface with the app's card corner, on the plain ground. */
 .card {
   border: 1px solid var(--border);
-  border-radius: clamp(20px, 3vw, 28px);
+  border-radius: 12px;
   background: var(--surface);
 }
 

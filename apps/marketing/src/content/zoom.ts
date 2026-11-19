@@ -75,5 +75,6 @@ export type CastId = keyof typeof zoomCast;
 /** The lines between them, each with the verb it carries. */
 export const zoomLinks: { from: CastId; to: CastId; verb: string }[] = [
   { from: "mac", to: "build", verb: "hands off" },
+  { from: "mac", to: "workstation", verb: "uses its browser" },
   { from: "mac", to: "phone", verb: "asks you" },
 ];

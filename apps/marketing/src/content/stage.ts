@@ -137,6 +137,20 @@ export interface ThreadRow {
   device?: "phone" | "browser";
 }
 
+/**
+ * Each project's mark in the thread list, as the app draws one: the glyph the person chose for
+ * it, or, for ace itself, the icon found in its own folder.
+ */
+export const projectMarks: Record<string, string> = {
+  ace: "ace",
+  "ace-mobile": "project-phone",
+  api: "project-plugs",
+  "billing-api": "project-card",
+  "docs-site": "project-book",
+  relay: "project-broadcast",
+  web: "project-globe",
+};
+
 export const rows: ThreadRow[] = [
   {
     id: "checkout",

@@ -230,7 +230,8 @@ export function startZoomStory(root: HTMLElement): void {
   let chosen = 0;
   /** The composer copy's model picker, and what it reads when the story's own agent is chosen. */
   const picker = ghost?.querySelector<HTMLElement>(".model");
-  const pickerHome = picker?.innerHTML ?? "";
+  const pickerCaret = picker?.querySelector(":scope > svg:last-child")?.outerHTML ?? "";
+  const well = q("[data-dial-well]");
 
   /** Turns the wheel to one agent: the chips take their seats and the composer shows the choice. */
   function choose(index: number): void {
@@ -249,11 +250,9 @@ export function startZoomStory(root: HTMLElement): void {
     if (!picker) return;
     const chip = seats[chosen];
     const mark = chip?.querySelector("svg")?.outerHTML ?? "";
-    // The first agent is the story's own, so the composer reads exactly as the app will.
-    picker.innerHTML =
-      chosen === 0
-        ? pickerHome
-        : `<span class="provider">${mark}</span>${chip?.textContent?.trim() ?? ""}`;
+    const effort = chip?.dataset.effort ? ` <span>· ${chip.dataset.effort}</span>` : "";
+    // The picker reads as the app's does: the agent's mark, its model, the effort, the caret.
+    picker.innerHTML = `<span class="provider">${mark}</span>${chip?.dataset.model ?? ""}${effort}${pickerCaret}`;
   }
 
   /** Seats the opening's wheel of agents beside the composer as the first shot shows it. */
@@ -271,6 +270,11 @@ export function startZoomStory(root: HTMLElement): void {
     root.dataset.team = dial ? "dial" : "marks";
     dialRoot.hidden = !dial;
     if (!dial) return;
+    if (well) {
+      well.style.translate = `${dial.x - 10}px ${dial.cy - dial.pitch * 2.6}px`;
+      well.style.width = `${chipSize.width + 40}px`;
+      well.style.height = `${dial.pitch * 5.2}px`;
+    }
     choose(chosen);
   }
 
@@ -285,12 +289,65 @@ export function startZoomStory(root: HTMLElement): void {
     clearInterval(turning);
     turning = 0;
   };
-  seats.forEach((chip, index) =>
+  /** Turns the wheel by whole places, forwards or back, wrapping round. */
+  const turnBy = (places: number) => {
+    settle();
+    choose((((chosen + places) % seats.length) + seats.length) % seats.length);
+  };
+  let dragged = false;
+  seats.forEach((chip, index) => {
     chip.addEventListener("click", () => {
+      // A drag that ended on a chip turned the wheel already.
+      if (dragged) return;
       settle();
       choose(index);
-    }),
+    });
+    chip.addEventListener("keydown", (event) => {
+      const places = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      if (!places) return;
+      event.preventDefault();
+      turnBy(places);
+      seats[chosen]?.focus();
+    });
+  });
+  // Scrolling over the wheel turns it, a place for every notch of travel, and the page stays put.
+  let travelled = 0;
+  dialRoot?.addEventListener(
+    "wheel",
+    (event) => {
+      if (
+        !dial ||
+        !(event.target instanceof Element) ||
+        !event.target.closest("[data-dial-well], [data-dial-seat]")
+      )
+        return;
+      event.preventDefault();
+      travelled += event.deltaY;
+      if (Math.abs(travelled) < 36) return;
+      turnBy(Math.sign(travelled));
+      travelled = 0;
+    },
+    { passive: false },
   );
+  // So does dragging it, with a finger or the pointer.
+  let grabbedAt: number | undefined;
+  dialRoot?.addEventListener("pointerdown", (event) => {
+    grabbedAt = event.clientY;
+    dragged = false;
+  });
+  dialRoot?.addEventListener("pointermove", (event) => {
+    if (grabbedAt === undefined || !dial) return;
+    const moved = event.clientY - grabbedAt;
+    if (Math.abs(moved) < dial.pitch * 0.7) return;
+    dragged = true;
+    turnBy(-Math.sign(moved));
+    grabbedAt = event.clientY;
+  });
+  for (const end of ["pointerup", "pointercancel", "pointerleave"]) {
+    dialRoot?.addEventListener(end, () => {
+      grabbedAt = undefined;
+    });
+  }
 
   let applied: StoryState | undefined;
 
