@@ -15,6 +15,12 @@ interface Request {
   key: string;
   loading: boolean;
   error: boolean;
+  /**
+   * Where the page that failed starts. Another view paging the same list (History beside the
+   * Threads panel's Settled) may load it since: the list has then moved past it, and nothing
+   * here failed any more.
+   */
+  failedAt?: number | undefined;
   /** The last page brought nothing new: asking stops until the filters change. */
   stalled: boolean;
 }
@@ -63,12 +69,13 @@ export function useSettledPaging(project: string | null, device?: DeviceScope): 
       await client.threadsMore();
       update({ loading: false, stalled: (store?.ids.length ?? 0) <= before });
     } catch {
-      update({ loading: false, error: true });
+      update({ loading: false, error: true, failedAt: nextAt });
     } finally {
       asking.current = false;
     }
   };
-  return { hasMore, loading: request.loading, error: request.error, nextAt, more };
+  const error = request.error && request.failedAt === nextAt;
+  return { hasMore, loading: request.loading, error, nextAt, more };
 }
 
 /** How far older settled threads have loaded: more to ask for, loading, failed, or all in. */
