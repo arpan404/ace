@@ -57,7 +57,7 @@ test("the overview lists every machine and device with its state, and a machine'
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
 }, 30_000);
 
-test("Link all links every machine with every other, both ways", async () => {
+test("Link all links every machine with every other, both ways, each taking the other's projects", async () => {
   const { app, remote } = withBuildServer();
   await app.open("/settings/remote");
   const machines = await region("Machines");
@@ -67,10 +67,37 @@ test("Link all links every machine with every other, both ways", async () => {
     expect(linkedHosts(app.daemon.services.fleet.links())).toEqual(["build"]);
     expect(linkedHosts(remote.services.fleet.links())).toEqual(["this-mac"]);
   });
+  // Each machine's link to the other may act there and take work there ("Continue on…").
+  for (const daemon of [app.daemon, remote])
+    expect(daemon.services.fleet.links()).toMatchObject([{ access: "operate", projects: true }]);
   await waitFor(() =>
     expect(within(machines).queryByRole("button", { name: "Link all machines" })).toBeNull(),
   );
   expect(within(machines).queryByText(/Not linked|can't use/i)).toBeNull();
+}, 30_000);
+
+test("Link all from a window that can't grant Projects there links without them and says how to allow them", async () => {
+  // Paired with the build server as Administrator, Projects left off as the pairing form does.
+  const app = harness({
+    machines: [{ hostId: "build", name: "Build server", scopes: ["read", "operate", "admin"] }],
+  });
+  const remote = app.machines.get("build");
+  if (!remote) throw new Error("Missing machine");
+  await app.open("/settings/remote");
+  const machines = await region("Machines");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
+  await waitFor(() => {
+    expect(app.daemon.services.fleet.links()).toMatchObject([
+      { hostId: "build", access: "operate", projects: false },
+    ]);
+    expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]);
+  });
+  expect(
+    (await screen.findAllByText(/Allow projects on Build server's page in Settings › Fleet\./))
+      .length,
+  ).toBeGreaterThan(0);
+  expect(screen.queryByText(/Pair it again as Administrator/)).toBeNull();
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {

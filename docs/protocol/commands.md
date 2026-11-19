@@ -2491,8 +2491,13 @@ Example:
   "workspace": {
     "id": "example",
     "name": "example",
-    "openedAt": 7,
-    "path": "example"
+    "path": "example",
+    "remoteKey": {
+      "remotes": [
+        "example"
+      ],
+      "subpath": "example"
+    }
   }
 }
 ```

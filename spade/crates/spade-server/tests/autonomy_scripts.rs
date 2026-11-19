@@ -134,30 +134,44 @@ async fn a_script_changed_after_its_review_is_not_run() -> Result {
 }
 
 #[tokio::test]
-async fn a_script_outside_the_workspace_goes_to_the_person() -> Result {
+async fn a_script_spade_cant_read_is_refused_rather_than_put_to_the_person() -> Result {
+    // Outside the workspace: Spade can't read it, so nothing it is shown, and nothing an answer
+    // would be held to, is what will run (ADR 0171, amendment 4).
     let outside = tempfile::tempdir()?;
     std::fs::write(outside.path().join("run.sh"), "echo hi\n")?;
     let command = format!("sh {}", outside.path().join("run.sh").display());
-    let setup = start(vec![Script::reply("").call(
-        "c1",
-        "shell",
-        json!({ "command": command }),
-    )])
+    let setup = start(vec![
+        Script::reply("").call("c1", "shell", json!({ "command": command })),
+        Script::reply("Okay."),
+    ])
     .await?;
     let (_, conversation) = bot(&setup.spade).await?;
     setup.spade.say(&conversation, "Run it").await?;
     let events = setup
         .spade
-        .wait_for(&conversation, "approval_requested")
+        .wait_for(&conversation, "reply_finished")
         .await?;
-    let asked = events
-        .iter()
-        .find(|e| e["type"] == "approval_requested")
-        .ok_or("not asked")?;
-    assert_eq!(
-        asked["reviewer_reason"],
-        "It runs a script Spade can't show the reviewer, so you decide."
+    assert!(
+        !events.iter().any(|e| e["type"] == "approval_requested"),
+        "asked about it"
     );
-    assert_eq!(setup.spade.fake.seen().len(), 1, "no reviewer was paid for");
+    let said = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")
+        .and_then(|e| e["content"].as_str())
+        .unwrap_or_default();
+    assert!(said.contains("couldn't be read whole"), "{said}");
+    assert!(
+        !events.iter().any(|e| e["type"] == "tool_started"),
+        "it ran"
+    );
+    // No reviewer was paid for.
+    assert!(
+        !setup.spade.fake.seen().iter().any(|seen| seen
+            .body
+            .to_string()
+            .contains("You approve or refuse one step")),
+        "a reviewer was asked"
+    );
     Ok(())
 }

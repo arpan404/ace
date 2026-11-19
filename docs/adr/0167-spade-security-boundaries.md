@@ -14,7 +14,7 @@ rule that a worker never has more than its parent and
 
 ## Context
 
-Every Spade bot runs on the auto-review (ADR 0163). Today the shell classifier, a word list for
+Every Spade bot runs on the auto-review (ADR 0163; since its amendment 2 a person may put one bot in Full access, which skips the reviewer but keeps every boundary here and the hard stops). Today the shell classifier, a word list for
 credentials and the reviewer are the only things between a bot and the person's machine, and ADR
 0144 says so plainly: the classifier is a guard rail, not a sandbox. So every shell command goes
 to the reviewer, a turn that read untrusted content is held for every write after it, and shell

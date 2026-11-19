@@ -1,4 +1,4 @@
-import type { ThreadListEntry, ThreadStatus } from "@ace/protocol";
+import { HostId, ThreadId, type ThreadListEntry, type ThreadStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { sceneSignals, signalSnapshot, type SignalSnapshot } from "./scene-signals.ts";
 
@@ -14,6 +14,10 @@ const statusOf: Record<State, ThreadStatus> = {
   unresponsive: { state: "unresponsive" },
   done: { state: "done" },
   new: { state: "new" },
+  moved: {
+    state: "moved",
+    to: { hostId: HostId.parse("h"), name: "Studio", threadId: ThreadId.parse("t") },
+  },
 };
 
 function thread(id: string, state: State, prs: Record<string, PrState> = {}): ThreadListEntry {

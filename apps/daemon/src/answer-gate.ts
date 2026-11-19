@@ -77,3 +77,20 @@ export async function settingWriteRefusal(
   if (!guardedSettings.has(key) || !facts.unproven) return undefined;
   return { code: "validation", message: reauthSentence };
 }
+
+/**
+ * Why a change only the person may make in Spade (turning Full access on, ADR 0163 amendment 2)
+ * is refused, or undefined when it may go with their stamp. An agent's device never makes it.
+ * Like every other person-only action (ADR 0190), it needs a socket that proved the person's
+ * standing: the app signed in as the machine's owner, or a device paired from their link proving
+ * with its own key. A credential alone never does, the host token's or a paired device's, and
+ * nor does someone having signed in lately.
+ */
+export function personOnlyChangeRefusal(facts: {
+  readonly device: string | undefined;
+  /** The socket hasn't proved the person's standing (`SocketContext.personProven`). */
+  readonly unproven: boolean;
+}): string | undefined {
+  if (isAgentDevice(facts.device)) return "Only the person can turn on Full access: agents can't.";
+  return facts.unproven ? reauthSentence : undefined;
+}

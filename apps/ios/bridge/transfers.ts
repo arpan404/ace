@@ -375,6 +375,7 @@ export class NativeTransfers {
         transfer,
         thread?.details,
         transfer ? this.store.dismissed(transfer.transferId) : false,
+        thread?.status,
       );
       // A copy the daemon hasn't confirmed may be working again: wait until it says.
       const settled =

@@ -205,6 +205,15 @@ pub enum Known {
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         helper: Option<Box<HelperAsk>>,
+        /// Where the call was decided to run when the person was asked: the most their answer
+        /// lets it run (ADR 0171, amendment 4). A call that would run anywhere wider at the
+        /// launch doesn't run on it. Absent for older events and calls that run nothing.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
     },
     ApprovalAnswered {
         reply: String,
@@ -328,6 +337,14 @@ pub enum Known {
         /// verdict holds only there, so a restart never carries it to another page or app.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         acts_in: Option<Box<crate::effect::drive::Place>>,
+        /// Where the call was decided to run when it was judged: the verdict holds for that
+        /// launch or a narrower one only (ADR 0171, amendment 4). Absent reads as contained only.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.
@@ -618,6 +635,23 @@ pub enum Known {
         keep: bool,
         #[serde(default, skip_serializing_if = "is_zero")]
         restarts: u32,
+        /// The gate let it start only held by the sandbox (ADR 0171): started again after a
+        /// restart, it is held too, or refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        contained_only: bool,
+        /// The launch the verdict that started it was given for (ADR 0171, amendment 5). Started
+        /// again after a restart it is held to that, and one with none recorded (an older
+        /// build's) starts only contained.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "lenient_authorized"
+        )]
+        launch: Option<Authorized>,
+        /// What its command ran when that verdict was given: started again where nothing holds
+        /// it, it starts only while that is still so.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
     },
     /// An owned service ended.
     ServiceEnded {
@@ -724,6 +758,37 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+}
+
+/// Where a call may run on the person's answer, from least to most: held by the sandbox only, as
+/// the sandbox finds it (held where it can be, plainly where it can't), or outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Authorized {
+    Contained,
+    AsFound,
+    Outside,
+}
+
+impl Authorized {
+    /// What a stored limit allows: one that is absent (older events, an ambiguous request) is
+    /// contained only.
+    pub fn stored(limit: Option<Self>) -> Self {
+        limit.unwrap_or(Self::Contained)
+    }
+
+    /// Whether a verdict given for this launch holds for one at `wanted`: the same or narrower.
+    pub fn covers(self, wanted: Self) -> bool {
+        self >= wanted
+    }
+}
+
+/// A stored authorization read leniently: a word this build doesn't know is the narrowest.
+fn lenient_authorized<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Authorized>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.map(|value| serde_json::from_value(value).unwrap_or(Authorized::Contained)))
 }
 
 /// The helper behind an approval asked in its bot's conversation (ADR 0152).

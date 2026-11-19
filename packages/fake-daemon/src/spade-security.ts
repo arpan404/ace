@@ -45,9 +45,17 @@ export interface FakeSpadeCheckpoint {
 
 export type FakeSpadeCommands = "sandboxed" | "outside";
 
+/** How a bot decides (ADR 0163, amendment 2). */
+export type FakeSpadeAutonomy = "auto_review" | "full_access";
+
+const autonomies: ReadonlySet<unknown> = new Set(["auto_review", "full_access"]);
+
 export interface FakeSpadeBotSecurity {
   /** null inherits the machine's. */
   commands: FakeSpadeCommands | null;
+  /** null inherits the machine's. */
+  autonomy: FakeSpadeAutonomy | null;
+  full_access_confirmed: boolean;
   network: FakeSpadeNetworkPolicy | null;
   plugin_network: FakeSpadeNetworkPolicy | null;
   toolchains: string[];
@@ -79,10 +87,12 @@ export class FakeSpadeSecurity {
   /** What every bot inherits (ADR 0171). */
   botDefaults: {
     commands: FakeSpadeCommands;
+    autonomy: FakeSpadeAutonomy;
     network: FakeSpadeNetworkPolicy;
     plugin_network: FakeSpadeNetworkPolicy;
   } = {
     commands: "sandboxed",
+    autonomy: "auto_review",
     network: { mode: "allow_list", allow: [], dropped: [] },
     plugin_network: { mode: "open", allow: [], dropped: [] },
   };
@@ -119,6 +129,8 @@ export class FakeSpadeSecurity {
     if (!settings) {
       settings = {
         commands: null,
+        autonomy: null,
+        full_access_confirmed: false,
         network: null,
         plugin_network: null,
         toolchains: [],
@@ -129,7 +141,18 @@ export class FakeSpadeSecurity {
     return settings;
   }
 
+  /** How a bot decides: its own, else the machine's (workers aren't modelled here). */
+  autonomy(id: string): FakeSpadeAutonomy {
+    return this.bots.get(id)?.autonomy ?? this.botDefaults.autonomy;
+  }
+
   machineRoute(method: string, sub?: string, body: Json = {}): FakeSpadeAnswer {
+    if (method === "PUT" && sub === "autonomy") {
+      if (body.autonomy !== "auto_review" && body.autonomy !== "full_access")
+        return problem(422, `unknown variant \`${String(body.autonomy)}\``);
+      this.botDefaults.autonomy = body.autonomy;
+      return this.machineView();
+    }
     if (method === "PUT" && sub === "commands") {
       if (body.commands !== "sandboxed" && body.commands !== "outside")
         return problem(400, `unknown variant \`${String(body.commands)}\``);
@@ -182,8 +205,11 @@ export class FakeSpadeSecurity {
     return {
       contained: this.contains(),
       commands: settings.commands ?? this.botDefaults.commands,
+      autonomy: this.autonomy(id),
+      full_access_confirmed: settings.full_access_confirmed,
       own: {
         commands: settings.commands !== null,
+        autonomy: settings.autonomy !== null,
         network: settings.network !== null,
         plugin_network: settings.plugin_network !== null,
       },
@@ -228,6 +254,15 @@ export class FakeSpadeSecurity {
       if (commands !== null && commands !== "sandboxed" && commands !== "outside")
         return problem(400, `unknown variant \`${String(commands)}\``);
       this.bot(id).commands = commands;
+      return reply(this.view(id));
+    }
+    if (sub === "autonomy" && method === "PUT") {
+      const autonomy = body.autonomy;
+      if (autonomy !== null && !autonomies.has(autonomy))
+        return problem(422, `unknown variant \`${String(autonomy)}\``);
+      const settings = this.bot(id);
+      settings.autonomy = autonomy as FakeSpadeAutonomy | null;
+      if (autonomy === "full_access") settings.full_access_confirmed = true;
       return reply(this.view(id));
     }
     if ((sub === "network" || sub === "plugin-network") && method === "DELETE") {

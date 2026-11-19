@@ -52,6 +52,8 @@ pub struct FakeTool {
     pub no_sandbox: bool,
     /// Answers given in turn before `answer`, the last of them again and again.
     pub answers: Arc<Mutex<Vec<String>>>,
+    /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    pub scoped: bool,
 }
 
 impl FakeTool {
@@ -77,7 +79,14 @@ impl FakeTool {
             unplaced: false,
             no_sandbox: false,
             answers: Arc::default(),
+            scoped: false,
         }
+    }
+
+    /// Scopes an Always allow to the call's `command`, as Spade's shell does.
+    pub fn scoped(mut self) -> Self {
+        self.scoped = true;
+        self
     }
 
     /// A fake `shell` on a machine with no read-only sandbox.
@@ -185,6 +194,13 @@ impl Tool for FakeTool {
         }
     }
 
+    fn always_scope(&self, arguments: &Value) -> Option<String> {
+        self.scoped
+            .then(|| arguments.get("command").and_then(Value::as_str))
+            .flatten()
+            .map(str::to_owned)
+    }
+
     /// An app tool's server facts: its catalogue entry declares it (as a write outside the box
     /// unless the test says more); one that sends no annotations has no entry either.
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
@@ -259,6 +275,9 @@ pub struct Spade {
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
 
+/// What [`Options::before_work`] calls.
+pub type BeforeWork = Arc<dyn Fn(&Arc<Engine>) + Send + Sync>;
+
 pub struct Options {
     pub limits: Limits,
     /// The fake endpoints' key variables are unset: no preset is imported, as on a first run
@@ -316,6 +335,9 @@ pub struct Options {
     pub ids: Option<Arc<dyn Ids>>,
     /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
     pub brains: Option<spade_server::engine::BrainSource>,
+    /// Called with the engine before it opens for work: what a restarted Spade sets up before a
+    /// paused turn resumes (its security service, say).
+    pub before_work: Option<BeforeWork>,
     /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
     pub model_retry: Option<spade_server::engine::Retry>,
     /// The real `web_search` over these backends, with Brave's key from the mock keychain.
@@ -432,6 +454,7 @@ impl Default for Options {
             clock: None,
             ids: None,
             brains: None,
+            before_work: None,
             model_retry: None,
             search: None,
             reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
@@ -723,6 +746,9 @@ impl Spade {
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
         }
+        if let Some(before) = &options.before_work {
+            before(&engine);
+        }
         bots.set(&engine);
         if let Some(plugins) = plugins {
             engine.set_profile_source(plugins.clone());
@@ -899,6 +925,26 @@ impl Spade {
             .json(&body)
             .send()
             .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    /// `PUT` with extra headers, as ace's daemon sends a stamped change.
+    pub async fn put_with(
+        &self,
+        path: &str,
+        body: Value,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value)> {
+        let mut request = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }

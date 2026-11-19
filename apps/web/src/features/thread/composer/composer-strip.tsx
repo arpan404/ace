@@ -215,7 +215,9 @@ export function ComposerStrip(props: {
         ? transfer.state.transfer.target.name
         : transfer.state?.kind === "on"
           ? transfer.state.on.name
-          : transfer.state?.from.name,
+          : transfer.state?.kind === "moved"
+            ? transfer.state.to.name
+            : transfer.state?.from.name,
   };
   const indicators = (
     <StripIndicators

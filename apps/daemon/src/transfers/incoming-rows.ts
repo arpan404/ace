@@ -7,6 +7,7 @@ import {
   TransferMethod,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { IncomingIndex } from "./incoming-index.ts";
 
 const Row = z.object({
   transfer_id: z.string(),
@@ -102,6 +103,12 @@ export class IncomingRows {
         workspace_id TEXT NOT NULL, git INTEGER NOT NULL, at INTEGER NOT NULL,
         PRIMARY KEY (host_id, source_workspace_id))`);
     });
+    this.index = new IncomingIndex(store);
+  }
+  private index: IncomingIndex;
+  /** Indexes rows from before the side tables, once and in pages; recovery waits for it. */
+  ready(): Promise<void> {
+    return this.index.ready();
   }
   /**
    * Remembers that the source machine's project landed in `workspaceId` here, sent by the paired
@@ -148,46 +155,53 @@ export class IncomingRows {
       .get(transferId);
     return raw ? decode(Row.parse(raw)) : undefined;
   }
+  /*
+   * Each read below starts from a side table (see incoming-index.ts) and reaches the row by its
+   * key. CROSS JOIN keeps that order: without statistics SQLite would otherwise scan the
+   * transfers table and look the side table up.
+   */
   /**
    * Rows a restart left mid-import: with a `result` they passed the cutoff and are finished,
    * otherwise they are rolled back and run again.
    */
-  unsettled(): IncomingRecord[] {
+  unsettled(after = ""): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE state IN ('cloning','importing') ORDER BY created_at LIMIT 64",
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE o.transfer_id>? AND t.state IN ('cloning','importing') ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all()
+      .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
   /** Settled rows still naming a project or folder to undo, after a crash mid-rollback. */
-  leftovers(): IncomingRecord[] {
+  leftovers(after = ""): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE state IN ('failed','cancelled') AND (registered_id IS NOT NULL OR created_path IS NOT NULL) LIMIT 64",
+        `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE o.transfer_id>? AND t.state IN ('failed','cancelled')
+        AND (t.registered_id IS NOT NULL OR t.created_path IS NOT NULL) ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all()
+      .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
-  /** Transfers whose files are still wanted: receiving, cloning or importing. */
-  live(): string[] {
-    return this.store
-      .statement(
-        "SELECT transfer_id FROM transfer_incoming WHERE state IN ('receiving','cloning','importing') LIMIT 1024",
-      )
-      .all()
-      .map((row) => String(row["transfer_id"]));
-  }
-  /** Settled rows older than `before`, for retention. */
+  /**
+   * Settled rows older than `before`, oldest first, for retention. A moved thread's transfer
+   * whose start is still pending never expires: its start is rebuilt from this row.
+   */
   expired(before: number): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE updated_at<? AND state IN ('receiving','completed','failed','cancelled') LIMIT 64",
+        `SELECT t.* FROM transfer_incoming_expiry e CROSS JOIN transfer_incoming t USING (transfer_id)
+        WHERE e.at<? AND NOT EXISTS (SELECT 1 FROM transfer_live_pending p WHERE p.transfer_id=e.transfer_id)
+        ORDER BY e.at LIMIT 64`,
       )
       .all(before)
       .map((raw) => decode(Row.parse(raw)));
   }
   insert(record: IncomingRecord, at: number): void {
+    this.store.atomic(() => this.write(record, at));
+  }
+  private write(record: IncomingRecord, at: number): void {
     this.store
       .statement(
         "INSERT INTO transfer_incoming (transfer_id,device_id,state,method,has_origin,begin,workspace_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -203,6 +217,7 @@ export class IncomingRows {
         at,
         at,
       );
+    this.index.sync(record.transferId);
   }
   update(
     transferId: string,
@@ -228,13 +243,19 @@ export class IncomingRows {
     if ("error" in change)
       columns.push(["error", change.error ? JSON.stringify(change.error) : null]);
     columns.push(["updated_at", at]);
-    this.store
-      .statement(
-        `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?`,
-      )
-      .run(...columns.map(([, value]) => value as string | number | null), transferId);
+    this.store.atomic(() => {
+      this.store
+        .statement(
+          `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?`,
+        )
+        .run(...columns.map(([, value]) => value as string | number | null), transferId);
+      this.index.sync(transferId);
+    });
   }
   delete(transferId: string): void {
-    this.store.statement("DELETE FROM transfer_incoming WHERE transfer_id=?").run(transferId);
+    this.store.atomic(() => {
+      this.store.statement("DELETE FROM transfer_incoming WHERE transfer_id=?").run(transferId);
+      this.index.sync(transferId);
+    });
   }
 }

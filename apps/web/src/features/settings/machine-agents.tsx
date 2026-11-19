@@ -9,12 +9,13 @@ import { reach, unlinkedWith } from "@ace/ui-core/fleet-map";
 import { listNames } from "@ace/ui-core";
 import type { Fleet } from "./data/use-fleet.ts";
 import { AgentAccessRow, TransfersRow } from "./fleet-working.tsx";
+import { LinkProjectsRows } from "./link-projects.tsx";
 import { GrantRow } from "./permissions-sheet.tsx";
 
 /**
  * A machine's agents, both ways: how far other machines' agents may go on it, what each
- * direction may use (each Edit opens the sheet for this machine's links alone), and whether its
- * agents move threads. Its links with the other machines sit with how it's reached.
+ * direction may use (each Edit opens the sheet for this machine's links alone), whether each
+ * linked machine may bring projects here, and whether its agents move threads. Its links with the other machines sit with how it's reached.
  */
 export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
   const { machine, fleet } = props;
@@ -50,6 +51,7 @@ export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
           sub: `On ${machine.name}, for every machine linked to it.`,
         }}
       />
+      <LinkProjectsRows machine={machine} fleet={fleet} />
       {machine.client && (
         <MachineScope machine={machine}>
           <TransfersRow />

@@ -130,9 +130,10 @@ impl Terminal {
         _command: &str,
         _timeout: Duration,
         _expected: Option<&str>,
-        _outside: bool,
+        _plan: crate::workspace::shell::LaunchPlan,
         _overrides: &[(String, String)],
         _settled: bool,
+        _by: crate::workspace::shell::By,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

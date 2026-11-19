@@ -6,6 +6,7 @@ import { AccessError } from "../remote-auth.ts";
 import { grantsFor } from "../machines/grant-rules.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { featureOff } from "./feature-off.ts";
+import { changeScope, KeptRefusal } from "./fleet-scope.ts";
 
 const fleetCodes: Record<FleetError["code"], string> = {
   invalid: "invalid",
@@ -18,6 +19,7 @@ const fleetCodes: Record<FleetError["code"], string> = {
 /** A refusal's wire code and person-facing words; anything unexpected stays generic. */
 function failure(error: unknown): { code: string; message: string } | undefined {
   if (error instanceof FleetError) return { code: fleetCodes[error.code], message: error.message };
+  if (error instanceof KeptRefusal) return { code: error.code, message: error.message };
   if (!(error instanceof AccessError)) return undefined;
   switch (error.status) {
     case 400:
@@ -99,6 +101,8 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       if (!auth.revoke(operation.deviceId))
         throw new FleetError("not_found", "That device isn't paired anymore.");
       return { kind: "revoked" };
+    case "scope":
+      return changeScope({ ...context, access }, operation);
     case "revokeOthers":
       return { kind: "revoked", count: auth.revokeOthers(callerDevice(context)) };
     case "remoteStatus":

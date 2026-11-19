@@ -7,28 +7,11 @@ use spade_core::autonomy::ConfigTools;
 
 /// What each program reads configuration as, for [`Found::config`].
 pub(super) fn configured(program: &str) -> ConfigTools {
-    let mut tools = ConfigTools::default();
-    match program {
-        "git" | "gh" | "glab" | "hub" | "tig" | "lazygit" | "git-lfs" => tools.git = true,
-        "npm" | "npx" | "pnpm" | "pnpx" | "yarn" | "yarnpkg" | "bun" | "bunx" | "corepack" => {
-            tools.node = true;
-        }
-        "cargo" | "rustc" | "rustdoc" | "rustfmt" | "rustup" | "clippy-driver" => {
-            tools.cargo = true;
-        }
-        "rg" => tools.ripgrep = true,
-        _ => {}
-    }
-    tools
+    ConfigTools::of(program)
 }
 
 pub(super) fn union(a: ConfigTools, b: ConfigTools) -> ConfigTools {
-    ConfigTools {
-        git: a.git || b.git,
-        node: a.node || b.node,
-        cargo: a.cargo || b.cargo,
-        ripgrep: a.ripgrep || b.ripgrep,
-    }
+    a.union(b)
 }
 
 /// Environment variables that make a program load code or read other configuration (a search

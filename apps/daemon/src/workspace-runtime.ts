@@ -67,6 +67,8 @@ import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
+  /** Why the thread opens no terminal now: it is moving to another machine (ADR 0191). */
+  moveRefusal?(id: ThreadId): string | undefined;
   sourceControl?: import("./source-control.ts").SourceControl;
   git?: GitOptions;
   writingCli?: ReturnType<typeof createWritingCli>;
@@ -449,13 +451,16 @@ export class WorkspaceRuntime {
     });
   }
   async openTerminal(threadId: ThreadId, name: string, cols = 80, rows = 24): Promise<string> {
-    if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    this.mayOpen(threadId);
     for (const [key, entry] of this.terminals)
       if (!terminalAlive(entry.terminal)) {
         await this.manager.release(entry.terminal);
         this.terminals.delete(key);
       }
     if (this.terminals.size + this.pendingOpens >= 256) throw new Error("terminal_limit");
+    // Again after the awaits above, with nothing awaited between this and the spawn: a thread
+    // that started moving or deleting meanwhile gets no new shell (ADR 0191).
+    this.mayOpen(threadId);
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
@@ -471,6 +476,11 @@ export class WorkspaceRuntime {
     } finally {
       this.pendingOpens--;
     }
+  }
+  private mayOpen(threadId: ThreadId): void {
+    if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    const moving = this.options.moveRefusal?.(threadId);
+    if (moving) throw new Error(moving);
   }
   async closeTerminal(id: string, threadId: ThreadId): Promise<void> {
     const terminal = this.terminal(id, threadId);

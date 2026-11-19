@@ -39,7 +39,13 @@ export { SettingsOutlet } from "./settings-outlet.tsx";
 /** One daemon setting as live state, for slices that edit a setting outside Settings. */
 export { useSetting } from "./data/use-settings.ts";
 /** A machine's fleet links, read through its own client (ADR 0078). */
-export { fleetKeys, machineLinks } from "./data/fleet.ts";
+export {
+  fleetKeys,
+  machineDevices,
+  machineLinks,
+  refusalCode,
+  setDeviceScope,
+} from "./data/fleet.ts";
 export { settingKeys } from "./data/setting-keys.ts";
 export type { LimitPolicy } from "./data/setting-keys.ts";
 /** Settings in a window with no machine: Profile and Fleet only. */

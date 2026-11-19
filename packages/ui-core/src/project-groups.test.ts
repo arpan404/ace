@@ -171,3 +171,101 @@ test("chats are never projects, and a registration is found by machine and id", 
   expect(groupOf(groups, "laptop", "1")?.label).toBe("app");
   expect(groupOf(groups, "laptop", "chat")).toBeUndefined();
 });
+
+const ace = "github.com/arpan/ace";
+const fork = "github.com/someone/ace";
+const remote = (remotes: string[], subpath = "") => ({ remoteKey: { remotes, subpath } });
+
+test.each([
+  {
+    behaviour: "clones of one repository on three machines are one project with no setup",
+    lists: [
+      machine("mac", [project("1", "ace", undefined, remote([ace]))]),
+      machine("rijan", [project("2", "ace", undefined, remote([ace]))]),
+      machine("omarchy", [project("3", "ace", P, remote([ace]))]),
+    ],
+    groups: [["mac/1", "omarchy/3", "rijan/2"]],
+  },
+  {
+    behaviour: "the same remotes listed in another order are the same key",
+    lists: [
+      machine("mac", [project("1", "ace", undefined, remote([ace, fork]))]),
+      machine("rijan", [project("2", "ace", undefined, remote([fork, ace, ace]))]),
+    ],
+    groups: [["mac/1", "rijan/2"]],
+  },
+  {
+    behaviour: "a fork, whose remote set differs, stays its own project",
+    lists: [
+      machine("mac", [project("1", "ace", undefined, remote([ace]))]),
+      machine("rijan", [project("2", "ace", undefined, remote([ace, fork]))]),
+    ],
+    groups: [["mac/1"], ["rijan/2"]],
+  },
+  {
+    behaviour: "two folders of one monorepo stay apart, each grouped with its own clones",
+    lists: [
+      machine("mac", [
+        project("1", "web", undefined, remote([ace], "apps/web")),
+        project("2", "ios", undefined, remote([ace], "apps/ios")),
+      ]),
+      machine("rijan", [project("3", "web", undefined, remote([ace], "apps/web"))]),
+    ],
+    groups: [["mac/2"], ["mac/1", "rijan/3"]],
+  },
+  {
+    behaviour: "a checkout the person unlinked reports no key, so it stays apart",
+    lists: [
+      machine("mac", [project("1", "ace", P, remote([ace]))]),
+      machine("rijan", [project("2", "ace", Q)]),
+    ],
+    groups: [["mac/1"], ["rijan/2"]],
+  },
+  {
+    behaviour: "a remote edge and an identity edge join into one group",
+    lists: [
+      machine("mac", [project("1", "ace", undefined, remote([ace]))]),
+      machine("rijan", [project("2", "ace", P, remote([ace]))]),
+      machine("omarchy", [project("3", "ace-copy", P)]),
+    ],
+    groups: [["mac/1", "omarchy/3", "rijan/2"]],
+  },
+  {
+    behaviour: "an empty remote list is no key",
+    lists: [
+      machine("mac", [project("1", "notes", undefined, remote([]))]),
+      machine("rijan", [project("2", "notes", undefined, remote([]))]),
+    ],
+    groups: [["mac/1"], ["rijan/2"]],
+  },
+])("$behaviour", ({ lists, groups }) => {
+  expect(keysOf(lists)).toEqual(groups);
+});
+
+/** The one group `lists` makes, read in both orders: the same key both times, and a real one. */
+const onlyKey = (lists: MachineProjectList[]) => {
+  const forward = groupProjects(lists);
+  const backward = groupProjects(lists.toReversed());
+  expect(forward).toHaveLength(1);
+  expect(backward).toHaveLength(1);
+  const key = forward[0]?.key;
+  expect(typeof key === "string" && key.length > 0).toBe(true);
+  expect(backward[0]?.key).toBe(key);
+  return forward[0];
+};
+
+test("a group joined by remote keeps one key however its machines list it, and names its ids", () => {
+  const group = onlyKey([
+    machine("mac", [project("1", "ace", undefined, remote([ace]))], { here: true }),
+    machine("rijan", [project("2", "ace", Q, remote([ace]))]),
+  ]);
+  expect(group?.key).toBe(Q);
+  expect(group?.identityIds).toEqual([Q]);
+  expect(group?.label).toBe("ace");
+  // Without any identity the key is still the same on every read, and it is the remote's.
+  const plain = onlyKey([
+    machine("mac", [project("1", "ace", undefined, remote([ace]))]),
+    machine("rijan", [project("2", "ace", undefined, remote([ace]))]),
+  ]);
+  expect(plain?.key).toContain(ace);
+});

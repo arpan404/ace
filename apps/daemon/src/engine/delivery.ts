@@ -1,4 +1,6 @@
 import { contextNotice } from "@ace/context";
+import { stoppableTasks, stopsWholeThread } from "./stop-scope.ts";
+import { SessionFenced } from "./session-fenced.ts";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
 import { Command, ContextDiagnostic } from "@ace/protocol";
@@ -51,6 +53,8 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
+      // Fenced by a move (ADR 0191): the send waits in the queue, held.
+      if (error instanceof SessionFenced) throw new DeliveryDeferred(error.message);
       // A provider returning to the thread resumes the session it left; if that is gone, it
       // opens once more as a fresh session with the full handoff.
       let failure = error;
@@ -326,10 +330,21 @@ export async function executeIntent(
     } catch (error) {
       failures.push(error);
     }
+    // A Stop of the whole thread stops the agent's background shells and monitors too (ADR
+    // 0052's follow-up): left running, they would keep the thread waiting and keep writing.
+    // Each is bounded like the interrupt; one that won't stop closes the session below.
+    const whole = stopsWholeThread(p, state.agents[state.rootKey ?? ""]?.agent.id);
+    if (whole)
+      for (const key of stoppableTasks(repo.requireState(actor.id)))
+        try {
+          await interruptWithin(session.stopTask(key));
+        } catch (error) {
+          failures.push(error);
+        }
     if (failures.length) {
       const error =
         failures.length === 1 ? failures[0] : new AggregateError(failures, "Stop failed");
-      if (!stopsWholeThread(p)) throw error;
+      if (!whole) throw error;
       // A Stop always settles. When the provider can't stop the tree itself (its location was
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
@@ -384,13 +399,4 @@ export async function executeIntent(
     if (!entry || entry[1].status !== "running") throw new Error("Task is no longer running");
     await actor.session.stopTask(entry[0]);
   }
-}
-
-/** A Stop of the whole thread, as opposed to interrupting one agent or one run. */
-/**
- * A cascading Stop of the root stops the whole thread. Its run id only fences out a stale Stop,
- * which is dropped before the provider is asked, so naming the run doesn't narrow it.
- */
-function stopsWholeThread(p: { cascade: boolean; agentId?: string | undefined }): boolean {
-  return p.cascade && p.agentId === undefined;
 }

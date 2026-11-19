@@ -24,6 +24,23 @@ const SERVICES: &[&str] = &[
     "com.apple.trustd.agent",
 ];
 
+/// The Mach services an offline run keeps (ADR 0171, amendment 4): only ones that never reach the
+/// network on its behalf, kept so the runtimes a plugin server uses start and report cleanly:
+/// - `com.apple.system.logger`: the system log (`os_log`, ASL) every runtime writes to; local.
+/// - `com.apple.system.notification_center`: `notifyd`, the local notifications libSystem posts
+///   and watches (time zone and other settings changes); local.
+///
+/// Left out, as from a read-only run: `trustd` and `trustd.agent` (certificate checks fetch
+/// issuers and revocation over the network: AIA, OCSP, CRL), and `opendirectoryd`'s lookups
+/// (on a Mac bound to a directory they go to its LDAP or Active Directory servers; without them
+/// user and group lookups degrade as with a missing `/etc/passwd`). Nothing that resolves names
+/// or opens connections (`mDNSResponder`, `nsurlsessiond`, `networkd`, `configd`) is in any
+/// profile.
+const OFFLINE_SERVICES: &[&str] = &[
+    "com.apple.system.logger",
+    "com.apple.system.notification_center",
+];
+
 /// The system's folders, read-only: programs, libraries, frameworks, the system's settings, the
 /// developer tools and Homebrew. Not `/Users`, `/Volumes`, `/private/var` (but for the time zones
 /// and the developer tools' link) or `/private/tmp`.
@@ -76,6 +93,16 @@ const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/random", "/dev/urando
 
 /// The profile for `policy`.
 pub fn profile(policy: &Policy, read_only: bool) -> String {
+    profile_in(policy, read_only, read_only)
+}
+
+/// The profile for a normal run of `policy` with no network rule at all (ADR 0171, amendment 4):
+/// no outbound connection (the proxy, loopback and Unix sockets included), no bind, no inbound.
+pub fn profile_offline(policy: &Policy) -> String {
+    profile_in(policy, false, true)
+}
+
+fn profile_in(policy: &Policy, read_only: bool, offline: bool) -> String {
     let mut out = String::from("(version 1)\n(deny default)\n");
     out.push_str(
         "(allow process-exec process-fork)\n\
@@ -94,10 +121,12 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
             "(allow ipc-posix-sem)\n\
              (allow ipc-posix-shm-read-data (ipc-posix-name \"apple.shm.notification_center\"))\n",
         );
+        // An offline run gets only the services that stay on this machine.
+        let services = if offline { OFFLINE_SERVICES } else { SERVICES };
         rule(
             &mut out,
             "allow mach-lookup",
-            SERVICES.iter().map(|s| global(s)),
+            services.iter().map(|s| global(s)),
         );
     }
     // Reads: the system's own folders and what the policy opens, nothing else. The home folders,
@@ -199,10 +228,10 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
             ]),
         );
     }
-    // Network: a read-only run is offline and gets no network rule at all. Otherwise only Spade's
-    // proxy on loopback, and listening on loopback (a dev server); no other connection, Unix
-    // sockets and DNS included, is.
-    if !read_only {
+    // Network: an offline run (a read-only one, a sealed plugin server) gets no network rule at
+    // all. Otherwise only Spade's proxy on loopback, and listening on loopback (a dev server); no
+    // other connection, Unix sockets and DNS included, is.
+    if !offline {
         if let Some(port) = policy.proxy_port {
             let _ = writeln!(
                 out,
@@ -260,6 +289,24 @@ fn string(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// `profile` letting a run start Spade's own program at `helper` (its real path) inside the
+/// sandbox, as the first thing it runs there: it restores the run's environment and becomes the
+/// command (ADR 0171, amendment 4). It reads that one file and looks up the folders above it,
+/// nothing else of where it lives.
+pub fn with_helper(mut profile: String, helper: &Path) -> String {
+    rule(
+        &mut profile,
+        "allow file-read*",
+        std::iter::once(literal(helper)),
+    );
+    rule(
+        &mut profile,
+        "allow file-read-metadata",
+        helper.ancestors().skip(1).map(literal),
+    );
+    profile
 }
 
 /// The folders above every place the policy opens, up to the root.
@@ -340,6 +387,80 @@ mod tests {
         ] {
             assert!(!text.contains(&format!("(subpath \"{closed}")), "{closed}");
         }
+    }
+
+    #[test]
+    fn an_offline_run_gets_no_network_rule_but_writes_as_a_normal_run_does() {
+        let normal = profile(&policy(), false);
+        let offline = profile_offline(&policy());
+        for network in ["network-outbound", "network-bind", "network-inbound"] {
+            assert!(normal.contains(network), "{network}");
+            assert!(!offline.contains(network), "{network}");
+        }
+        // Its files are the normal run's.
+        assert_eq!(
+            offline.matches("file-write").count(),
+            normal.matches("file-write").count()
+        );
+    }
+
+    /// The Mach services a profile lets a run look up.
+    fn services(text: &str) -> Vec<String> {
+        // A rule is its head, then one filter per line, until the next rule.
+        text.split("\n(")
+            .filter(|rule| {
+                rule.trim_start_matches('(')
+                    .starts_with("allow mach-lookup")
+            })
+            .flat_map(|rule| rule.split("(global-name \"").skip(1))
+            .filter_map(|rest| rest.split('"').next())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn spades_own_program_is_readable_inside_and_nothing_else_beside_it() {
+        let helper = Path::new("/Users/p/.ace/releases/spade/v1/spade");
+        let text = with_helper(profile_offline(&policy()), helper);
+        assert!(text.contains("(literal \"/Users/p/.ace/releases/spade/v1/spade\")"));
+        // Its folders can be looked up, not read: nothing else there is opened.
+        assert!(!text.contains("(subpath \"/Users/p/.ace"));
+        assert!(text.contains("(literal \"/Users/p/.ace/releases/spade/v1\")"));
+        // And it adds no network.
+        assert!(!text.contains("network"));
+    }
+
+    #[test]
+    fn an_offline_run_looks_up_no_service_that_can_reach_the_network() {
+        let offline = services(&profile_offline(&policy()));
+        assert_eq!(
+            offline,
+            [
+                "com.apple.system.logger",
+                "com.apple.system.notification_center"
+            ]
+        );
+        for reaches in [
+            "trustd",
+            "opendirectoryd",
+            "DirectoryService",
+            "mDNSResponder",
+            "nsurlsessiond",
+            "networkd",
+            "configd",
+        ] {
+            assert!(
+                !offline.iter().any(|service| service.contains(reaches)),
+                "{reaches}"
+            );
+        }
+        // A normal run keeps trustd for TLS revocation; a read-only one looks up nothing.
+        assert!(
+            services(&profile(&policy(), false))
+                .iter()
+                .any(|s| s == "com.apple.trustd")
+        );
+        assert!(services(&profile(&policy(), true)).is_empty());
     }
 
     #[test]

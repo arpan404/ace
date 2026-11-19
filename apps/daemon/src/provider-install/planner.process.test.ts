@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { writeFile, symlink, readFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { probeOutput } from "@ace/provider-kit/process";
 import { installFixture } from "./testing.ts";
 
 test("Pi with an older Node offers the official prerequisite instead of starting npm", async () => {
@@ -262,6 +263,31 @@ test("Codex installed by Bun updates that installation instead of reporting an u
     expect(await f.wait((event) => ["succeeded", "failed"].includes(event.state))).toMatchObject({
       state: "succeeded",
       version: "2.0.0",
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test("Codex keeps its Bun update action after a temporary Bun bin lookup failure", async () => {
+  let failed = false;
+  const f = await installFixture({
+    managers: ["bun"],
+    async probe(command, args, options) {
+      if (!failed && args.join(" ") === "pm bin -g") {
+        failed = true;
+        throw new Error("Probe timed out");
+      }
+      return probeOutput(command, args, options);
+    },
+  });
+  try {
+    await f.existing("codex", "bun");
+    expect(await f.installs.plan({ provider: "codex" }, "update")).toMatchObject({
+      status: "ready",
+      method: "bun",
+      installedVersion: "1.0.0",
+      updateAvailable: true,
     });
   } finally {
     await f.close();

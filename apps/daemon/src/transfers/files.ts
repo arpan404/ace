@@ -56,6 +56,17 @@ export async function removeQuietly(path: string): Promise<void> {
 }
 
 /** Removes every entry of a transfers directory that `keep` doesn't claim, after a restart. */
+/**
+ * The transfer a payload file belongs to, by its name (`<transferId><suffix>`), or none for a
+ * name that isn't one of `suffixes`. The longest suffix that fits wins.
+ */
+export function transferOfFile(name: string, suffixes: readonly string[]): string | undefined {
+  const suffix = suffixes
+    .filter((candidate) => name.endsWith(candidate) && name.length > candidate.length)
+    .toSorted((a, b) => b.length - a.length)[0];
+  return suffix ? name.slice(0, -suffix.length) : undefined;
+}
+
 export async function removeStray(directory: string, keep: (name: string) => boolean) {
   const names = await readdir(directory).catch(() => []);
   for (const name of names) if (!keep(name)) await removeQuietly(join(directory, name));

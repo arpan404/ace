@@ -10000,9 +10000,9 @@ Example:
     "path": "example"
   },
   "threads": {
-    "needsYou": 5,
-    "running": 9,
-    "total": 6
+    "needsYou": 9,
+    "running": 0,
+    "total": 5
   }
 }
 ```
@@ -30612,6 +30612,7 @@ Example:
 | defaults | no | [ProjectDefaults.json](schema/ProjectDefaults.json) |  |
 | notes | no | array | {"maxItems":50,"items":{"$ref":"https://ace.local/protocol/v1/ProjectNote.json"}} |
 | identity | no | [ProjectIdentity.json](schema/ProjectIdentity.json) |  |
+| remoteKey | no | [ProjectRemoteKey.json](schema/ProjectRemoteKey.json) |  |
 | openedAt | no | number | {"minimum":0} |
 
 Example:
@@ -30627,6 +30628,7 @@ Example:
   },
   "name": "example",
   "notes": [],
+  "openedAt": 0,
   "path": "example"
 }
 ```
@@ -31296,6 +31298,26 @@ Example:
 {
   "id": "example",
   "text": "example"
+}
+```
+
+## ProjectRemoteKey
+
+[JSON Schema](schema/ProjectRemoteKey.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| remotes | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":4096}} |
+| subpath | yes | string | {"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "remotes": [
+    "example"
+  ],
+  "subpath": "example"
 }
 ```
 
