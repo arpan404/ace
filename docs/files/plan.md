@@ -230,9 +230,11 @@ it is delivered, before the caller hears it and walks the folder, so a name that
 walk is still news (one landing between the two reads is at worst reported twice). Once a second it stats each folder; a folder whose stamp moved is listed and each name that
 differs from what the caller knows becomes a change, so nothing is reported twice by the net and
 nothing an event missed stays missing. Names that went away are reported at once. A new name is
-reported at once only when its origin is known: it was born under 2 s ago and its status time is
-within 50 ms of its birth (a move changes the status time), or its inode just left another open
-folder. Any other new name may have been renamed in from a folder no one has open, whose old path
+reported at once only when its origin is known: it was born under 2 s ago, after the net last
+read that folder's names, and its status time is within 50 ms of its birth (a move changes the
+status time), or its inode just left another open folder. A name born before that read and missing
+from it was somewhere else then, so it was moved in however soon after its birth (a folder made
+and moved to the trash within 50 ms looks new by its times alone). Any other new name may have been renamed in from a folder no one has open, whose old path
 only the OS watch knows; it is held until the OS watch names it, so the old path's deletion and
 the new name land in one batch, or for at most 5 s, after which the root is rescanned (an OS watch
 that late has lost track, and only a walk drops the old path). On macOS FSEvents also splits a

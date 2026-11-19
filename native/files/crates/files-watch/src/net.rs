@@ -107,6 +107,10 @@ struct Folder {
     /// The names the caller knows it holds, and whether each is a folder; `None` when there are
     /// too many to keep.
     known: Option<BTreeMap<String, Entry>>,
+    /// The wall-clock time just before `known` was last read from disk. A name missing from that
+    /// listing that was born before it lived somewhere else then, so it was moved in, however
+    /// soon after its birth: its old path may be known to the caller.
+    read_at: Option<SystemTime>,
     /// An event named this folder or something in it since the last check.
     active: bool,
     /// When a check first found this folder's stamp moved while it could not be compared name by
@@ -136,21 +140,28 @@ pub(crate) struct Net {
 }
 
 impl Net {
-    /// A net over the root alone, read now.
-    pub(crate) fn new(root: &Root, excluder: &Excluder, limit: usize) -> Net {
+    /// A net over the root alone, read now; `wall` is the wall-clock time before the read.
+    pub(crate) fn new(root: &Root, excluder: &Excluder, limit: usize, wall: SystemTime) -> Net {
         let mut net = Net {
             folders: BTreeMap::new(),
             held: BTreeMap::new(),
             vanished: Vec::new(),
             limit,
         };
-        net.focus(root, excluder, Vec::new());
+        net.focus(root, excluder, Vec::new(), wall);
         net
     }
 
     /// Replaces the open folders. The root is always one of them; a folder already open keeps
-    /// what it knew, and a new one is read now, which is what the caller just listed.
-    pub(crate) fn focus(&mut self, root: &Root, excluder: &Excluder, folders: Vec<String>) {
+    /// what it knew, and a new one is read now, which is what the caller just listed. `wall` is
+    /// the wall-clock time before the read.
+    pub(crate) fn focus(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        folders: Vec<String>,
+        wall: SystemTime,
+    ) {
         let mut wanted: BTreeSet<String> = folders
             .into_iter()
             .filter(|folder| Root::check(folder).is_ok() && !excluder.is_excluded(folder))
@@ -164,6 +175,7 @@ impl Net {
                 if let Some((stamp, names)) = read(root, excluder, &folder, self.limit) {
                     held.stamp = Some(stamp);
                     held.known = names;
+                    held.read_at = Some(wall);
                 }
                 self.folders.insert(folder, held);
             }
@@ -187,8 +199,15 @@ impl Net {
         }
     }
 
-    /// What a delivered batch told the caller. Called before the caller hears it.
-    pub(crate) fn delivered(&mut self, root: &Root, excluder: &Excluder, batch: &Batch) {
+    /// What a delivered batch told the caller. Called before the caller hears it, with the
+    /// wall-clock time before any folder it makes the net read again.
+    pub(crate) fn delivered(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        batch: &Batch,
+        wall: SystemTime,
+    ) {
         match batch {
             Batch::Changes(changes) => {
                 for change in changes {
@@ -232,6 +251,7 @@ impl Net {
                         *held = Folder {
                             stamp,
                             known,
+                            read_at: Some(wall),
                             active: false,
                             unsettled: None,
                         };
@@ -261,9 +281,7 @@ impl Net {
         let mut diff = Diff::default();
         for folder in folders {
             if let Some(held) = self.folders.get_mut(folder) {
-                check_one(
-                    root, excluder, self.limit, folder, held, at.instant, &mut diff,
-                );
+                check_one(root, excluder, self.limit, folder, held, at, &mut diff);
             }
         }
         found.rescans = std::mem::take(&mut diff.rescans);
@@ -336,7 +354,7 @@ fn check_one(
     limit: usize,
     folder: &str,
     held: &mut Folder,
-    at: Instant,
+    at: Moment,
     diff: &mut Diff,
 ) {
     let active = std::mem::take(&mut held.active);
@@ -344,6 +362,7 @@ fn check_one(
         // Gone or unreadable: the folder holding it reports that. Start afresh if it comes back.
         held.stamp = None;
         held.known = None;
+        held.read_at = None;
         return;
     };
     if held.stamp == Some(stamp) {
@@ -356,13 +375,14 @@ fn check_one(
     if !read_before {
         held.stamp = Some(stamp);
         held.known = names;
+        held.read_at = Some(at.wall);
         held.unsettled = None;
         return;
     }
     match (&mut held.known, &names) {
         // The caller learns these through the batch, which is what updates `known`.
         (Some(known), Some(now)) => {
-            compare(root, folder, known, now, diff);
+            compare(root, folder, known, now, held.read_at, diff);
             // A name learned from a batch carries no inode yet; the listing has it.
             for (name, entry) in known.iter_mut() {
                 if entry.ino.is_none()
@@ -376,12 +396,16 @@ fn check_one(
         // Too large to compare, now or before: only a walk can tell what changed. While events
         // about it are arriving the walk waits for them to stop, and the old stamp is kept, so the
         // next check finds the folder still owed one.
-        _ if active && at.saturating_duration_since(*held.unsettled.get_or_insert(at)) < SETTLE => {
-        }
+        _ if active
+            && at
+                .instant
+                .saturating_duration_since(*held.unsettled.get_or_insert(at.instant))
+                < SETTLE => {}
         _ => {
             diff.rescans.push(folder.to_owned());
             held.stamp = Some(stamp);
             held.known = names;
+            held.read_at = Some(at.wall);
             held.unsettled = None;
         }
     }
@@ -393,6 +417,7 @@ fn compare(
     folder: &str,
     known: &BTreeMap<String, Entry>,
     now: &BTreeMap<String, Entry>,
+    read_at: Option<SystemTime>,
     diff: &mut Diff,
 ) {
     let path = |name: &str| {
@@ -411,9 +436,12 @@ fn compare(
         rename: false,
         present: (kind != ChangeKind::Deleted).then_some(directory),
     };
+    // An entry born before the listing `known` came from, and missing from it, was somewhere
+    // else then: it was moved in, so its birth says nothing about where it came from.
     let born = |name: &str| {
         let dir = root.open_dir(folder).ok()?;
         new_since(&dir.symlink_metadata(name).ok()?)
+            .filter(|born| read_at.is_none_or(|read| *born >= read))
     };
     for (name, entry) in known {
         match now.get(name) {
@@ -594,11 +622,12 @@ mod tests {
         }
 
         fn net(&self, limit: usize, folders: &[&str]) -> Net {
-            let mut net = Net::new(&self.root, &self.excluder, limit);
+            let mut net = Net::new(&self.root, &self.excluder, limit, SystemTime::now());
             net.focus(
                 &self.root,
                 &self.excluder,
                 folders.iter().map(|folder| (*folder).to_owned()).collect(),
+                SystemTime::now(),
             );
             net
         }
@@ -647,7 +676,12 @@ mod tests {
         );
 
         // Once the batch is delivered the caller knows, and a later change reports only itself.
-        net.delivered(&tree.root, &tree.excluder, &as_batch(&found));
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &as_batch(&found),
+            SystemTime::now(),
+        );
         std::fs::write(tree.path("src/later.txt"), b"x").unwrap();
         assert_eq!(
             tree.check(&mut net, NOW),
@@ -689,6 +723,26 @@ mod tests {
         std::fs::create_dir_all(tree.path("docs/old")).unwrap();
         std::fs::write(tree.path("docs/old/kept.md"), b"x").unwrap();
         std::thread::sleep(Duration::from_millis(200));
+        std::fs::rename(tree.path("docs/old"), tree.path("trash")).unwrap();
+        let found = tree.check(&mut net, NOW);
+        assert!(
+            found.iter().all(|(path, _, _)| path != "trash"),
+            "the moved folder waits for the OS watch, which brings its old path: {found:?}"
+        );
+        assert!(net.next_due().is_some());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_folder_made_before_the_net_read_and_moved_in_at_once_still_waits_for_the_os_watch() {
+        // A delete is a rename into the trash moments after the checkout was made: the move
+        // lands well inside UNTOUCHED of the folder's birth, so its times look like a creation.
+        // Only the listing tells: it was born before the net read the root and was not in it.
+        let tree = Tree::new(|dir| {
+            std::fs::create_dir_all(dir.join("docs/old")).unwrap();
+            std::fs::write(dir.join("docs/old/kept.md"), b"x").unwrap();
+        });
+        let mut net = tree.net(100, &[]);
         std::fs::rename(tree.path("docs/old"), tree.path("trash")).unwrap();
         let found = tree.check(&mut net, NOW);
         assert!(
@@ -747,6 +801,7 @@ mod tests {
                 kind: ChangeKind::Created,
                 directory: false,
             }]),
+            SystemTime::now(),
         );
         assert!(tree.check(&mut net, NOW).is_empty());
     }
@@ -762,6 +817,7 @@ mod tests {
             &Batch::Rescan {
                 dir: Some("src".to_owned()),
             },
+            SystemTime::now(),
         );
         assert!(
             tree.check(&mut net, NOW).is_empty(),
@@ -782,6 +838,7 @@ mod tests {
             &Batch::Rescan {
                 dir: Some("src".to_owned()),
             },
+            SystemTime::now(),
         );
         std::fs::write(tree.path("src/late.txt"), b"x").unwrap();
         assert_eq!(
@@ -853,6 +910,7 @@ mod tests {
             &Batch::Rescan {
                 dir: Some("big".to_owned()),
             },
+            SystemTime::now(),
         );
         assert!(
             net.check(&tree.root, &tree.excluder, at(Duration::from_secs(2)))
