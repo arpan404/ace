@@ -17,14 +17,21 @@ const idle: PanelPaging = { more() {}, loading: false, error: false };
 export const PanelPagingContext = createContext<PanelPaging>(idle);
 
 type Paged = "snoozed" | "settled";
+/**
+ * The most daemon pages Settled asks for by itself to fill one page it shows. A filter the
+ * daemon can't narrow to (two checkouts here) may match few of each page's threads; without a
+ * cap the filling would read this machine's whole history. Show more and scrolling grant more.
+ */
+export const fillPages = 3;
 const firstPage: Record<Paged, number> = { snoozed: panelPage, settled: panelPage };
 
 /**
  * The rows the Threads panel draws for its open tab: the Inbox, every thread with Unsent on top;
  * Snoozed and Settled, a page (`panelPage`) at a time. While the list's end is in view (the
  * list tells `onNearEnd`) the next page follows each one that has filled, as Show more adds one; Settled
- * asks the daemon for older settled threads when it has shown all it has loaded. Changing the
- * project or device filter starts both over.
+ * asks the daemon for older settled threads when it has shown all it has loaded, at most
+ * `fillPages` pages for each page it shows. Changing the project or device filter starts both
+ * over.
  */
 export function usePanelRows(input: {
   list: HomeList;
@@ -55,10 +62,21 @@ export function usePanelRows(input: {
   const settled = list.panel.settled.length;
   // Settled shows more than it has loaded: the daemon's next page fills it.
   const filling = settled < shown.settled;
-  const wanted = filling && settledPaging.hasMore && !settledPaging.loading && !settledPaging.error;
+  // Pages asked for by itself toward this page shown, under this filter.
+  const target = `${key}\n${shown.settled}`;
+  const [filled, setFilled] = useState({ target, pages: 0 });
+  const asked = filled.target === target ? filled.pages : 0;
+  const wanted =
+    filling &&
+    asked < fillPages &&
+    settledPaging.hasMore &&
+    !settledPaging.loading &&
+    !settledPaging.error;
   const { more: loadMore, nextAt } = settledPaging;
   useEffect(() => {
-    if (wanted) void loadMore();
+    if (!wanted) return;
+    setFilled({ target, pages: asked + 1 });
+    void loadMore();
     // `nextAt` moves with each page: while Settled still wants more, the next one is asked for.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted, nextAt]);

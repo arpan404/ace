@@ -3,6 +3,8 @@ import { useClient, useSidebar, useSidebarStore } from "@ace/client-react";
 import { useRef, useState } from "react";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { type DeviceScope, inScope } from "./device-filter-state.ts";
+import { scopeOf } from "./project-scope.ts";
+import { useProjectGroups } from "./use-project-scope.ts";
 
 /** Where Home's own window's next page of settled threads starts, while it holds older ones. */
 const nextPageAt = (reader: SidebarReader) =>
@@ -32,7 +34,8 @@ export interface SettledPaging {
  * project's settled threads and History both read from these pages. A failed page offers a retry; a page that
  * brings nothing new stops the asking, so a daemon that keeps saying older threads remain can't
  * loop; changing the project or device filter starts over. Another machine's threads all arrive
- * at once, so they never page.
+ * at once, so they never page; and a project with no checkout on this machine has nothing here
+ * to page for (its pages would be every other project's history).
  */
 export function useSettledPaging(project: string | null, device?: DeviceScope): SettledPaging {
   const client = useClient();
@@ -46,7 +49,9 @@ export function useSettledPaging(project: string | null, device?: DeviceScope): 
   // One page at a time: two asks before a render (an effect run twice) would send the same
   // cursor twice, and the daemon refuses the second as stale.
   const asking = useRef(false);
-  const hasMore = nextAt !== undefined && !request.stalled && inScope(device, own);
+  const groups = useProjectGroups();
+  const here = project === null || scopeOf(project, groups, own).here.length > 0;
+  const hasMore = nextAt !== undefined && !request.stalled && inScope(device, own) && here;
   const update = (patch: Partial<Request>) =>
     setRequest((current) => ({ ...(current.key === key ? current : request), ...patch, key }));
   const more = async () => {
