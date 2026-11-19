@@ -45,7 +45,7 @@ export const zoomCaptions: ZoomCaption[] = [
   {
     shot: "fleet",
     title: "Every machine works at once.",
-    body: "The soak test runs on the build server while your Mac keeps going. Threads from every machine share one list, wherever you open ace.",
+    body: "The soak test runs on omarchy, your Linux machine, while your Mac keeps going. Threads from every machine share one list, wherever you open ace.",
     href: "/features/fleet/",
   },
   {

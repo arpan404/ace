@@ -4,6 +4,9 @@
  * before it may use this Mac's Simulator.
  */
 import SimulatorWindow from "../../mac/SimulatorWindow.astro";
+import { machines } from "../../../content/stage.ts";
+
+const linux = machines.find((machine) => machine.id === "build-server")?.name;
 ---
 
 <div class="sim-wrap">
@@ -11,7 +14,7 @@ import SimulatorWindow from "../../mac/SimulatorWindow.astro";
 </div>
 <div class="ask">
   <span>
-    <b>Claude on build-server</b> wants to use iPhone 17 Pro
+    <b>Claude on {linux}</b> wants to use iPhone 17 Pro
   </span>
   <span class="allow">Allow</span>
 </div>

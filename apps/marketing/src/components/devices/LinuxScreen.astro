@@ -1,17 +1,25 @@
 ---
 /*
- * A Linux desktop, 640 × 400, with ace open on it: the top bar, and ace's own window filling
- * the rest, drawn at half size from the same drawing the Mac shows. The story script opens a
- * thread in it (scripts/stage-scenes.ts `show`).
+ * Omarchy, 640 × 400, with ace open on it: Hyprland's Waybar across the top (workspaces, the
+ * clock, the tray), and ace's window tiled under it with an even gap and a thin border, drawn
+ * at half size from the same drawing the Mac shows. The story script opens a thread in it
+ * (scripts/stage-scenes.ts `show`).
  */
 import AceWindow from "../mac/AceWindow.astro";
 ---
 
 <div class="linux">
-  <div class="topbar">
-    <span>Activities</span>
-    <b>Tue 3 Nov&nbsp;&nbsp;09:41</b>
-    <span class="tray"><i></i><i></i><i class="power"></i></span>
+  <div class="waybar">
+    <span class="workspaces">
+      <i class="current">1</i><i>2</i><i>3</i><i>4</i>
+    </span>
+    <b>Tue 09:41</b>
+    <span class="tray">
+      <i class="wifi"></i>
+      <i class="volume"></i>
+      <span class="battery"><i></i></span>
+      <span>87%</span>
+    </span>
   </div>
   <div class="app">
     <div class="half"><AceWindow /></div>
@@ -19,51 +27,117 @@ import AceWindow from "../mac/AceWindow.astro";
 </div>
 
 <style>
+  /* Omarchy's own themes come dark and light; the desktop follows the page's. */
   .linux {
+    --desk: #0a0a0b;
+    --bar-ink: #c9cbcf;
+    --bar-strong: #f2f3f5;
+    --bar-dim: #6e7076;
+    --tile-border: #8a8c92;
+
     position: absolute;
     inset: 0;
-    background: #0c0d0f;
-    color: #e6e7ea;
-    font-family: system-ui, sans-serif;
-    font-size: 12px;
+    background: var(--desk);
+    color: var(--bar-ink);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9.5px;
   }
 
-  .topbar {
+  :global(html[data-theme="light"]) .linux {
+    --desk: #e4e5e8;
+    --bar-ink: #3a3c41;
+    --bar-strong: #0c0d0f;
+    --bar-dim: #8b8d92;
+    --tile-border: #6e7076;
+  }
+
+  .waybar {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    height: 26px;
-    padding: 0 12px;
-    background: #000;
+    height: 20px;
+    padding: 0 10px 0 6px;
   }
 
-  .topbar b {
-    font-weight: 600;
+  .waybar b {
+    font-weight: 500;
+    color: var(--bar-strong);
+  }
+
+  .workspaces {
+    display: flex;
+    gap: 1px;
+  }
+
+  .workspaces i {
+    min-width: 14px;
+    font-style: normal;
+    text-align: center;
+    color: var(--bar-dim);
+  }
+
+  .workspaces .current {
+    color: var(--bar-strong);
+    box-shadow: inset 0 -1.5px 0 var(--bar-ink);
   }
 
   .tray {
     justify-self: end;
     display: flex;
+    align-items: center;
     gap: 9px;
   }
 
   .tray i {
+    display: block;
+  }
+
+  /* A quarter-circle fan for the network, a speaker block, and a battery outline. */
+  .wifi {
     width: 9px;
     height: 9px;
-    border-radius: 2px;
-    background: #d0d2d6;
+    border-radius: 9px 0 0;
+    box-shadow:
+      inset 1.5px 1.5px 0 var(--bar-ink),
+      inset 4px 4px 0 var(--desk),
+      inset 5.5px 5.5px 0 var(--bar-ink);
+    rotate: 45deg;
+    translate: 0 2px;
   }
 
-  .tray .power {
-    border-radius: 50%;
-    background: none;
-    box-shadow: inset 0 0 0 1.5px #d0d2d6;
+  .volume {
+    width: 5px;
+    height: 6px;
+    border-radius: 1px;
+    background: var(--bar-ink);
+    box-shadow: 3px 0 0 -1px var(--bar-ink);
   }
 
+  .battery {
+    position: relative;
+    display: block;
+    width: 14px;
+    height: 7px;
+    border-radius: 1.5px;
+    box-shadow: inset 0 0 0 1px var(--bar-ink);
+  }
+
+  .battery i {
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 8px;
+    height: 3px;
+    background: var(--bar-ink);
+  }
+
+  /* One tiled window: the gap Hyprland leaves round it, and its 1px border. */
   .app {
     position: absolute;
-    inset: 26px 0 0;
+    inset: 22px 6px 6px;
     overflow: hidden;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px var(--tile-border);
   }
 
   /* ace's window at its own size, shown at half. */
