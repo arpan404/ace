@@ -13,6 +13,8 @@ import {
   type SpadeView,
   spadeQuietLine,
   spadeRestLine,
+  spadeRunningDetail,
+  type SpadeEntry,
   withSpadeDigests,
   type SpadeDigest,
   type SpadeRestAction,
@@ -150,6 +152,8 @@ export function SpadeChat(props: {
   // The working line shows while the bot works itself, not while it waits on the person; a
   // task that carries on or waits on the person keeps its line between replies too.
   const working = busy && !waiting;
+  // The open reply's step running now: the working line names what it touches.
+  const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
   const task = props.task;
   const lined = working || task !== undefined;
   const handlers: Handlers = {
@@ -219,6 +223,7 @@ export function SpadeChat(props: {
                 ? [task.sentence, task.step].filter(Boolean).join(" · ")
                 : (view.status ?? "Working")
             }
+            detail={working ? running : undefined}
             since={working ? view.working?.since : undefined}
             onWatch={props.onWatch}
           />
@@ -226,6 +231,15 @@ export function SpadeChat(props: {
       )}
     </div>
   );
+}
+
+/** The reply still open, the last one in the conversation. */
+function openReply(entries: readonly SpadeEntry[]) {
+  for (let at = entries.length - 1; at >= 0; at--) {
+    const entry = entries[at];
+    if (entry?.kind === "reply") return entry.end ? undefined : entry;
+  }
+  return undefined;
 }
 
 interface Handlers {

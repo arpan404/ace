@@ -70,6 +70,22 @@ export function spadeReplySteps(entry: SpadeReplyEntry): SpadeSteps | undefined 
   return { summary: spadeStepsSummary(steps), steps };
 }
 
+/**
+ * What the open reply's newest running call touches (its command, a file's path, a page's
+ * address), for the working line beside its words; undefined when nothing runs or it has no
+ * detail.
+ */
+export function spadeRunningDetail(entry: SpadeReplyEntry | undefined): string | undefined {
+  if (!entry || entry.end) return undefined;
+  for (let at = entry.parts.length - 1; at >= 0; at--) {
+    const part = entry.parts[at];
+    if (part?.kind !== "call" || part.state !== "running") continue;
+    if (shownElsewhere.has(baseName(part.name))) return undefined;
+    return part.detail;
+  }
+  return undefined;
+}
+
 function stepOf(part: CallPart, answer: "allowed" | "denied" | undefined): SpadeStep {
   const words = spadeToolWords(part.name);
   const ran = part.state === "done" || part.state === "failed";

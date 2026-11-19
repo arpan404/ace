@@ -236,6 +236,39 @@ test("the working line says what a tool does in plain words, not its raw name", 
   expect(line.textContent).not.toContain("screen act");
 });
 
+test("the working line names the command running now, and drops it once it has finished", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  });
+  const main = spade.agents[0];
+  if (!main) throw new Error("no Spade");
+  await feed("Spade");
+  const store = (event: Record<string, unknown>) => spade.store(main.conversation, event);
+  store({ type: "user_message", text: "Build it" });
+  store({ type: "reply_started", reply: "r1" });
+  store({
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [{ id: "k1", name: "shell", arguments: { command: "bun run build" } }],
+  });
+  store({ type: "tool_started", reply: "r1", call_id: "k1", name: "shell" });
+  spade.status(main, "working", "Running a command");
+  const line = await screen.findByRole("status", { name: "" });
+  await waitFor(() => expect(line.textContent).toContain("bun run build"));
+  store({
+    type: "tool_finished",
+    reply: "r1",
+    call_id: "k1",
+    name: "shell",
+    content: "built",
+    is_error: false,
+  });
+  spade.status(main, "working", "Thinking");
+  await waitFor(() => expect(line.textContent).not.toContain("bun run build"));
+});
+
 test("another bot's run shows its name and face once, above its first message", async () => {
   await spadeApp("/spade/garden", (spade) => {
     withEndpoint(spade);
