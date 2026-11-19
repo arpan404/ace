@@ -192,6 +192,7 @@ fn import_as(
                 clear: &[],
             }),
             arrival: &|_| ("arrived:a_1".to_owned(), "{}".to_owned(), "{}".to_owned()),
+            merges: &[],
         })
         .map_err(|e| e.to_string())?;
     match cut {
@@ -700,6 +701,7 @@ fn rows_copied_in_are_found_by_no_read_or_write_until_the_cutover_and_by_all_aft
         marker: &marker,
         main: None,
         arrival: &|_| ("arrived:a_1".to_owned(), "{}".to_owned(), "{}".to_owned()),
+        merges: &[],
     });
     assert!(cut.is_ok_and(|cut| cut.is_ok()));
     assert!(to.agent("a_1").ok().flatten().is_some());
@@ -768,4 +770,127 @@ fn a_worker_linked_to_a_bot_outside_the_move_is_refused_and_one_inside_it_moves(
     );
     let inside = worker_staged("a_1", "c_a_1");
     assert!(inside.is_ok_and(|s| s.agents.len() == 2));
+}
+
+#[test]
+fn mid_copy_no_store_operation_writes_an_arriving_club_and_an_abort_takes_out_all_it_brought() {
+    let (_a, from) = source();
+    from.create_group(&crate::StoredGroup {
+        id: "g_1".into(),
+        name: "Launch".into(),
+        lead_id: "a_1".into(),
+        conversation: "c_club".into(),
+        members: vec![crate::StoredMember {
+            agent_id: "a_x".into(),
+            machine: "host-x".into(),
+            name: "Remote".into(),
+            avatar: None,
+        }],
+        created_ms: 1,
+        updated_ms: 1,
+        pinned_ms: None,
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+    let (rows, sums) = export(&from);
+    let (dir, to) = target();
+    let staging = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let (stage, selection) =
+        staged(staging.path(), rows, &sums, false).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(selection.groups, vec!["g_1".to_owned()]);
+    receiving(&to);
+    assert!(
+        to.move_arrive_begin("mv_1", "{}", 2, &selection)
+            .is_ok_and(|b| b == Begun::Begun)
+    );
+    // Before its rows land, nothing may make what it claims.
+    assert!(
+        to.create_conversation("c_a_1", 2).is_err(),
+        "a claimed conversation"
+    );
+    assert!(
+        to.move_arrive_copy("mv_1", &stage, &|| {}, "{}", 3)
+            .is_ok_and(|copied| copied.is_ok())
+    );
+    // Mid-move: an ask queued for the club's remote member is sent elsewhere, the inbox is
+    // pruned, settings of the bot are written; none of it touches what the move brought.
+    to.insert_outbox(&crate::OutboxEntry {
+        key: "k_1".into(),
+        machine: "host-x".into(),
+        machine_name: "X".into(),
+        request: "{}".into(),
+        state: "queued".into(),
+        answer: None,
+        attempts: 0,
+        next_ms: 0,
+        stop: false,
+        created_ms: 1,
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+    to.retarget_outbox("k_1", "a_x", "host-y", "Y", 4)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        raw_count(dir.path(), "group_members", "machine", "host-x"),
+        1,
+        "its member stays as it came"
+    );
+    assert!(to.prune_inbox(i64::MAX).is_ok());
+    assert!(to.set_setting("oversight:a_1", Some("{}")).is_err());
+    assert!(to.setting("oversight:a_1").ok().flatten().is_none());
+    assert!(to.delete_agent("a_1").is_ok_and(|gone| !gone));
+    // Given up: every row it brought goes, the club's members by the keys they came with.
+    assert!(
+        to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 5)
+            .unwrap_or(false)
+    );
+    for (table, column, value) in [
+        ("group_members", "group_id", "g_1"),
+        ("groups", "id", "g_1"),
+        ("conversations", "id", "c_club"),
+        ("agents", "id", "a_1"),
+        ("move_rows", "move_id", "mv_1"),
+    ] {
+        assert_eq!(raw_count(dir.path(), table, column, value), 0, "{table}");
+    }
+    untouched(&to);
+}
+
+#[test]
+fn an_undo_keeps_the_gate_until_the_files_it_placed_are_back() {
+    let (_a, from) = source();
+    let (rows, sums) = export(&from);
+    let (dir, to) = target();
+    let staging = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let (stage, selection) =
+        staged(staging.path(), rows, &sums, false).unwrap_or_else(|e| panic!("{e}"));
+    receiving(&to);
+    assert!(
+        to.move_arrive_begin("mv_1", "{}", 2, &selection)
+            .is_ok_and(|b| b == Begun::Begun)
+    );
+    assert!(
+        to.move_arrive_copy("mv_1", &stage, &|| {}, "{}", 3)
+            .is_ok_and(|copied| copied.is_ok())
+    );
+    to.move_file_record("mv_1", "image", &"ab".repeat(32))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        to.image_arriving(&"ab".repeat(32)).unwrap_or(false),
+        "hidden till it commits"
+    );
+    assert!(
+        matches!(
+            to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 4),
+            Err(crate::StoreError::FilesPlaced(_))
+        ),
+        "rows and gate stay while a placed file isn't back"
+    );
+    assert!(raw_count(dir.path(), "move_claims", "move_id", "mv_1") > 0);
+    to.move_file_reverted("mv_1", "image", &"ab".repeat(32))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        to.move_arrive_undo("mv_1", arrival::ABORTED, "{}", 5)
+            .unwrap_or(false)
+    );
+    assert_eq!(raw_count(dir.path(), "move_claims", "move_id", "mv_1"), 0);
+    assert!(!to.image_arriving(&"ab".repeat(32)).unwrap_or(true));
 }

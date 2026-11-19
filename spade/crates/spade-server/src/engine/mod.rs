@@ -74,7 +74,7 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
-pub use moves::{AcceptFor, HostRecord, MoveError};
+pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,
@@ -629,8 +629,12 @@ impl Engine {
         )
     }
 
-    /// A stored image and its media type, by hash.
+    /// A stored image and its media type, by hash; one an arrival brought here reads as
+    /// none until it is this machine's (ADR 0187).
     pub fn image(&self, sha256: &str) -> Option<(Vec<u8>, &'static str)> {
+        if self.store.image_arriving(sha256).unwrap_or(true) {
+            return None;
+        }
         self.images.read(sha256)
     }
 

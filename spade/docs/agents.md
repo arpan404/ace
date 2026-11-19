@@ -37,16 +37,20 @@ describe. Agents run on models from the person's own endpoints.
 ### Where Spade lives
 
 [ADR 0187](../../docs/adr/0187-spade-bots-move-between-machines.md). The setting `main_host` holds
-the record `{host, version, at, by}` this machine heard last (`by` is `person`, `seed` or `move`);
+the record `{host, version, at, by}` this machine heard last (`by` is `seed` or `move`; an older
+`person` record still reads);
 a record replaces it only when newer: a higher `version`, then a later `at`, then the higher
 `host`. This machine's own host id is `<SPADE_ACE_HOME>/host-id`. The main bot shows while the
 record names this machine, and the person hasn't switched it off here (`main_off`). Before any
-record the old election's `main_enabled` still decides; the first record heard drops it.
+record the old election's `main_enabled` still decides; the first record heard drops it. Only a
+move changes the host: `PUT /main/host` needs the person's stamp (`main-host`, over
+`host:<host>:<version>:<at>:<by>`), takes a `seed` naming this machine only while none is held,
+and a record naming another machine only once that machine's `{op: "host"}` answers exactly it.
 
 | Method and path  | Body                       | Answer                                     |
 | ---------------- | -------------------------- | ------------------------------------------ |
 | `GET /main`      |                            | `{here, host: record \| null, shown, off}` |
-| `PUT /main/host` | a record                   | `200 {host}`: the record held after        |
+| `PUT /main/host` | a record, stamped          | `200 {host}`; `403`, `409`, `503`          |
 | `PUT /main`      | `{enabled, by?: "person"}` | `204`; without `by` ignored once a record  |
 
 ### Moving a bot
@@ -109,20 +113,28 @@ true`); Cancel works until the commit. Every step of a move to here holds that m
    the move (`Stage::tree_holds`). Then the store's arrival (`spade_store::moves::arrival`):
    - `move_arrive_begin`: `receiving` → `activating` and the move's claims `hidden`, one
      transaction. The store's gate (`gate.rs`) leaves out every row a hidden claim's bot,
-     conversation or club owns, in every read and write: lists, lookups by id, appends.
+     conversation, club or per-bot setting key owns: reads in each query, writes by temporary
+     triggers on every moved table (`arriving`), on every connection, unless the arrival writes
+     (`move_bypass`, inside its own transactions only). Move state writes use `lock_durable`
+     (`synchronous = FULL`).
    - `move_arrive_copy`: every staged row's own key (`MoveTable::pk`) looked up first, any taken
      refuses (`422`, "this machine already has …"); then `MOVE_BATCH` rows or `MOVE_BATCH_BYTES`
      per transaction, each inserted row's key recorded in `move_rows` in that transaction; the
      bots stored as `arriving`, routines paused; done, `placing`.
-   - the workspace and images placed and flushed, rows still hidden.
+   - the workspace folders and images placed, rows still hidden, each placement recorded in
+     `move_files` before it is done (`workspace`, `aside`, `image`; an image the machine had is
+     left alone), every folder flushed (`paths::sync_tree`, and each rename's parents). Images a
+     move brought read as none until it commits (`image_arriving`). The bots' app access is set
+     to none in the hub, then again in the cutover (`merges`).
    - `move_arrive_cutover`, one transaction, only from `placing`: Spade's quiet main retired and
      the host record the target makes (decision 19), kinds, the gate opens, routines pause and
      webhooks get new secrets, every bot's security settings lose every grant, its toolchains
      and Full access and read `auto_review`, clubs point here, an `arrived` event closes each
      moved conversation (`since_arrival`), `arrived:<id>` and `committed`. Answers `{committed,
 arrival, host}`.
-   - `move_arrive_undo` on any refusal, error or cut-off copy: `undoing`, the recorded rows out a
-     batch at a time, then the claims go and the move reads `receiving` (to copy again) or
+   - `move_arrive_undo` on any refusal, error or cut-off copy: first `unplace` puts back each
+     recorded file (its record goes once that is on disk); then `undoing`, the recorded rows out
+     a batch at a time, then (refused while a file record is left: `FilesPlaced`) the claims go and the move reads `receiving` (to copy again) or
      `aborted`, never touching a row it didn't insert. A placing that fails answers `503` and
      stays `placing`; a retried commit or a restart finishes it. The bot's apps start at none.
 6. **Finishing** on the source: the record now names the target; the bot, Spade too, is archived (`moved/<id>/parts` and `workspace/`, no secrets), `moved:<id>`

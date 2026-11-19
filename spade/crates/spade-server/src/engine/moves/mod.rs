@@ -17,7 +17,7 @@ mod paths;
 mod receive;
 mod send;
 
-pub use host::HostRecord;
+pub use host::{HostRecord, HostRefused};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -70,6 +70,10 @@ const KEEP_ARCHIVE_MS: i64 = 30 * 24 * 60 * 60_000;
 /// Archives one sweep removes at most.
 const SWEEP_BATCH: usize = 5;
 
+/// A test's look at each point an arrival reaches.
+#[cfg(feature = "test-hooks")]
+type PointHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Default)]
 pub(crate) struct Shared {
     /// Conversations frozen by a move, each with the move holding it. Nothing is delivered to
@@ -89,6 +93,11 @@ pub(crate) struct Shared {
     /// Told after each batch an arrival copies (tests hold the copy there).
     #[cfg(feature = "test-hooks")]
     pub(crate) after_batch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Told at each point of an arrival (`copied`: its rows are in, nothing else; `placed`: just
+    /// before its cutover; `committed`: just after it, before the answer), so a test can stop
+    /// the machine there.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) at_point: Mutex<Option<PointHook>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -397,6 +406,13 @@ impl Engine {
                 "from": here,
                 "agents": agents,
                 "conversations": selection.conversations,
+                // What it froze, kept whole: its cleanup after the move took replays exactly
+                // this, never a selection rebuilt from rows already half removed.
+                "selection": {
+                    "agents": selection.agents,
+                    "conversations": selection.conversations,
+                    "groups": selection.groups,
+                },
                 "extras": { "connectors": chosen },
                 "sent": 0,
                 "total": 0,
@@ -508,6 +524,12 @@ impl Engine {
     #[cfg(feature = "test-hooks")]
     pub fn hold_arrivals(&self, hold: Arc<dyn Fn() + Send + Sync>) {
         *lock(&self.moves.after_batch) = Some(hold);
+    }
+
+    /// Tells `hold` each point an arrival here reaches (`copied`, `placed`, `committed`).
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_arrivals_at(&self, hold: PointHook) {
+        *lock(&self.moves.at_point) = Some(hold);
     }
 
     /// The person's Check again: the move's driver asks the other machine now, not after its

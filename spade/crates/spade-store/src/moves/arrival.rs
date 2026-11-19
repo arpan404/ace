@@ -20,6 +20,9 @@ use crate::{Result, Store, append_in};
 /// Whether Spade's own main is in use, given a reader of this machine's settings.
 pub type MainActive<'a> = dyn Fn(&dyn Fn(&str) -> Option<String>) -> bool + 'a;
 
+/// A setting changed in the cutover: its key, and its new value from the one held.
+pub type Merge<'a> = (&'a str, &'a dyn Fn(Option<&str>) -> String);
+
 /// What the transaction that makes an arrival this machine's is told.
 pub struct Cutover<'a> {
     pub move_id: &'a str,
@@ -44,6 +47,9 @@ pub struct Cutover<'a> {
     /// From what arrived: the setting the person reads it from (key, value), and the move's
     /// detail once committed.
     pub arrival: &'a dyn Fn(&Arrived) -> (String, String, String),
+    /// Settings changed with it, each from its value held here: the moved bots' app access set
+    /// to none, so no path publishes a bot with more.
+    pub merges: &'a [Merge<'a>],
 }
 
 /// Spade, the main bot, arriving: this machine's own must be quiet, and its host choice moves.
@@ -222,6 +228,7 @@ impl Store {
                 if !in_state(&tx, id, ACTIVATING)? {
                     return Ok(Err("the move was given up while it was copied".to_owned()));
                 }
+                crate::gate::bypass(&tx)?;
                 for mut values in rows {
                     if table.name == "agents"
                         && let Some(at) = kind
@@ -248,12 +255,13 @@ impl Store {
                         params![id, table.name, key_json(&key)],
                     )?;
                 }
+                crate::gate::close(&tx)?;
                 tx.commit()?;
                 drop(connection);
                 after_batch();
             }
         }
-        let placed = self.lock()?.execute(
+        let placed = self.lock_durable()?.execute(
             "UPDATE moves SET state = ?2, detail = ?3, updated_ms = ?4 WHERE id = ?1 AND state = ?5",
             params![id, PLACING, detail, now_ms, ACTIVATING],
         )?;
@@ -276,7 +284,7 @@ impl Store {
         detail: &str,
         now_ms: i64,
     ) -> Result<bool> {
-        let undoing = self.lock()?.execute(
+        let undoing = self.lock_durable()?.execute(
             "UPDATE moves SET state = ?2, updated_ms = ?3
              WHERE id = ?1 AND state IN (?4, ?5, ?2)",
             params![id, UNDOING, now_ms, ACTIVATING, PLACING],
@@ -302,6 +310,7 @@ impl Store {
                 if keys.is_empty() {
                     break;
                 }
+                crate::gate::bypass(&tx)?;
                 for key in &keys {
                     tx.prepare_cached(&delete)?
                         .execute(rusqlite::params_from_iter(key_values(key).iter()))?;
@@ -310,11 +319,21 @@ impl Store {
                         params![id, table.name, key],
                     )?;
                 }
+                crate::gate::close(&tx)?;
                 tx.commit()?;
             }
         }
-        let mut connection = self.lock()?;
+        // The gate stays closed until every file it placed is back where it was, durably.
+        let mut connection = self.lock_durable()?;
         let tx = connection.transaction()?;
+        let placed: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM move_files WHERE move_id = ?1)",
+            params![id],
+            |r| r.get(0),
+        )?;
+        if placed {
+            return Err(crate::StoreError::FilesPlaced(id.to_owned()));
+        }
         tx.execute("DELETE FROM move_claims WHERE move_id = ?1", params![id])?;
         tx.execute(
             "UPDATE moves SET state = ?2, open = ?5, detail = ?3, updated_ms = ?4 WHERE id = ?1",
@@ -335,12 +354,21 @@ impl Store {
         cutover: &Cutover<'_>,
     ) -> Result<std::result::Result<Arrived, String>> {
         let id = cutover.move_id;
-        let mut connection = self.lock()?;
+        let mut connection = self.lock_durable()?;
         let tx = connection.transaction()?;
         if !in_state(&tx, id, PLACING)? || !gated_move(&tx, id)? {
             return Ok(Err(
                 "this move isn't ready to be made this machine's".to_owned()
             ));
+        }
+        crate::gate::bypass(&tx)?;
+        for (key, merge) in cutover.merges {
+            let held = setting_in(&tx, key)?;
+            tx.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                params![key, merge(held.as_deref())],
+            )?;
         }
         if let Some(main) = &cutover.main {
             let read = |key: &str| setting_in(&tx, key).ok().flatten();
@@ -389,6 +417,7 @@ impl Store {
             "UPDATE moves SET state = ?2, open = 0, detail = ?3, updated_ms = ?4 WHERE id = ?1",
             params![id, COMMITTED, detail, cutover.now_ms],
         )?;
+        crate::gate::close(&tx)?;
         tx.commit()?;
         Ok(Ok(arrived))
     }
@@ -407,6 +436,7 @@ impl Store {
             if committed.as_deref() != Some(COMMITTED) {
                 return Ok(any);
             }
+            connection.execute("DELETE FROM move_files WHERE move_id = ?1", params![id])?;
             let gone = connection.execute(
                 "DELETE FROM move_rows WHERE (move_id, tbl, key) IN
                    (SELECT move_id, tbl, key FROM move_rows WHERE move_id = ?1 LIMIT ?2)",
@@ -432,6 +462,47 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Records, durably and before it is done, that this arrival places a file: `kind` is
+    /// `workspace` (a bot's folder, by its id), `aside` (a folder already where one goes, set
+    /// aside, by the bot's id) or `image` (an image this machine didn't have, by its hash).
+    /// Undoing puts back only what is recorded.
+    pub fn move_file_record(&self, id: &str, kind: &str, name: &str) -> Result<()> {
+        self.lock_durable()?.execute(
+            "INSERT OR IGNORE INTO move_files (move_id, kind, name) VALUES (?1, ?2, ?3)",
+            params![id, kind, name],
+        )?;
+        Ok(())
+    }
+
+    /// What this arrival recorded placing, as (`kind`, `name`).
+    pub fn move_files_of(&self, id: &str) -> Result<Vec<(String, String)>> {
+        let connection = self.lock()?;
+        let mut statement =
+            connection.prepare("SELECT kind, name FROM move_files WHERE move_id = ?1")?;
+        let rows = statement.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// One placed file is back where it was, on disk: its record goes, durably.
+    pub fn move_file_reverted(&self, id: &str, kind: &str, name: &str) -> Result<()> {
+        self.lock_durable()?.execute(
+            "DELETE FROM move_files WHERE move_id = ?1 AND kind = ?2 AND name = ?3",
+            params![id, kind, name],
+        )?;
+        Ok(())
+    }
+
+    /// Whether the image `sha256` came with an arrival not yet this machine's: nothing reads it
+    /// until then.
+    pub fn image_arriving(&self, sha256: &str) -> Result<bool> {
+        Ok(self.lock()?.query_row(
+            "SELECT EXISTS (SELECT 1 FROM move_files f JOIN moves m ON m.id = f.move_id
+             WHERE f.kind = 'image' AND f.name = ?1 AND m.state != ?2)",
+            params![sha256, COMMITTED],
+            |r| r.get(0),
+        )?)
     }
 
     /// The first staged row whose own key is already taken here, in words; `None` when every

@@ -96,3 +96,24 @@ test("accepting a bot moving here is the person's, stamped over the whole move a
   for (const path of ["/v1/moves/../accept", "/v1/moves/MV_1/accept"])
     expect(personOnlyWrite("PUT", path, json(body)), path).toBeUndefined();
 });
+
+test("passing Spade's host choice on is the person's, stamped over the whole record", () => {
+  const record = { host: "host-studio", version: 3, at: 1_700_000, by: "move" };
+  const body = Buffer.from(JSON.stringify(record));
+  expect(personOnlyWrite("PUT", "/v1/main/host", body)).toEqual({
+    target: "main-host",
+    value: "host:host-studio:3:1700000:move",
+  });
+  // A choice the person makes by hand, or one that isn't a record, gets no stamp: Spade then
+  // refuses it.
+  for (const odd of [
+    { ...record, by: "person" },
+    { ...record, version: 0 },
+    { ...record, host: "a b" },
+    { host: "host-studio" },
+  ])
+    expect(personOnlyWrite("PUT", "/v1/main/host", Buffer.from(JSON.stringify(odd)))).toBe(
+      undefined,
+    );
+  expect(personOnlyWrite("GET", "/v1/main/host", body)).toBe(undefined);
+});

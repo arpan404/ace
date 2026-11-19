@@ -16,6 +16,19 @@ pub const MAIN_OFF: &str = "main_off";
 /// runs: obeyed only until this machine hears a record, then dropped.
 pub const MAIN_ENABLED: &str = "main_enabled";
 
+/// Why a host record passed on wasn't kept.
+#[derive(Debug, thiserror::Error)]
+pub enum HostRefused {
+    #[error("only the person can pass Spade's host choice on: do it in ace")]
+    PersonOnly,
+    #[error("{0}")]
+    Not(String),
+    #[error("the machine that record names can't be asked now")]
+    Unreachable,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Longest host id a record may name.
 const HOST_CHARS: usize = 128;
 
@@ -49,6 +62,14 @@ impl HostRecord {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'));
         let by_ok = matches!(record.by.as_str(), "person" | "seed" | "move");
         (host_ok && by_ok && record.version > 0).then_some(record)
+    }
+
+    /// What the person's stamp signs for this record.
+    pub fn stamped(&self) -> String {
+        format!(
+            "host:{}:{}:{}:{}",
+            self.host, self.version, self.at, self.by
+        )
     }
 
     pub fn to_json(&self) -> Value {
@@ -100,6 +121,57 @@ impl Engine {
                 self.store.set_setting(MAIN_ENABLED, None)?;
                 Ok(record.clone())
             }
+        }
+    }
+
+    /// `PUT /v1/main/host`: a record the person's window passes on, with their stamp. Spade's
+    /// host changes only by a move (ADR 0187): a record naming another machine is kept only if
+    /// that machine, asked over this machine's own link to it, holds exactly that record; one
+    /// naming this machine only as the fleet's first (`seed`), while none is held here. Nothing
+    /// else, and never one this machine made up.
+    pub async fn put_host(
+        &self,
+        record: &HostRecord,
+        stamp: Option<&str>,
+    ) -> Result<HostRecord, HostRefused> {
+        let says = self
+            .security()
+            .is_some_and(|security| security.person_says(stamp, "main-host", &record.stamped()));
+        if !says {
+            return Err(HostRefused::PersonOnly);
+        }
+        let held = self.host_record()?;
+        if held.as_ref() == Some(record) {
+            return Ok(record.clone());
+        }
+        if self.here().as_deref() == Some(record.host.as_str()) {
+            if record.by == "seed" && held.is_none() {
+                return Ok(self.offer_host(record)?);
+            }
+            return Err(HostRefused::Not(
+                "only a move makes this machine Spade's host".to_owned(),
+            ));
+        }
+        if !matches!(record.by.as_str(), "seed" | "move") {
+            return Err(HostRefused::Not(
+                "Spade's host changes only by moving Spade".to_owned(),
+            ));
+        }
+        let Some(remote) = self.remote() else {
+            return Err(HostRefused::Unreachable);
+        };
+        let asked = remote
+            .call(&record.host, json!({ "op": "host" }))
+            .await
+            .map_err(|_| HostRefused::Unreachable)?;
+        match asked {
+            (200, body) if HostRecord::parse(&body["host"]).as_ref() == Some(record) => {
+                Ok(self.offer_host(record)?)
+            }
+            (200, _) => Err(HostRefused::Not(
+                "the machine that record names doesn't hold it".to_owned(),
+            )),
+            _ => Err(HostRefused::Unreachable),
         }
     }
 

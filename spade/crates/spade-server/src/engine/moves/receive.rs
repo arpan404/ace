@@ -104,15 +104,9 @@ impl Engine {
         have
     }
 
-    /// One `op: "move"` inbox request. `connectors` is the person's apps here, whose access
-    /// for the arriving bot starts empty. Every step of a move to here holds the move's lock, so
+    /// One `op: "move"` inbox request. Every step of a move to here holds the move's lock, so
     /// no other step, recovery or sweep works on it meanwhile.
-    pub(crate) async fn inbox_move(
-        self: &Arc<Self>,
-        sender: &Sender,
-        body: &Value,
-        connectors: Option<Arc<spade_connect::Connectors>>,
-    ) -> InboxAnswer {
+    pub(crate) async fn inbox_move(self: &Arc<Self>, sender: &Sender, body: &Value) -> InboxAnswer {
         let Some(id) = body["move"].as_str().filter(|id| plain_id(id)) else {
             return refuse(400, "a move is named by a plain id");
         };
@@ -144,7 +138,7 @@ impl Engine {
         match body["step"].as_str() {
             Some("begin") => self.move_begin(entry, &body["manifest"]).await,
             Some("part") => self.move_part(entry, body),
-            Some("commit") => self.move_commit(held, entry, connectors).await,
+            Some("commit") => self.move_commit(held, entry).await,
             Some("status") => self.move_status(held, entry).await,
             Some("abort") => self.move_abort(held, entry).await,
             _ => refuse(400, "unknown step"),
@@ -227,6 +221,18 @@ impl Engine {
                 409,
                 "Spade isn't hosted on the machine this move comes from",
             );
+        }
+        // Fenced by the choice it began with: one held here that is newer was made since.
+        if main {
+            let began = super::HostRecord::parse(&manifest["host"]);
+            if self
+                .host_record()
+                .ok()
+                .flatten()
+                .is_some_and(|held| began.as_ref().is_none_or(|began| held.newer_than(began)))
+            {
+                return refuse(409, "Spade's host was chosen again since this move began");
+            }
         }
         let declared = match budget::declared(manifest) {
             Ok(declared) => declared,
@@ -434,7 +440,6 @@ impl Engine {
         self: &Arc<Self>,
         held: tokio::sync::OwnedMutexGuard<()>,
         entry: StoredMove,
-        connectors: Option<Arc<spade_connect::Connectors>>,
     ) -> InboxAnswer {
         match entry.state.as_str() {
             COMMITTED => {
@@ -474,7 +479,7 @@ impl Engine {
                     .flatten()
                     .unwrap_or(entry);
                 match entry.state.as_str() {
-                    RECEIVING => engine.arrive(&entry, connectors.as_deref()),
+                    RECEIVING => engine.arrive(&entry),
                     // Its rows are in: only its files and the cutover are left.
                     PLACING => engine.finish_placing(&entry),
                     _ => Err(super::arrive::Failed::Placing(format!(

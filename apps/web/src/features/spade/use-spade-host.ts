@@ -11,8 +11,9 @@ const offeredTo = new WeakMap<ClientApi, Set<string>>();
 
 /**
  * Keeps the fleet's choice of where Spade lives in step (ADR 0187): copies the newest host record
- * to every machine that holds an older one, and writes the first record once when no machine has
- * one, naming the Spade the person already has. It never switches a machine's Spade off and never
+ * to every machine that holds an older one (the machine it names first: the others check it
+ * there), and writes the first record once when no machine has one, naming the Spade the person
+ * already has. It never switches a machine's Spade off and never
  * picks a new host: only the person and a move do. Run once per window, by the Spade panel.
  */
 export function useSpadeHost({ machines, fresh, mains, settled }: SpadeHosting) {
@@ -46,7 +47,10 @@ export function useSpadeHost({ machines, fresh, mains, settled }: SpadeHosting) 
     const choice = sync.choice;
     if (!choice) return;
     const key = `${choice.host}@${choice.version}@${choice.at}`;
-    for (const host of sync.tell) {
+    // The machine the record names first: each other machine keeps it only once that one holds
+    // it, so they hear it on a later pass.
+    const tell = sync.tell.includes(choice.host) ? [choice.host] : sync.tell;
+    for (const host of tell) {
       const entry = seen.find((candidate) => candidate.host === host);
       if (!entry) continue;
       const offered = offeredTo.get(entry.client) ?? new Set<string>();

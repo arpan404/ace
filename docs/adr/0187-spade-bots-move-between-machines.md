@@ -46,13 +46,21 @@ routines and notes, but never its conversation, knowledge, workspace or anything
    a later `at`, then the higher `host`. A Spade shows its main bot only while the record names
    its own machine. A machine that holds no record yet keeps its old behaviour until it hears
    one, so nothing changes before the person's fleet has a choice.
-2. **Only the person and a move change it.** Nothing elects a host any more: the app's election
-   and its automatic switch-offs are removed. While the chosen machine is offline, Spade shows as
-   away, as any bot on an offline machine does (ADR 0127 decision 2), and comes back with it.
-3. **The first record is today's Spade.** A window that reads every machine and finds no record
-   on any writes one, once, naming the machine that shows Spade now (the oldest main if several
-   do, else the window's own machine). It then copies the newest record to every machine it
-   reaches that holds an older one, so the fleet agrees without a coordinator.
+2. **Only a move changes it.** Nothing elects a host any more: the app's election and its
+   automatic switch-offs are removed, and there is no host choice by hand: the person moves
+   Spade. A main move is started only by the current host (the record names it and its Spade is
+   in use) and taken only by a machine that holds no newer record than the one the move began
+   with; the record it produces is exactly one version on. While the chosen machine is offline,
+   Spade shows as away, as any bot on an offline machine does (ADR 0127 decision 2), and comes
+   back with it.
+3. **The first record is today's Spade, and records travel only as their host holds them.** A
+   window that reads every machine and finds no record on any writes one, once (`by: "seed"`),
+   naming the machine that shows Spade now (the oldest main if several do, else the window's own
+   machine), on that machine first. Every `PUT /v1/main/host` needs the person's stamp (the
+   daemon adds it, over the whole record). A machine takes a seed naming itself only while it
+   holds no record; it takes any record naming another machine only once that machine, asked
+   over this machine's own link (`op: "host"`), holds exactly that record. So the window copies
+   the newest record on to the rest, and no caller can assert a host the host itself doesn't.
 4. **Old switch-offs heal once.** `PUT /v1/main {"enabled": false}` was only ever sent by the
    election, so a stored switch-off is dropped the first time the machine learns a record, and the
    record alone decides from then on. A deliberate switch-off is a new, separate field
@@ -146,10 +154,14 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
     club, one of its listed settings, never a setting of the machine or of another bot); then
     every table must hold exactly the bots' rows with the manifest's counts and hashes, and nothing
     may point at a conversation, knowledge entry or routine that didn't come with it. **One
-    durable gate**, held at the store's boundary: in the same transaction that moves the arrival
+    durable gate**, held inside the store, in SQLite itself for writes: in the same transaction that moves the arrival
     to `activating`, before any row lands, the move claims every bot, conversation and club it
     carries `hidden` (`move_claims`). Every store read and write leaves out what a hidden claim
-    names, by each row's owner (its bot, its conversation or its club), so no message, routine,
+    names, by each row's owner (its bot, its conversation, its club, or the bot a per-bot
+    setting is keyed by): reads in each query, and writes by triggers on every moved table that
+    refuse any insert, change or delete of such a row on every connection, whatever store
+    operation makes it (so no operation can change a key an undo deletes by), unless the arrival
+    itself writes. So no message, routine,
     club, club run, note, knowledge entry, file, conversation list or API request reaches an
     arriving bot or acts as it, and no worker link of it reaches the index; no caller can forget
     the check. The claims are rows, so the gate holds through a restart with nothing to rebuild.
@@ -157,23 +169,33 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
     stored as `arriving` and their routines paused. Nothing holds Spade's connection for more than
     one batch, so the other bots' requests go on. The source reads its rows a page at a time too,
     and removes them in batches once the move took.
-12. **Taken only once it is all there, then in one transaction.** With the rows still behind the
-    gate (`placing`), the target places the workspace and images and flushes them and their
-    folders to disk. Only then does one transaction make the move this machine's: the bots get
+12. **Taken only once it is all there, then in one transaction, nothing acknowledged that a
+    power loss can undo.** With the rows still behind the gate (`placing`), the target places the
+    workspace folders and images. Files have the same journal as rows: each placement (a bot's
+    folder, a folder already there set aside, an image this machine didn't have) is recorded
+    durably (`move_files`) before it is done, and undoing puts back exactly what was recorded,
+    each record going only once that is on disk; the gate and the claims stay until every file
+    is back. Every folder made for the files, nested ones included, and every folder a rename
+    touched, is flushed to disk before anything acts on it. An image a move brings reads as none
+    until the move is this machine's; one the machine already had stays its own and is never
+    touched. Then the moved bots' app access is set to none in the person's apps (the hub's own
+    record) and, again, in one transaction that makes the move this machine's: the bots get
     their kinds, the gate opens, routines and webhooks, clubs, consent and `arrived` markers
-    change, Spade's host choice is written and this machine's quiet main retired, the person's
-    result line is kept and the move reads `committed`, all together; it runs only from
-    `placing`, so a cutover run twice does nothing. If placing fails it answers `503` and stays
-    `placing`; the source asks again, and the bot stays frozen on the source until the target
-    confirms. A retried commit, or a restart, finishes placing. A cutover refused (Spade in use
-    here, a stale host choice) takes out exactly what the move inserted, and its placed files.
-    **One lock per move**: every step of a move to here (`begin`, `part`, `commit`, `status`,
-    `abort`), its recovery and the sweep take it, and every change of its state is made only from
-    the state it expects, in the same transaction, so an abort or an expiry never removes staging
-    or lets claims go while a commit uses them. An abort before the cutover takes out what was
-    inserted; after it, it is refused. A copy cut off (an error, a crash) is undone as soon as the
-    next step, the sweep or a restart finds it (`activating` or `undoing` with nobody working on
-    it), never only at a restart, and the source's next commit writes it afresh.
+    change, app access is none, Spade's host choice is written and this machine's quiet main
+    retired, the person's result line is kept and the move reads `committed`, all together; it
+    runs only from `placing`, so a cutover run twice does nothing. Every write a move answers on
+    (its state, its claims, the file journal, the cutover) is committed with SQLite's full sync,
+    so an answered commit or abort survives a power loss; the source archives its copy only
+    after that answer. If placing fails it answers `503` and stays `placing`; the source asks
+    again, and the bot stays frozen on the source until the target confirms. A retried commit,
+    or a restart, finishes placing. A cutover refused (Spade in use here, a stale host choice)
+    takes out exactly what the move inserted and placed. **One lock per move**: every step of a
+    move to here (`begin`, `part`, `commit`, `status`, `abort`), its recovery and the sweep take
+    it, and every change of its state is made only from the state it expects, in the same
+    transaction, so an abort or an expiry never removes staging or lets claims go while a commit
+    uses them. An abort before the cutover takes out what was inserted and placed; after it, it
+    is refused. A copy cut off (an error, a crash) is undone as soon as the next step, the sweep
+    or a restart finds it, and the source's next commit writes it afresh.
 13. **A failure leaves the bot where it was, and a move never holds a bot forever.** Any refusal
     or check that fails before the commit undoes the move on both sides: the target drops its
     staging, the source unfreezes the bot, untouched. Before its commit a move has a stored
@@ -208,18 +230,24 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
 18. **The archive.** The source keeps its copy in `<data>/moved/<move>/` (the parts it sent, which
     hold no secret, and the workspace folders) for 30 days after the move ended. A sweep running
     every hour while Spade runs, never at start, removes at most five expired archives each time.
-19. **Moving the main Spade moves the choice with it.** The manifest carries the host record
-    the source held as it packed, which must name the source. The target makes the new record
-    itself, in the cutover transaction, never from what the commit carries: it names the accepted
-    destination (this machine), one version above the newer of that record and the one held
-    here. A record held here newer than the manifest's was chosen since the move began: the move
-    is stale and refused, and the source refuses to commit a stale one before it sends. Until the
-    cutover this machine's quiet main and its host record stay as they are. The source takes the
-    record from the commit's answer (it must name the target) and stores it as it finishes, so
-    the old machine's main goes quiet. Its copy there is archived like any moved bot's and its
-    rows removed, and a new, quiet main takes its place, so Spade can come back later without
-    meeting its old self (an arrival is insert-only). Windows copy the newer record to the rest of
-    the fleet.
+    The source's cleanup after the move took replays exactly the selection it froze at the start
+    (its bots, conversations, helpers' and clubs' included), kept with the move, never one rebuilt
+    from rows already half removed; any step of it that fails keeps the move `finishing` and the
+    bot frozen, and it runs again, until all of it is done: only then is the move done.
+19. **Moving the main Spade moves the choice with it, fenced by where it began.** The manifest
+    carries the host record the source held as it packed, which must name the source; the target
+    refuses the move at `begin`, and again at its cutover, if it holds a newer record (chosen
+    since: stale). The target makes the new record itself, in the cutover transaction, never from
+    what the commit carries: it names the accepted destination (this machine), exactly one
+    version above the record the move began with. Until the cutover this machine's quiet main
+    and its host record stay as they are. The source refuses to commit a stale move before it
+    first sends the commit, and takes the record from the commit's answer only if it is exactly
+    that one (`by: "move"`, naming the target, one version on); any other answer it asks again,
+    and it never makes one up. Once the commit is sent a main move never gives up for a machine
+    it can't reach or that left the fleet: giving up then could leave two Spades in use, so it
+    waits. The source stores the record as it finishes, so the old machine's main goes quiet;
+    its copy there is archived like any moved bot's and its rows removed, and a new, quiet main
+    takes its place.
 
 ### What the person sees
 
@@ -267,6 +295,13 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
   declared: each is refused or waits, and nothing of it is kept.
 - A large bot arriving never holds up the target's other bots' requests; an expired archive goes
   without a restart.
+- A machine stopped just before or just after the cutover (its answer lost) ends with the bot on
+  one machine, its nested folders in place; Spade arriving across a stop before its cutover
+  starts with no apps; a move given up after its files were placed puts back exactly those (a
+  folder set aside returns, an image the target had stays) and none of its images is read
+  meanwhile; mid-copy, no store operation writes an arriving club's rows and an abort takes all
+  it brought; an undo keeps the gate until the files it placed are back; only a stamped record
+  the named host holds, or the first seed, is kept, and nothing but a handoff makes a host.
 - A crash before the collision check, or between batches, takes out nothing the target had;
   rows copied in are found by no store read or write until the cutover; a worker linked to a bot
   outside the move is refused; a move the named machine never sent is refused, and its sender is

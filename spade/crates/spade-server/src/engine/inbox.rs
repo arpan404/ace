@@ -59,26 +59,20 @@ fn valid_key(key: &str) -> bool {
 impl Engine {
     /// One inbox request from `sender`.
     pub async fn inbox(self: &Arc<Self>, sender: &Sender, body: &Value) -> InboxAnswer {
-        self.inbox_with(sender, body, None).await
-    }
-
-    /// [`Engine::inbox`], with the person's connected apps here, which a moved bot's choices
-    /// among them are kept against (ADR 0187).
-    pub async fn inbox_with(
-        self: &Arc<Self>,
-        sender: &Sender,
-        body: &Value,
-        connectors: Option<Arc<spade_connect::Connectors>>,
-    ) -> InboxAnswer {
         match body["op"].as_str() {
             Some("bots") => self.inbox_bots(),
             Some("ask") => self.inbox_ask(sender, body),
             Some("answer") => self.inbox_answer(sender, body).await,
             Some("stop") => self.inbox_stop(sender, body),
-            Some("move") => self.inbox_move(sender, body, connectors).await,
+            Some("move") => self.inbox_move(sender, body).await,
             // How this machine's daemon knows the caller (ADR 0187): the device a move from it
             // is bound to once the person accepts it.
             Some("whoami") => (200, json!({ "sender": sender.host })),
+            // The host choice this machine holds, for one that checks a record naming it.
+            Some("host") => (
+                200,
+                json!({ "host": self.host_record().ok().flatten().map(|r| r.to_json()) }),
+            ),
             _ => refuse(400, "unknown op"),
         }
     }

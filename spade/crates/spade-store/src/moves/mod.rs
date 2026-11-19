@@ -8,7 +8,7 @@ mod stage;
 mod state;
 mod tables;
 
-pub use arrival::{Arrived, Cutover, Handover, MainActive};
+pub use arrival::{Arrived, Cutover, Handover, MainActive, Merge};
 pub use stage::Stage;
 pub use state::{Begun, OPEN_MOVE, StoredMove, arrival as arrival_state, open_state};
 pub use tables::{EVENTS, MOVE_TABLES, MoveTable, PER_BOT_SETTINGS, move_table};

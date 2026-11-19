@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::body::Body;
 use super::{AppState, problem};
-use crate::engine::{AcceptFor, HostRecord, MoveError};
+use crate::engine::{AcceptFor, HostRecord, HostRefused, MoveError};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -30,17 +30,33 @@ pub(super) async fn main_state(State(state): State<AppState>) -> Response {
     }
 }
 
-/// Keeps a newer host record; answers the one held after.
-async fn offer_host(State(state): State<AppState>, Body(body): Body<Value>) -> Response {
+/// A host record the person's window passes on (with their stamp, which ace's daemon adds):
+/// kept only as Spade's host changes, by a move (ADR 0187); answers the one held after.
+async fn offer_host(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Body(body): Body<Value>,
+) -> Response {
     let Some(record) = HostRecord::parse(&body) else {
         return problem(
             StatusCode::BAD_REQUEST,
             "a host record is {host, version, at, by}",
         );
     };
-    match state.engine.offer_host(&record) {
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|value| value.to_str().ok());
+    match state.engine.put_host(&record, stamp).await {
         Ok(held) => Json(json!({ "host": held.to_json() })).into_response(),
-        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        Err(error) => {
+            let status = match &error {
+                HostRefused::PersonOnly => StatusCode::FORBIDDEN,
+                HostRefused::Not(_) => StatusCode::CONFLICT,
+                HostRefused::Unreachable => StatusCode::SERVICE_UNAVAILABLE,
+                HostRefused::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            problem(status, &error.to_string())
+        }
     }
 }
 

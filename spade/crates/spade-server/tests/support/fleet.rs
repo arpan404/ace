@@ -314,6 +314,32 @@ pub fn stamp(target: &str, value: &str) -> String {
     spade_server::security::attest::sign(&PERSON_KEY, target, value, now_ms(), &nonce)
 }
 
+/// `PUT /v1/main/host` with `record` on `spade`, as the person's window passes it on: stamped
+/// unless `stamped` is false.
+pub async fn offer_host(spade: &Spade, record: &Value, stamped: bool) -> Result<(u16, Value)> {
+    let value = format!(
+        "host:{}:{}:{}:{}",
+        record["host"].as_str().unwrap_or_default(),
+        record["version"],
+        record["at"],
+        record["by"].as_str().unwrap_or_default()
+    );
+    let mut request = spade
+        .http
+        .put(format!("{}/v1/main/host", spade.base))
+        .bearer_auth(super::TOKEN)
+        .json(record);
+    if stamped {
+        request = request.header(
+            spade_server::security::attest::HEADER,
+            stamp("main-host", &value),
+        );
+    }
+    let answer = request.send().await?;
+    let status = answer.status().as_u16();
+    Ok((status, answer.json().await.unwrap_or(Value::Null)))
+}
+
 /// What the person accepts: `PUT /v1/moves/{move}/accept` with `accept` (`{bot, from, via, to,
 /// digest, replaces}`) on `spade`, stamped over all of it unless `stamped` is false.
 pub async fn accept(spade: &Spade, id: &str, accept: &Value, stamped: bool) -> Result<u16> {

@@ -453,9 +453,13 @@ impl Store {
     ) -> Result<()> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
+        // A club still arriving keeps its members as they came: its rows are the move's.
         tx.execute(
-            "UPDATE group_members SET machine = ?2 WHERE agent_id = ?1
-             AND machine = (SELECT machine FROM outbox WHERE key = ?3)",
+            &format!(
+                "UPDATE group_members SET machine = ?2 WHERE agent_id = ?1
+                 AND machine = (SELECT machine FROM outbox WHERE key = ?3)
+                 AND group_id NOT IN {ARRIVING_GROUPS}"
+            ),
             params![agent, machine, key],
         )?;
         tx.execute(
@@ -497,7 +501,10 @@ impl Store {
     /// Forgets asks delivered before `before_ms`; a retry of one that old is no longer expected.
     pub fn prune_inbox(&self, before_ms: i64) -> Result<usize> {
         Ok(self.lock()?.execute(
-            "DELETE FROM inbox WHERE created_ms < ?1",
+            &format!(
+                "DELETE FROM inbox WHERE created_ms < ?1
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![before_ms],
         )?)
     }
@@ -540,7 +547,10 @@ impl Store {
         let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let known: bool = tx
             .query_row(
-                "SELECT 1 FROM inbox WHERE from_host = ?1 AND key = ?2",
+                &format!(
+                    "SELECT 1 FROM inbox WHERE from_host = ?1 AND key = ?2
+                     AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+                ),
                 params![ask.from_host, ask.key],
                 |_| Ok(true),
             )
@@ -550,7 +560,10 @@ impl Store {
             return Ok(Delivered::Duplicate);
         }
         let sent: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2",
+            &format!(
+                "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2
+                 AND conversation_id NOT IN {ARRIVING_CONVERSATIONS}"
+            ),
             params![ask.from_host, delivery.since_ms],
             |row| row.get(0),
         )?;

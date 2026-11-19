@@ -236,7 +236,9 @@ impl Store {
     /// Sets the model of agents that have none (migrated ones whose conversation never replied).
     pub fn fill_missing_models(&self, model: &str) -> Result<()> {
         self.lock()?.execute(
-            "UPDATE agents SET model = ?1 WHERE model = ''",
+            &format!(
+                "UPDATE agents SET model = ?1 WHERE model = '' AND id NOT IN {ARRIVING_AGENTS}"
+            ),
             params![model],
         )?;
         Ok(())

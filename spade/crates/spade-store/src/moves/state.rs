@@ -34,6 +34,12 @@ pub(crate) const SCHEMA: &str = "
         PRIMARY KEY (kind, id)
     ) WITHOUT ROWID;
     CREATE INDEX move_claims_by_move ON move_claims (move_id);
+    CREATE TABLE move_files (
+        move_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        PRIMARY KEY (move_id, kind, name)
+    ) WITHOUT ROWID;
     CREATE TABLE move_rows (
         move_id TEXT NOT NULL,
         tbl TEXT NOT NULL,
@@ -162,7 +168,7 @@ impl Store {
     /// Stores a new move. False when that id is stored already, or the bot already has an open
     /// move that way: nothing is written then.
     pub fn insert_move(&self, entry: &StoredMove) -> Result<bool> {
-        let inserted = self.lock()?.execute(
+        let inserted = self.lock_durable()?.execute(
             &format!(
                 "INSERT INTO moves ({MOVE_COLUMNS}, open)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
@@ -210,7 +216,7 @@ impl Store {
         detail: &str,
         now_ms: i64,
     ) -> Result<bool> {
-        let mut connection = self.lock()?;
+        let mut connection = self.lock_durable()?;
         let tx = connection.transaction()?;
         if gated_move(&tx, id)? {
             return Err(StoreError::Arriving(id.to_owned()));
@@ -238,7 +244,7 @@ impl Store {
     /// when another open move holds any of it, so two moves never carry one bot, worker,
     /// conversation or club. Claiming what this move holds already is fine.
     pub fn claim_for_move(&self, id: &str, selection: &Selection) -> Result<bool> {
-        let mut connection = self.lock()?;
+        let mut connection = self.lock_durable()?;
         let tx = connection.transaction()?;
         if !claim_in(&tx, id, selection, false)? {
             return Ok(false);
@@ -258,7 +264,7 @@ impl Store {
         now_ms: i64,
         selection: &Selection,
     ) -> Result<Begun> {
-        let mut connection = self.lock()?;
+        let mut connection = self.lock_durable()?;
         let tx = connection.transaction()?;
         let moved = tx.execute(
             "UPDATE moves SET state = ?2, detail = ?3, updated_ms = ?4 WHERE id = ?1 AND state = ?5",
@@ -276,7 +282,7 @@ impl Store {
 
     /// Changes who the move is with, once that is known (the start reserves it first).
     pub fn set_move_peer(&self, id: &str, peer: &str, peer_name: &str) -> Result<()> {
-        self.lock()?.execute(
+        self.lock_durable()?.execute(
             "UPDATE moves SET peer = ?2, peer_name = ?3 WHERE id = ?1",
             params![id, peer, peer_name],
         )?;
@@ -285,7 +291,7 @@ impl Store {
 
     /// Names the bot an accepted move brings, once its manifest says so.
     pub fn set_move_identity(&self, id: &str, agent_name: &str, main: bool) -> Result<()> {
-        self.lock()?.execute(
+        self.lock_durable()?.execute(
             "UPDATE moves SET agent_name = ?2, main = ?3 WHERE id = ?1",
             params![id, agent_name, main],
         )?;
@@ -344,7 +350,7 @@ impl Store {
 
     /// The move's folders are gone.
     pub fn set_move_swept(&self, id: &str) -> Result<()> {
-        self.lock()?
+        self.lock_durable()?
             .execute("UPDATE moves SET swept = 1 WHERE id = ?1", params![id])?;
         Ok(())
     }

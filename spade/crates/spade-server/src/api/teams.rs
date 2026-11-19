@@ -406,10 +406,7 @@ async fn inbox(
     let Ok(body) = serde_json::from_slice::<Value>(&body) else {
         return problem(StatusCode::BAD_REQUEST, "the body is not JSON");
     };
-    let (status, answer) = state
-        .engine
-        .inbox_with(&InboxSender { host, name }, &body, state.connectors.clone())
-        .await;
+    let (status, answer) = state.engine.inbox(&InboxSender { host, name }, &body).await;
     (
         StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
         Json(answer),

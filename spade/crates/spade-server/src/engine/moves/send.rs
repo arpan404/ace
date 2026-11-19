@@ -335,6 +335,13 @@ impl Engine {
                         return Next::Again;
                     }
                     Ok((_, body)) => return Next::Fail(error_of(&body)),
+                    // Spade, the main bot: only the other machine knows whether it took, and
+                    // giving up here could leave two Spades in use. It waits, however long.
+                    Err(Next::Fail(_)) if entry.main => {
+                        self.update(entry, COMMITTING, |kept| kept["waiting"] = json!(true));
+                        tokio::time::sleep(LONGEST_WAIT).await;
+                        return Next::Again;
+                    }
                     Err(next) => return next,
                 }
             }
@@ -343,18 +350,18 @@ impl Engine {
         match status {
             200 => {
                 let arrival = body["arrival"].clone();
-                // The choice the other machine made as it took Spade: it must name it, one on
-                // from the choice the move began with.
-                let host = HostRecord::parse(&body["host"])
-                    .filter(|record| record.host == entry.peer)
-                    .or_else(|| {
-                        entry.main.then(|| HostRecord {
-                            host: entry.peer.clone(),
-                            version: self.began_host(entry).map_or(0, |r| r.version) + 1,
-                            at: self.now_ms(),
-                            by: "move".to_owned(),
-                        })
-                    });
+                // The choice the other machine made as it took Spade, and only that: it names
+                // that machine, exactly one version on from the choice the move began with. Any
+                // other answer is asked again; none is ever made up here.
+                let expected = self.began_host(entry).map_or(0, |r| r.version) + 1;
+                let host = HostRecord::parse(&body["host"]).filter(|record| {
+                    record.host == entry.peer && record.version == expected && record.by == "move"
+                });
+                if entry.main && host.is_none() {
+                    self.update(entry, COMMITTING, |kept| kept["waiting"] = json!(true));
+                    tokio::time::sleep(FIRST_WAIT).await;
+                    return Next::Again;
+                }
                 self.update(entry, FINISHING, |kept| {
                     kept["arrival"] = arrival;
                     kept["host"] = host.as_ref().map_or(Value::Null, HostRecord::to_json);
@@ -385,11 +392,16 @@ impl Engine {
         // Spade, the main bot: the choice names the other machine first, so this one's main
         // goes quiet; then its copy is archived like any bot's, and a new, quiet main takes its
         // place here, so Spade can come back later without meeting its old self.
-        if entry.main
-            && let Some(host) = HostRecord::parse(&kept["host"])
-            && let Err(error) = self.offer_host(&host)
-        {
-            tracing::error!(%error, "a moved Spade's host choice could not be stored");
+        if entry.main {
+            let stored = match HostRecord::parse(&kept["host"]) {
+                Some(host) => self.offer_host(&host).map_err(|e| e.to_string()),
+                None => Err("the other machine's host choice isn't known yet".to_owned()),
+            };
+            if let Err(error) = stored {
+                tracing::error!(%error, "a moved Spade's host choice could not be stored yet");
+                tokio::time::sleep(LONGEST_WAIT).await;
+                return Next::Again;
+            }
         }
         let (engine, finishing) = (self.clone(), entry.clone());
         let archived = tokio::task::spawn_blocking(move || engine.archive(&finishing)).await;
@@ -405,7 +417,9 @@ impl Engine {
         if entry.main
             && let Err(error) = self.ensure_main()
         {
-            tracing::error!(%error, "a quiet Spade could not be made here");
+            tracing::error!(%error, "a quiet Spade could not be made here yet");
+            tokio::time::sleep(LONGEST_WAIT).await;
+            return Next::Again;
         }
         self.update(entry, DONE, |_| {});
         self.thaw(&entry.id, &conversations);
@@ -437,14 +451,16 @@ impl Engine {
             std::fs::rename(&parts, paths::child(&archive, "parts")?).map_err(|e| e.to_string())?;
         }
         paths::remove_child(&self.data_dir().join("moves"), &entry.id)?;
-        let selection = self
-            .store
-            .move_selection(&agents)
-            .map_err(|e| e.to_string())?;
+        let list = |name: &str| strings(&kept["selection"][name]);
+        let selection = Selection {
+            agents: list("agents"),
+            conversations: list("conversations"),
+            groups: list("groups"),
+        };
         self.store
             .move_members(&agents, &entry.peer)
             .map_err(|e| e.to_string())?;
-        self.forget_moved(&selection);
+        self.forget_moved(&selection)?;
         for agent in &agents {
             if let Some(plugins) = self.plugins() {
                 plugins.forget(agent);
@@ -456,13 +472,14 @@ impl Engine {
         Ok(())
     }
 
-    /// Drops the rows of a bot that moved away, and what this Spade remembered of them.
-    fn forget_moved(&self, selection: &Selection) {
+    /// Drops the rows of a bot that moved away, and what this Spade remembered of them. A
+    /// failure is said, so the move isn't done (nor the bot let go) until they are gone.
+    fn forget_moved(&self, selection: &Selection) -> Result<(), String> {
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if let Err(error) = self.store.move_forget(selection) {
-                tracing::error!(%error, "a moved bot's rows could not be removed");
-            }
+            self.store
+                .move_forget(selection)
+                .map_err(|e| e.to_string())?;
             for conversation in &selection.conversations {
                 self.forget_activity(conversation);
             }
@@ -473,6 +490,7 @@ impl Engine {
         }
         drop(live);
         self.forget_tree();
+        Ok(())
     }
 
     /// Ends the move without it taking: tells the other machine to drop what it has, removes

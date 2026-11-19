@@ -275,19 +275,11 @@ async fn a_move_hears_only_from_the_device_the_person_accepted_it_from() -> Resu
 #[tokio::test]
 async fn spade_in_use_on_the_machine_it_moves_to_is_never_replaced() -> Result {
     let (_fleet, laptop, studio) = pair().await?;
-    // Each machine thinks it hosts Spade.
-    laptop
-        .put(
-            "/v1/main/host",
-            json!({ "host": "host-laptop", "version": 1, "at": 1, "by": "seed" }),
-        )
-        .await?;
-    studio
-        .put(
-            "/v1/main/host",
-            json!({ "host": "host-studio", "version": 1, "at": 1, "by": "seed" }),
-        )
-        .await?;
+    // Each machine thinks it hosts Spade: each was seeded as the first, apart.
+    for (spade, host) in [(&laptop, "host-laptop"), (&studio, "host-studio")] {
+        let seed = json!({ "host": host, "version": 1, "at": 1, "by": "seed" });
+        assert_eq!(support::fleet::offer_host(spade, &seed, true).await?.0, 200);
+    }
     let (_, all) = studio.get("/v1/agents").await?;
     let studio_spade = all["agents"][0]["id"].clone();
     let (_, all) = laptop.get("/v1/agents").await?;

@@ -479,7 +479,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows;",
+                 DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
         )?;
         connection.pragma_update(
             None,
@@ -594,7 +594,7 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
     {
         let connection = rusqlite::Connection::open(&path)?;
         connection
-            .execute_batch("DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows;")?;
+            .execute_batch("DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",

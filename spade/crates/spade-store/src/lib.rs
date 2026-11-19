@@ -29,8 +29,8 @@ pub use helpers::StoredHelper;
 pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
 pub use moves::{
     Arrived, Begun, Cursor, Cutover, EVENTS, Handover, MOVE_BATCH, MOVE_BATCH_BYTES, MOVE_TABLES,
-    MainActive, MoveTable, OPEN_MOVE, PER_BOT_SETTINGS, Row, RowSums, Selection, Stage, StoredMove,
-    TableSum, arrival_state, move_table, open_state,
+    MainActive, Merge, MoveTable, OPEN_MOVE, PER_BOT_SETTINGS, Row, RowSums, Selection, Stage,
+    StoredMove, TableSum, arrival_state, move_table, open_state,
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
@@ -60,9 +60,35 @@ pub enum StoreError {
     /// Only its arrival moves an arriving move on (ADR 0187).
     #[error("move {0} is arriving; only its arrival moves it on")]
     Arriving(String),
+    /// An arrival's placed files go back before its rows and its gate (ADR 0187).
+    #[error("move {0} still has files placed; they go back first")]
+    FilesPlaced(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
+
+/// The store's connection while what is written through it must reach the disk before each
+/// commit returns; back to the everyday `NORMAL` once let go.
+pub(crate) struct Durable<'a>(MutexGuard<'a, Connection>);
+
+impl std::ops::Deref for Durable<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Durable<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.0
+    }
+}
+
+impl Drop for Durable<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.pragma_update(None, "synchronous", "NORMAL");
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredEvent {
@@ -88,6 +114,8 @@ impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let mut connection = Connection::open(path)?;
         schema::prepare(&mut connection)?;
+        // The arriving gate (ADR 0187), held by SQLite itself on this connection.
+        gate::install(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -158,6 +186,14 @@ impl Store {
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>> {
         self.connection.lock().map_err(|_| StoreError::Poisoned)
+    }
+
+    /// The connection, every commit made through it synced to disk before it returns
+    /// (`synchronous = FULL`): for what a move acknowledges, which a power loss must not undo.
+    pub(crate) fn lock_durable(&self) -> Result<Durable<'_>> {
+        let connection = self.lock()?;
+        connection.pragma_update(None, "synchronous", "FULL")?;
+        Ok(Durable(connection))
     }
 
     pub fn create_conversation(&self, id: &str, now_ms: i64) -> Result<()> {

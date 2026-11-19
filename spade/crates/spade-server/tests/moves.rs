@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use spade_testkit::Script;
-use support::fleet::{Fleet, link, machine, move_bot, move_ends};
+use support::fleet::{Fleet, link, machine, move_bot, move_ends, offer_host};
 use support::{Result, Spade};
 
 async fn pair() -> Result<(Arc<Fleet>, Spade, Spade)> {
@@ -402,8 +402,16 @@ async fn api_keys_never_leave_the_machine() -> Result {
 async fn moving_spade_names_the_new_machine_its_host_and_the_old_ones_main_goes_quiet() -> Result {
     let (_fleet, laptop, studio) = pair().await?;
     let seed = json!({ "host": "host-laptop", "version": 1, "at": 1, "by": "seed" });
+    // Only the person passes a choice on; the studio keeps one naming the laptop only once the
+    // laptop holds it.
+    assert_eq!(offer_host(&laptop, &seed, false).await?.0, 403);
+    assert_eq!(
+        offer_host(&studio, &seed, true).await?.0,
+        409,
+        "the laptop holds none yet"
+    );
     for spade in [&laptop, &studio] {
-        let (status, body) = spade.put("/v1/main/host", seed.clone()).await?;
+        let (status, body) = offer_host(spade, &seed, true).await?;
         assert_eq!(status, 200, "{body}");
     }
     let (_, all) = laptop.get("/v1/agents").await?;
@@ -442,6 +450,21 @@ async fn moving_spade_names_the_new_machine_its_host_and_the_old_ones_main_goes_
     assert_eq!(there["host"]["version"], 2);
     assert_eq!(there["shown"], true);
     assert_eq!(here["shown"], false);
+    // Nothing but that handoff makes a host: a choice by hand, a seed after the first, or a
+    // made-up move record the machine it names never made are all refused.
+    for made_up in [
+        json!({ "host": "host-laptop", "version": 9, "at": 9, "by": "person" }),
+        json!({ "host": "host-laptop", "version": 9, "at": 9, "by": "seed" }),
+        json!({ "host": "host-laptop", "version": 9, "at": 9, "by": "move" }),
+    ] {
+        let (status, body) = offer_host(&studio, &made_up, true).await?;
+        assert!(status == 409 || status == 503, "{made_up}: {status} {body}");
+        let (status, _) = offer_host(&laptop, &made_up, true).await?;
+        assert!(status == 409 || status == 503, "{made_up}: {status}");
+    }
+    let (_, there) = studio.get("/v1/main").await?;
+    assert_eq!(there["host"]["host"], "host-studio");
+    assert_eq!(there["shown"], true);
     Ok(())
 }
 
@@ -465,7 +488,7 @@ async fn the_old_elections_switch_off_heals_once_a_host_choice_arrives_but_the_p
     laptop.put("/v1/main", json!({ "enabled": false })).await?;
     assert_eq!(mains(&laptop.get("/v1/agents").await?.1), 0);
     let choice = json!({ "host": "host-laptop", "version": 1, "at": 5, "by": "seed" });
-    laptop.put("/v1/main/host", choice).await?;
+    assert_eq!(offer_host(&laptop, &choice, true).await?.0, 200);
     assert_eq!(mains(&laptop.get("/v1/agents").await?.1), 1, "healed");
     // The old app's switch changes nothing now; the person's own does, and stays.
     laptop.put("/v1/main", json!({ "enabled": false })).await?;
@@ -473,13 +496,12 @@ async fn the_old_elections_switch_off_heals_once_a_host_choice_arrives_but_the_p
     laptop
         .put("/v1/main", json!({ "enabled": false, "by": "person" }))
         .await?;
-    let newer = json!({ "host": "host-laptop", "version": 2, "at": 6, "by": "person" });
-    laptop.put("/v1/main/host", newer).await?;
     assert_eq!(mains(&laptop.get("/v1/agents").await?.1), 0);
-    // An older record never replaces a newer one.
-    let older = json!({ "host": "host-studio", "version": 1, "at": 9, "by": "seed" });
-    let (_, held) = laptop.put("/v1/main/host", older).await?;
-    assert_eq!(held["host"]["host"], "host-laptop");
+    // A choice made by hand is no host change: only a move is.
+    let by_hand = json!({ "host": "host-laptop", "version": 2, "at": 6, "by": "person" });
+    assert_eq!(offer_host(&laptop, &by_hand, true).await?.0, 409);
+    let (_, main) = laptop.get("/v1/main").await?;
+    assert_eq!(main["host"]["version"], 1);
     Ok(())
 }
 

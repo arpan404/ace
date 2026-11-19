@@ -83,6 +83,32 @@ pub(super) fn under(root: &Path, path: &str) -> Option<PathBuf> {
 }
 
 /// Flushes a folder's entries to disk, so a rename into it survives a crash.
+/// Flushes `root` and every folder under it, deepest first (none there is fine): what was made
+/// in them reaches the disk before anything acts on it.
+pub(super) fn sync_tree(root: &Path) -> Result<(), String> {
+    let Ok(meta) = std::fs::symlink_metadata(root) else {
+        return Ok(());
+    };
+    if !meta.is_dir() {
+        return Ok(());
+    }
+    let mut stack = vec![root.to_path_buf()];
+    let mut dirs = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+                stack.push(entry.path());
+            }
+        }
+        dirs.push(dir);
+    }
+    for dir in dirs.iter().rev() {
+        sync_dir(dir)?;
+    }
+    Ok(())
+}
+
 pub(super) fn sync_dir(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {

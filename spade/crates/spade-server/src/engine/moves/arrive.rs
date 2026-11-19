@@ -93,6 +93,9 @@ impl Iterator for StagedRows {
     }
 }
 
+/// The setting the person's apps keep each bot's access in (`spade_connect`).
+const APP_ACCESS: &str = "connectors.access";
+
 /// A file or image the inventory names: its kind and where it goes.
 type Key = (String, String, String);
 
@@ -259,11 +262,7 @@ impl Engine {
     /// Writes the staged move here (it reads `receiving`). Answers what needs the person once
     /// the move took, else why not: refused (nothing of it kept, the move given up) or not done
     /// yet (ask again).
-    pub(super) fn arrive(
-        &self,
-        entry: &StoredMove,
-        connectors: Option<&spade_connect::Connectors>,
-    ) -> Result<Value, Failed> {
+    pub(super) fn arrive(&self, entry: &StoredMove) -> Result<Value, Failed> {
         let kept = detail(entry);
         let manifest = &kept["manifest"];
         let refuse = |problem: String| {
@@ -286,6 +285,10 @@ impl Engine {
         }
         let expected_files = inventory(&parts, manifest, &agents).map_err(&refuse)?;
         assemble(&staging, &parts, &expected_files).map_err(&refuse)?;
+        // Every folder made for them reaches the disk before anything is placed from it.
+        for name in ["files", "images"] {
+            paths::sync_tree(&staging.join(name)).map_err(&refuse)?;
+        }
         let expected: BTreeMap<String, TableSum> = manifest["tables"]
             .as_object()
             .map(|tables| {
@@ -379,15 +382,7 @@ impl Engine {
                 return Err(Failed::Placing(error.to_string()));
             }
         }
-        // Its apps start at none.
-        if let Some(hub) = connectors {
-            for agent in &agents {
-                let none = spade_connect::Access::Only(BTreeSet::new());
-                if let Err(error) = hub.set_access(agent, none) {
-                    tracing::warn!(%error, "a moved bot's apps could not be set to none");
-                }
-            }
-        }
+        self.at_point("copied");
         let placing = self
             .store
             .stored_move(&entry.id)
@@ -404,20 +399,19 @@ impl Engine {
         let held = self.store.stored_move(id).ok().flatten();
         let mut kept = held.as_ref().map(detail).unwrap_or_else(|| json!({}));
         kept["problem"] = json!(problem);
-        match self
-            .store
-            .move_arrive_undo(id, ABORTED, &kept.to_string(), self.now_ms())
-        {
+        let undone = self.unplace(id).and_then(|()| {
+            self.store
+                .move_arrive_undo(id, ABORTED, &kept.to_string(), self.now_ms())
+                .map_err(|e| e.to_string())
+        });
+        match undone {
             Ok(_) => {
-                if let Some(entry) = &held {
-                    self.unplace(entry);
-                }
                 if let Err(error) = paths::remove_child(&self.data_dir().join("moves"), id) {
                     tracing::warn!(%error, "a given-up move's staging could not be removed");
                 }
             }
             Err(error) => {
-                tracing::error!(%error, "a given-up move's rows could not be taken out yet")
+                tracing::error!(%error, "a given-up move isn't taken out yet; it carries on later")
             }
         }
         Failed::Refused(problem.to_owned())
@@ -433,10 +427,12 @@ impl Engine {
         };
         match entry.state.as_str() {
             ACTIVATING | UNDOING => {
-                if let Err(error) =
+                let undone = self.unplace(id).and_then(|()| {
                     self.store
                         .move_arrive_undo(id, RECEIVING, &entry.detail, self.now_ms())
-                {
+                        .map_err(|e| e.to_string())
+                });
+                if let Err(error) = undone {
                     tracing::error!(%error, "a cut-off move's rows could not be taken out yet");
                 }
             }
@@ -447,6 +443,18 @@ impl Engine {
             }
             _ => {}
         }
+    }
+
+    /// Tells a test the point an arrival reached.
+    fn at_point(&self, point: &str) {
+        #[cfg(feature = "test-hooks")]
+        {
+            let hold = super::lock(&self.moves.at_point).clone();
+            if let Some(hold) = hold {
+                hold(point);
+            }
+        }
+        let _ = point;
     }
 
     /// Lets a test hold an arrival between its batches.
@@ -530,9 +538,9 @@ impl Engine {
         let here = self.here();
         let main_active =
             |read: &dyn Fn(&str) -> Option<String>| main_active_with(read, here.as_deref());
-        // Spade's new host choice is made here, from the choice the accepted manifest began
-        // with: it names this machine, the move's accepted destination, one version on. One held
-        // here that is newer than that was chosen since: the move is stale and refused.
+        // Spade's new host choice is made here, only from the choice the accepted manifest began
+        // with: it names this machine, the move's accepted destination, exactly one version on.
+        // One held here newer than that was chosen since: the move is stale and refused.
         let began = HostRecord::parse(&kept["manifest"]["host"]);
         let to = kept["to"].as_str().unwrap_or_default().to_owned();
         let now = self.now_ms();
@@ -546,13 +554,7 @@ impl Engine {
             {
                 return None;
             }
-            let version = held
-                .iter()
-                .chain(began.iter())
-                .map(|r| r.version)
-                .max()
-                .unwrap_or(0)
-                + 1;
+            let version = began.as_ref().map_or(0, |r| r.version) + 1;
             let record = HostRecord {
                 host: to.clone(),
                 version,
@@ -581,6 +583,26 @@ impl Engine {
                 committed.to_string(),
             )
         };
+        // Its apps start at none, before it can be anyone's: in the hub (which keeps the whole
+        // map), and the same in the cutover's own transaction, so no path publishes it with more.
+        if let Some(grants) = self.connector_grants() {
+            for agent in &selection.agents {
+                grants.grant(agent, BTreeSet::new()).map_err(placing)?;
+            }
+        }
+        let none =
+            serde_json::to_value(spade_connect::Access::Only(BTreeSet::new())).unwrap_or_default();
+        let deny = |held: Option<&str>| {
+            let mut access: serde_json::Map<String, Value> = held
+                .and_then(|text| serde_json::from_str(text).ok())
+                .unwrap_or_default();
+            for agent in &selection.agents {
+                access.insert(agent.clone(), none.clone());
+            }
+            Value::Object(access).to_string()
+        };
+        let merges: [spade_store::Merge<'_>; 1] = [(APP_ACCESS, &deny)];
+        self.at_point("placed");
         let cutover = Cutover {
             move_id: &entry.id,
             now_ms: now,
@@ -599,12 +621,14 @@ impl Engine {
                 clear: &[MAIN_ENABLED, MAIN_OFF],
             }),
             arrival: &arrival,
+            merges: &merges,
         };
         match self.store.move_arrive_cutover(&cutover) {
             Ok(Ok(_)) => {}
             Ok(Err(problem)) => return Err(self.abandon(&entry.id, &problem)),
             Err(error) => return Err(placing(error.to_string())),
         }
+        self.at_point("committed");
         for conversation in &selection.conversations {
             self.forget_activity(conversation);
         }
@@ -618,34 +642,62 @@ impl Engine {
         Ok(answer.into_inner())
     }
 
-    /// Puts the staged workspace files and images in place, each flushed: a folder already
-    /// where a bot's goes (of no bot here: its id is new here) is set aside in the archive,
-    /// never removed. Each step can run again.
+    /// Puts the staged workspace folders and images in place, each step recorded durably before
+    /// it is done (`move_file_record`), so undoing puts back exactly what was placed; then every
+    /// folder a rename touched is flushed. A folder already where a bot's goes (of no bot here:
+    /// its id is new here) is set aside in the archive, never removed. An image this machine
+    /// already had stays its own. Each step can run again.
     fn place(&self, entry: &StoredMove) -> Result<(), String> {
-        let kept = detail(entry);
+        let id = &entry.id;
         let data = self.data_dir();
         let staging = self
-            .moves_dir(&entry.id)
+            .moves_dir(id)
             .and_then(|folder| paths::child(&folder, "in"))?;
-        let agents = manifest_agents(&kept["manifest"]).unwrap_or_default();
+        let agents = manifest_agents(&detail(entry)["manifest"]).unwrap_or_default();
+        let journal: BTreeSet<(String, String)> = self
+            .store
+            .move_files_of(id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .collect();
+        let has = |kind: &str, name: &str| journal.contains(&(kind.to_owned(), name.to_owned()));
+        let record = |kind: &str, name: &str| {
+            self.store
+                .move_file_record(id, kind, name)
+                .map_err(|e| e.to_string())
+        };
         let workspaces = data.join("workspace");
         std::fs::create_dir_all(&workspaces).map_err(|e| e.to_string())?;
         let files = paths::child(&staging, "files")?;
+        let aside = paths::child(&data.join("moved"), id)
+            .and_then(|archive| paths::child(&archive, "replaced"))?;
         for agent in &agents {
             let from = paths::child(&files, agent)?;
             if !from.exists() {
+                // None came, or it is in place already.
                 continue;
             }
             let to = paths::child(&workspaces, agent)?;
-            if to.exists() {
-                let aside = paths::child(&data.join("moved"), &entry.id)
-                    .and_then(|archive| paths::child(&archive, "replaced"))?;
+            if to.exists() && !has("workspace", agent) {
                 std::fs::create_dir_all(&aside).map_err(|e| e.to_string())?;
+                record("aside", agent)?;
                 std::fs::rename(&to, paths::child(&aside, agent)?).map_err(|e| e.to_string())?;
+                paths::sync_dir(&aside)?;
+                paths::sync_dir(aside.parent().unwrap_or(&aside))?;
             }
+            record("workspace", agent)?;
             std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
         }
         paths::sync_dir(&workspaces)?;
+        // A move that brought no files or images made no folder for them.
+        let flush = |dir: &std::path::Path| {
+            if dir.is_dir() {
+                paths::sync_dir(dir)
+            } else {
+                Ok(())
+            }
+        };
+        flush(&files)?;
         let images = paths::child(&staging, "images")?;
         if let Ok(staged) = std::fs::read_dir(&images) {
             for image in staged.filter_map(|e| e.ok()) {
@@ -654,35 +706,66 @@ impl Engine {
                     continue;
                 }
                 let to = self.images.dir().join(&name);
-                if !to.exists() {
-                    std::fs::rename(image.path(), to).map_err(|e| e.to_string())?;
+                if to.exists() {
+                    continue;
                 }
+                record("image", &name)?;
+                std::fs::rename(image.path(), to).map_err(|e| e.to_string())?;
             }
         }
-        paths::sync_dir(self.images.dir())
+        paths::sync_dir(self.images.dir())?;
+        flush(&images)
     }
 
-    /// Takes a given-up arrival's placed workspaces out again and puts back what was set aside.
-    /// Images stay: they are named by their hash, and may be another's too.
-    fn unplace(&self, entry: &StoredMove) {
+    /// Puts back what this arrival placed, as recorded and only that: each image it added and
+    /// each workspace folder goes back into its staging, each folder it set aside returns; each
+    /// record goes only once that is on disk. The move's rows and gate stay until none is left.
+    fn unplace(&self, id: &str) -> Result<(), String> {
         let data = self.data_dir();
+        let staging = self
+            .moves_dir(id)
+            .and_then(|folder| paths::child(&folder, "in"))?;
+        let files = paths::child(&staging, "files")?;
+        let images = paths::child(&staging, "images")?;
         let workspaces = data.join("workspace");
-        let aside = paths::child(&data.join("moved"), &entry.id)
-            .and_then(|archive| paths::child(&archive, "replaced"));
-        for agent in manifest_agents(&detail(entry)["manifest"]).unwrap_or_default() {
-            if let Err(error) = paths::remove_child(&workspaces, &agent) {
-                tracing::warn!(%error, "a given-up move's workspace could not be removed");
-                continue;
+        let aside = paths::child(&data.join("moved"), id)
+            .and_then(|archive| paths::child(&archive, "replaced"))?;
+        let journal = self.store.move_files_of(id).map_err(|e| e.to_string())?;
+        // Placed ones first, then what was set aside, into the places they free.
+        let order = |kind: &str| match kind {
+            "aside" => 1,
+            _ => 0,
+        };
+        let mut journal = journal;
+        journal.sort_by_key(|(kind, _)| order(kind));
+        for (kind, name) in journal {
+            let (placed, back) = match kind.as_str() {
+                "workspace" => (
+                    paths::child(&workspaces, &name)?,
+                    paths::child(&files, &name)?,
+                ),
+                "image" if is_sha256(&name) => (self.images.dir().join(&name), images.join(&name)),
+                "aside" => (
+                    paths::child(&aside, &name)?,
+                    paths::child(&workspaces, &name)?,
+                ),
+                _ => continue,
+            };
+            // Recorded before it was done: if it never was, there is nothing to put back.
+            if placed.exists() && !back.exists() {
+                if let Some(parent) = back.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::rename(&placed, &back).map_err(|e| e.to_string())?;
+                for dir in [placed.parent(), back.parent()].into_iter().flatten() {
+                    paths::sync_dir(dir)?;
+                }
             }
-            if let Ok(aside) = &aside
-                && let Ok(kept) = paths::child(aside, &agent)
-                && kept.exists()
-                && let Ok(back) = paths::child(&workspaces, &agent)
-                && let Err(error) = std::fs::rename(&kept, back)
-            {
-                tracing::warn!(%error, "a set-aside workspace could not be put back");
-            }
+            self.store
+                .move_file_reverted(id, &kind, &name)
+                .map_err(|e| e.to_string())?;
         }
+        Ok(())
     }
 }
 

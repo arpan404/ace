@@ -26,12 +26,15 @@ const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
 /** A move's or a bot's id, as Spade takes them: one plain name. */
 const plainId = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const machineAutonomy = "/v1/security/autonomy";
+/** Passing Spade's host choice on to this machine (ADR 0187). */
+const mainHost = "/v1/main/host";
 
 /** The route a guarded change goes to, whatever its body; undefined for every other request. */
 export function personOnlyRoute(method: string, path: string): string | undefined {
   if (method !== "PUT") return undefined;
   const bare = path.split("?")[0] ?? "";
   if (bare === machineAutonomy) return "machine";
+  if (bare === mainHost) return "main-host";
   // Accepting a bot moving here: always the person's, whatever the body says.
   const move = moveAccept.exec(bare)?.[1];
   if (move !== undefined) return `move:${move}`;
@@ -57,6 +60,7 @@ export function personOnlyWrite(
   const target = personOnlyRoute(method, path);
   if (target === undefined) return undefined;
   if (target.startsWith("move:")) return moveAcceptWrite(target, body);
+  if (target === "main-host") return hostWrite(target, body);
   let value: unknown;
   try {
     value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
@@ -115,4 +119,28 @@ function moveAcceptWrite(target: string, body: Buffer | undefined): PersonOnlyWr
   if (!plain || !digest || !/^[0-9a-f]{64}$/.test(digest)) return undefined;
   if (replaces !== "bot" && replaces !== "main") return undefined;
   return { target, value: `accept:${bot}:${from}:${via}:${to}:${digest}:${replaces}` };
+}
+
+/**
+ * Passing Spade's host choice on (ADR 0187): the whole record as Spade checks it (the host, the
+ * version, the time and who made it), or nothing to stamp when it isn't one Spade takes.
+ */
+function hostWrite(target: string, body: Buffer | undefined): PersonOnlyWrite | undefined {
+  let value: unknown;
+  try {
+    value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
+  } catch {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const host: unknown = Reflect.get(value, "host");
+  const version: unknown = Reflect.get(value, "version");
+  const at: unknown = Reflect.get(value, "at");
+  const by: unknown = Reflect.get(value, "by");
+  if (typeof host !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(host)) return undefined;
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1)
+    return undefined;
+  if (typeof at !== "number" || !Number.isSafeInteger(at)) return undefined;
+  if (by !== "seed" && by !== "move") return undefined;
+  return { target, value: `host:${host}:${version}:${at}:${by}` };
 }

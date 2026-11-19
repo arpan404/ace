@@ -192,9 +192,13 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// A setting; one of a bot still arriving (ADR 0187) reads as none.
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
-        Ok(self
-            .lock()?
+        let connection = self.lock()?;
+        if crate::gate::setting_arriving(&connection, key)? {
+            return Ok(None);
+        }
+        Ok(connection
             .query_row(
                 "SELECT value FROM settings WHERE key = ?1",
                 params![key],
