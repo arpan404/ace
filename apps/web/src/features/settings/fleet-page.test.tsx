@@ -100,6 +100,32 @@ test("Link all from a window that can't grant Projects there links without them 
   expect(screen.queryByText(/Pair it again as Administrator/)).toBeNull();
 }, 30_000);
 
+test("Link all keeps a link another window made meanwhile, granting more, and doesn't claim it", async () => {
+  // This window can't grant Projects on the build server, so its own link there would lack them.
+  const app = harness({
+    machines: [{ hostId: "build", name: "Build server", scopes: ["read", "operate", "admin"] }],
+  });
+  const remote = app.machines.get("build");
+  if (!remote) throw new Error("Missing machine");
+  await app.open("/settings/remote");
+  const machines = await region("Machines");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  const linkAll = await within(machines).findByRole("button", { name: "Link all machines" });
+  // Another window links this computer to the build server with Projects; this one hasn't seen it.
+  app.daemon.linkTo(remote);
+  const before = app.daemon.services.fleet.links();
+  await userEvent.click(linkAll);
+  await waitFor(() =>
+    expect(remote.services.fleet.links()).toMatchObject([{ hostId: "this-mac", projects: true }]),
+  );
+  // The link made meanwhile stands, and nothing says this window linked it without Projects.
+  expect(app.daemon.services.fleet.links()).toEqual(before);
+  expect(before).toMatchObject([{ hostId: "build", projects: true }]);
+  expect(screen.queryByText(/Linked without Projects on Build server/)).toBeNull();
+  // The pairing link it would have used is cancelled, not left open.
+  await waitFor(() => expect(remote.access.pendingPairings()).toEqual([]));
+}, 30_000);
+
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {
   const { app, remote } = withBuildServer();
   remote.services.settings.write("remote.enabled", false);

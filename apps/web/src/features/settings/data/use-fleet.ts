@@ -73,18 +73,24 @@ export function useFleet() {
       ]),
     );
 
-  /** Link every direction in `wanted`, one after another so each machine pairs once at a time. */
+  /**
+   * Link every direction in `wanted`, one after another so each machine pairs once at a time. A
+   * direction linked meanwhile keeps its link. Answers how many directions it linked.
+   */
   const link = useMutation({
-    mutationFn: async (wanted: readonly LinkGap[]) => {
+    mutationFn: async (wanted: readonly LinkGap[]): Promise<{ linked: number }> => {
       const failures: string[] = [];
       const withoutProjects: Machine[] = [];
+      let linked = 0;
       for (const gap of wanted) {
         const from = byId(gap.from);
         const to = byId(gap.to);
         if (!from || !to) continue;
         try {
-          const linked = await linkMachine(from, to, "operate");
-          if (!linked.projects && !withoutProjects.includes(to)) withoutProjects.push(to);
+          const made = await linkMachine(from, to, "operate");
+          if (made.kind === "kept") continue;
+          linked++;
+          if (!made.projects && !withoutProjects.includes(to)) withoutProjects.push(to);
         } catch (error) {
           failures.push(
             error instanceof Error ? error.message : `${from.name} didn't link to ${to.name}.`,
@@ -99,6 +105,7 @@ export function useFleet() {
           description: `This device can't grant Projects on ${to.name}, so work can't move there yet. Allow projects on ${to.name}'s page in Settings › Fleet.`,
         });
       if (failures.length) throw new Error(failures.join("\n"));
+      return { linked };
     },
   });
 

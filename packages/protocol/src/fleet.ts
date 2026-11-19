@@ -48,6 +48,12 @@ const FleetOperation = z.discriminatedUnion("op", [
     pairingUrl: z.string().min(1).max(4096),
     hostId: HostId,
     name: z.string().min(1).max(256),
+    /**
+     * Only fill a missing link: refused as `exists`, before the pairing is redeemed, while this
+     * machine holds a link to that one or is making one. Redeeming replaces the link's device
+     * there, so a link made meanwhile, perhaps granting more, is never replaced by this one.
+     */
+    keep: z.literal(true).optional(),
   }),
   z.object({ op: z.literal("unlink"), hostId: HostId }),
   /** Issue a one-time pairing link on this machine. */

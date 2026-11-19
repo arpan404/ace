@@ -14,6 +14,7 @@ const fleetCodes: Record<FleetError["code"], string> = {
   unreachable: "unavailable",
   refused: "refused",
   limit: "limit",
+  exists: "exists",
 };
 
 /** A refusal's wire code and person-facing words; anything unexpected stays generic. */

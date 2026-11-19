@@ -72,6 +72,11 @@ export class FakeFleet {
         return { kind: "links", links: this.links() };
       case "link": {
         const previous = this.entries.find((entry) => entry.hostId === operation.hostId);
+        if (operation.keep && previous)
+          return {
+            code: "exists",
+            message: "This machine is already linked to that one. Its link stays.",
+          };
         const profile =
           previous?.profile ??
           slug(
