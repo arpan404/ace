@@ -15,6 +15,7 @@ const fleetCodes: Record<FleetError["code"], string> = {
   refused: "refused",
   limit: "limit",
   exists: "exists",
+  busy: "busy",
 };
 
 /** A refusal's wire code and person-facing words; anything unexpected stays generic. */

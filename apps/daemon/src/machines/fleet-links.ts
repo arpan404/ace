@@ -6,7 +6,7 @@ import { MachineFailure } from "./transport.ts";
 
 /** A link operation refused, in words a person acts on. Never carries a credential. */
 export class FleetError extends Error {
-  readonly code: "invalid" | "not_found" | "unreachable" | "refused" | "limit" | "exists";
+  readonly code: "invalid" | "not_found" | "unreachable" | "refused" | "limit" | "exists" | "busy";
   constructor(code: FleetError["code"], message: string) {
     super(message);
     this.code = code;
@@ -119,27 +119,41 @@ export class FleetLinks {
       (!relayed && (!link.daemon.startsWith("https:") || !/^[a-f0-9]{64}$/.test(link.fingerprint)))
     )
       throw new FleetError("invalid", "That pairing link isn't complete. Copy it again.");
-    const capacity = this.withProfiles((store) => {
-      const existing = store.list();
-      return existing.length < 64 || existing.some((entry) => entry.hostId === input.hostId);
-    });
-    if (!capacity)
-      throw new FleetError("limit", "This machine has 64 links already. Remove one first.");
     const name = (await this.deps.hostName()).slice(0, 256) || "ace";
-    // Checked after the last wait and right before redeeming: redeeming replaces this machine's
-    // device there, so a link that only fills a gap never replaces one saved or being made.
-    if (
-      input.keep &&
-      (this.linking.has(input.hostId) ||
-        this.withProfiles((store) => store.list().some((entry) => entry.hostId === input.hostId)))
-    )
-      throw new FleetError("exists", "This machine is already linked to that one. Its link stays.");
-    this.linking.add(input.hostId);
+    // Reserved after the last wait and right before redeeming, for every link: one link per
+    // machine at a time, since redeeming replaces this machine's device there and a later
+    // answer would save a credential already replaced; and a slot of the 64, so two new links
+    // can't both redeem when only one can be saved. Released when the link ends either way.
+    this.reserve(input.hostId, input.keep === true);
     try {
       return await this.redeemAndSave(input, link, relayed, name);
     } finally {
       this.linking.delete(input.hostId);
     }
+  }
+  /** Holds `hostId` for one link being made, or refuses in words a person acts on. */
+  private reserve(hostId: HostId, keep: boolean): void {
+    const refusal = this.withProfiles((store): FleetError | undefined => {
+      const existing = store.list();
+      const held = existing.some((entry) => entry.hostId === hostId);
+      if (this.linking.has(hostId))
+        return keep
+          ? new FleetError("exists", "This machine is already linking to that one. Its link stays.")
+          : new FleetError("busy", "A link to that machine is being made. Try again in a moment.");
+      if (keep && held)
+        return new FleetError(
+          "exists",
+          "This machine is already linked to that one. Its link stays.",
+        );
+      const pending = [...this.linking].filter(
+        (other) => !existing.some((entry) => entry.hostId === other),
+      ).length;
+      if (!held && existing.length + pending >= 64)
+        return new FleetError("limit", "This machine has 64 links already. Remove one first.");
+      return undefined;
+    });
+    if (refusal) throw refusal;
+    this.linking.add(hostId);
   }
   private async redeemAndSave(
     input: { pairingUrl: string; hostId: HostId; name: string },

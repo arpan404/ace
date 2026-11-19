@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { pairingLinkUrl } from "@ace/client/access";
-import { Device, HostId, type DeviceCredential } from "@ace/protocol";
+import { Device, DeviceId, DeviceToken, HostId, type DeviceCredential } from "@ace/protocol";
 import { Profiles } from "../cli/profiles.ts";
 import { FleetLinks, profileSlug } from "./fleet-links.ts";
 
@@ -67,7 +67,30 @@ async function fleet() {
       profiles.close();
     }
   };
-  return { links, redeemed, saved, finish: () => waiting.splice(0).forEach((go) => go()) };
+  /** Links saved before the test, to `count` other machines. */
+  const seed = (count: number) => {
+    const profiles = new Profiles(home);
+    try {
+      for (let n = 0; n < count; n++)
+        profiles.add({
+          name: `seeded-${n}`,
+          origin: "https://seeded.local:5870/",
+          fingerprint: "b".repeat(64),
+          deviceId: DeviceId.parse(`seeded-device-${n}`),
+          token: DeviceToken.parse("d".repeat(64)),
+          hostId: HostId.parse(`host-seeded-${n}`),
+        });
+    } finally {
+      profiles.close();
+    }
+  };
+  return {
+    links,
+    redeemed,
+    saved,
+    seed,
+    finish: () => waiting.splice(0).forEach((go) => go()),
+  };
 }
 
 it("filling a gap never redeems over a link to that machine made meanwhile, and says so", async () => {
@@ -116,4 +139,53 @@ it("a link made again on purpose still replaces the one held", async () => {
   finish();
   await again;
   expect(saved()).toEqual(["device-2"]);
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+it("a link made again while a gap-filling link to that machine redeems waits its turn", async () => {
+  const { links, redeemed, saved, finish } = await fleet();
+  const filling = links.link({
+    pairingUrl: pairing("code-fill", ["read", "operate", "projects"]),
+    hostId: studio,
+    name: "Studio",
+    keep: true,
+  });
+  await settle();
+  // Redeeming a second pairing there now would replace the device the first one is getting.
+  await expect(
+    links.link({
+      pairingUrl: pairing("code-again", ["read", "operate"]),
+      hostId: studio,
+      name: "Studio",
+    }),
+  ).rejects.toMatchObject({ code: "busy" });
+  finish();
+  await filling;
+  expect(redeemed).toHaveLength(1);
+  expect(saved()).toEqual(["device-1"]);
+});
+
+it("at the last free link, a second new machine is refused before anything is redeemed there", async () => {
+  const { links, redeemed, saved, seed, finish } = await fleet();
+  seed(63);
+  const first = links.link({
+    pairingUrl: pairing("code-a", ["read", "operate"]),
+    hostId: HostId.parse("host-a"),
+    name: "A",
+  });
+  await settle();
+  await expect(
+    links.link({
+      pairingUrl: pairing("code-b", ["read", "operate"]),
+      hostId: HostId.parse("host-b"),
+      name: "B",
+    }),
+  ).rejects.toMatchObject({ code: "limit" });
+  finish();
+  await first;
+  // Only the link that could be saved went to its machine; the slot is then taken.
+  expect(redeemed).toHaveLength(1);
+  expect(saved()).toHaveLength(64);
+  expect(saved()).toContain("device-1");
 });
