@@ -132,8 +132,9 @@ export class IncomingTransfers {
       await this.rollback(record);
       this.import(this.rows.get(record.transferId) ?? record);
     }
-    // Moved threads whose first turn a restart interrupted.
-    for (const start of this.deps.live?.unfinished() ?? []) this.startLive(start.transferId);
+    // Moved threads whose first turn a restart interrupted, every one of them.
+    if (this.deps.live)
+      for await (const start of this.deps.live.unfinished()) this.startLive(start.transferId);
     // Rows a cancel or failure settled before their rollback finished.
     for (const record of this.rows.leftovers()) await this.rollback(record);
     // Files a crash left behind for transfers that are settled or gone.
@@ -205,6 +206,12 @@ export class IncomingTransfers {
     device: Device,
     call: Exclude<MachineTransferCall, { op: "probe" }>,
   ): Promise<IncomingTransfer> {
+    // A moved thread's transfer whose row retention dropped is answered from its receipt, so a
+    // lost answer and a repeat never land it twice (ADR 0191).
+    const receipt = this.rows.get(call.transferId)
+      ? undefined
+      : this.deps.live?.receipt(call.transferId, device.id);
+    if (receipt) return receipt;
     switch (call.op) {
       case "begin":
         return this.begin(device, call);
@@ -552,7 +559,10 @@ export class IncomingTransfers {
     if (!live || !carried || !landed.threadId) return;
     await live.prepare({
       transferId: record.transferId,
+      deviceId: record.deviceId,
+      method: record.method,
       threadId: landed.threadId,
+      result: landed,
       live: carried,
       folder: finalFolder(this.deps.directory, record.transferId),
     });

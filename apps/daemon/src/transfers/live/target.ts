@@ -1,7 +1,9 @@
 import { access, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+  IncomingTransfer,
   PortableHandoff,
+  TransferMethod,
   ProviderKind,
   ThreadStatus,
   TransferCommit,
@@ -12,7 +14,7 @@ import type { TransferArchive, TransferGit } from "../ports.ts";
 import { sessionCarrier, SessionNotCarried } from "../sessions/index.ts";
 import { continueMessage } from "./messages.ts";
 import type { ThreadOwnership } from "./ownership.ts";
-import { LiveStarts, type LiveStart } from "./target-rows.ts";
+import { LiveStarts, pendingBatch, type LiveStart } from "./target-rows.ts";
 import { turnStart } from "./turn-start.ts";
 
 /** What the receiving machine does for a thread that moved while it worked (ADR 0191). */
@@ -33,6 +35,8 @@ export interface LiveTargetPorts {
   dropSession(threadId: string): void;
   adoptHandoff(threadId: string, handoff: PortableHandoff, machine: string): void;
   send(threadId: string, key: string, text: string): void;
+  /** A line on the thread the person reads, for a start that couldn't happen. */
+  notice(threadId: string, text: string): void;
   now(): number;
   sleep(ms: number): Promise<void>;
   log(message: string, fields: Record<string, unknown>): void;
@@ -54,9 +58,18 @@ export class LiveTarget {
   state(transferId: string): LiveStart | undefined {
     return this.ports.starts.get(transferId);
   }
-  /** Starts a restart left unfinished. */
-  unfinished(): LiveStart[] {
-    return this.ports.starts.unfinished();
+  /** Every start a restart left unfinished, in bounded batches until none are left. */
+  async *unfinished(): AsyncGenerator<LiveStart> {
+    let after = "";
+    for (;;) {
+      const batch = this.ports.starts.unfinished(after);
+      for (const start of batch) yield start;
+      const last = batch.at(-1);
+      if (!last || batch.length < pendingBatch) return;
+      after = last.transferId;
+      // A turn of the event loop between batches (ADR 0170).
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
   }
   /** Stops watching; a restart finishes the start. */
   close(): void {
@@ -98,7 +111,10 @@ export class LiveTarget {
    */
   async prepare(input: {
     transferId: string;
+    deviceId: string;
+    method: TransferMethod;
     threadId: string;
+    result: NonNullable<IncomingTransfer["result"]>;
     live: Live;
     folder: string;
   }): Promise<TransferSessionOutcome> {
@@ -106,9 +122,37 @@ export class LiveTarget {
     if (known) return known.session;
     const session = await this.place(input);
     return this.ports.starts.begin(
-      { transferId: input.transferId, threadId: input.threadId, session },
+      {
+        transferId: input.transferId,
+        deviceId: input.deviceId,
+        method: input.method,
+        threadId: input.threadId,
+        session,
+        result: input.result,
+      },
       this.ports.now(),
     ).session;
+  }
+  /**
+   * The sender's call about a transfer whose own row retention dropped: answered from the
+   * receipt, so a lost answer is never taken for "no such transfer" and nothing lands twice.
+   */
+  receipt(transferId: string, deviceId: string): IncomingTransfer | undefined {
+    const start = this.ports.starts.get(transferId);
+    if (!start || start.deviceId !== deviceId) return undefined;
+    return {
+      transferId,
+      state: start.running === undefined ? "importing" : "completed",
+      method: start.method,
+      offset: 0,
+      ignoredOffset: 0,
+      result: start.result,
+      live: {
+        finalOffset: 0,
+        ...(start.running === undefined ? {} : { running: start.running }),
+        session: start.session,
+      },
+    };
   }
   private async place(input: {
     threadId: string;
@@ -172,13 +216,39 @@ export class LiveTarget {
     this.running.add(input.transferId);
     try {
       let session = start.session;
+      let attempts = start.attempts;
       for (;;) {
+        // A retry waits out its backoff, which a restart keeps.
+        const due = ports.starts.get(input.transferId)?.nextAt ?? 0;
+        while (!this.closed && ports.now() < due)
+          await ports.sleep(Math.min(due - ports.now(), 1_000));
+        if (this.closed) return;
+        if (!ports.threadStatus(start.threadId)) {
+          ports.starts.started(input.transferId, false, ports.now(), "the thread was deleted here");
+          return;
+        }
         const path = ports.threadCwd(start.threadId) ?? input.path;
-        ports.send(
-          start.threadId,
-          `transfer-live:${input.transferId}:continue:${session.kind}`,
-          continueMessage({ from: input.from, path, live: input.live, session }),
-        );
+        try {
+          ports.send(
+            start.threadId,
+            `transfer-live:${input.transferId}:continue:${session.kind}`,
+            continueMessage({ from: input.from, path, live: input.live, session }),
+          );
+        } catch (error) {
+          // Refused for now (the engine is full, starting, or out of slots): try again later.
+          const next = startRetry(attempts, error);
+          attempts++;
+          if (next.kind === "retry") {
+            ports.starts.deferred(input.transferId, ports.now() + next.delayMs, ports.now());
+            continue;
+          }
+          ports.starts.started(input.transferId, false, ports.now(), next.reason);
+          ports.notice(
+            start.threadId,
+            `This thread moved here from ${input.from}, but it couldn't start: ${next.reason}. Send a message to carry on.`,
+          );
+          return;
+        }
         const outcome = await this.watch(start.threadId, session.kind === "native");
         if (outcome === "closed") return;
         if (outcome === "running" || outcome === "failed") {
@@ -218,4 +288,24 @@ async function present(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The longest one attempt waits, and how many the engine may refuse before the start gives up. */
+const maxRetryMs = 60_000;
+export const maxStartAttempts = 40;
+
+/**
+ * After the engine refused the continue message: wait and try again, doubling up to a minute,
+ * for about half an hour in all; then the start is final and the thread says why.
+ */
+export function startRetry(
+  attempts: number,
+  error: unknown,
+): { kind: "retry"; delayMs: number } | { kind: "give_up"; reason: string } {
+  if (attempts + 1 >= maxStartAttempts)
+    return {
+      kind: "give_up",
+      reason: `this machine kept refusing it (${error instanceof Error ? error.message.slice(0, 120) : "refused"})`,
+    };
+  return { kind: "retry", delayMs: Math.min(1_000 * 2 ** attempts, maxRetryMs) };
 }
