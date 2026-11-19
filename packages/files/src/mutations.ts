@@ -5,7 +5,7 @@ import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, MoveRecord, TrashRecord } from "./catalog.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { newId } from "./filesystem.ts";
-import type { FilesIo, MoveOutcome } from "./io.ts";
+import type { Description, FilesIo, MoveOutcome } from "./io.ts";
 import { codeOf, FileError, checkVersion, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
@@ -451,23 +451,28 @@ export class Mutations {
       this.catalog.delete(record.id);
       return;
     }
-    if (!(await this.parkedAt(record.staging, record.identity))) return;
-    if (await this.recover(record.staging, record.destination)) {
+    const parked = await this.parkedAt(record.staging, record.identity);
+    if (parked === null) return;
+    // The entry is the one the move parked, by its device and inode. A version that changed while
+    // it waited is not what the client asked to move, so it is put where a person can see it
+    // rather than presented as the move's result.
+    const held = sameIdentity(parked.ownVersion ?? parked.version, record.identity);
+    if (held && (await this.recover(record.staging, record.destination))) {
       this.catalog.delete(record.id);
       return;
     }
     const visible = recoveryName(record.destination, record.id);
     if (await this.recover(record.staging, visible)) this.catalog.delete(record.id);
   }
-  /** Whether one of the daemon's own names holds the entry with `identity`. */
-  private async parkedAt(path: string, identity: string | null): Promise<boolean> {
-    if (!identity) return false;
+  /** The entry one of the daemon's own names holds, when it is the one with `identity`. */
+  private async parkedAt(path: string, identity: string | null): Promise<Description | null> {
+    if (!identity) return null;
     try {
       const found = await this.io.internal.describe(this.root(), path);
-      if (found === null) return false;
-      return sameIdentity(found.ownVersion ?? found.version, identity);
+      if (found === null) return null;
+      return sameEntry(found.ownVersion ?? found.version, identity) ? found : null;
     } catch {
-      return false;
+      return null;
     }
   }
   /** Moves one of the daemon's own staging entries to a client path, never replacing one. */

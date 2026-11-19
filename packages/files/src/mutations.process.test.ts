@@ -1299,3 +1299,51 @@ it("keeps a journaled case-only rename whose entry was stranded in a subfolder",
   await f.connect();
   expect(await readFile(join(f.root, "docs/notes.md"), "utf8")).toBe("original");
 });
+
+it("preserves a journaled case-only rename whose parked entry changed", async () => {
+  let folding = true;
+  let parked = "";
+  const io = await port((base) => ({
+    async shallow(root, path, options) {
+      // A volume that folds the spellings answers both names with the one entry.
+      if (folding && (path === "docs/Notes.md" || path === "docs/notes.md"))
+        return { version: "1:2:3:4:5", shallow: false, size: 8, kind: "file", mode: 0o644 };
+      return base.shallow(root, path, options);
+    },
+    async move(root, from, _to, _expected, _own, staging) {
+      if (!staging) throw new Error("a case-only move must carry its journaled staging name");
+      parked = from.replace(/[^/]+$/, staging);
+      await rename(join(root, from), join(root, parked));
+      throw new FileError("FILES_RESTARTING", "the process went away between the two steps");
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await mkdir(join(f.root, "docs"));
+  await writeFile(join(f.root, "docs/Notes.md"), "original");
+
+  expect(
+    await client.request({
+      op: "rename",
+      path: "docs/Notes.md",
+      expected: await version(client, "docs/Notes.md"),
+      destination: "docs/notes.md",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.error", code: "FILES_RESTARTING" });
+  // Another program writes to the parked entry before the start that would finish the move.
+  await writeFile(join(f.root, parked), "changed while parked\n");
+
+  folding = false;
+  await f.restart();
+  await f.connect();
+
+  // The entry is the one the move parked, but its version is not what the client asked to move:
+  // it is kept beside the destination where a person can see it, never presented as the rename.
+  await expect(readFile(join(f.root, "docs/notes.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  const names = await readdir(join(f.root, "docs"));
+  expect(names).toEqual([expect.stringMatching(/^notes\.conflict-/)]);
+  expect(await readFile(join(f.root, "docs", names[0] ?? ""), "utf8")).toBe(
+    "changed while parked\n",
+  );
+});
