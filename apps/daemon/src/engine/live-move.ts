@@ -116,7 +116,11 @@ export function runningShells(repo: EngineRepository, id: ThreadId): string[] {
 export function api(
   repo: () => EngineRepository,
   now: () => number,
-  host: { closeProvider(id: ThreadId): Promise<void>; released(id: ThreadId): void },
+  host: {
+    closeProvider(id: ThreadId): Promise<void>;
+    hasProcess(id: ThreadId): boolean;
+    released(id: ThreadId): void;
+  },
 ) {
   return {
     turnFacts: (id: ThreadId) => turnFacts(repo(), id),
@@ -128,6 +132,8 @@ export function api(
     shells: (id: ThreadId) => runningShells(repo(), id),
     /** Ends the provider's process, waiting for it to exit; nothing pending is retired. */
     closeProvider: host.closeProvider,
+    /** Of these threads, the ones with a provider process here: attached, opening or closing. */
+    withProcess: (ids: readonly ThreadId[]) => ids.filter((id) => host.hasProcess(id)),
     released: host.released,
   };
 }

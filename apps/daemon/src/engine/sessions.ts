@@ -78,6 +78,11 @@ export class Sessions {
   private closing = new Set<ThreadId>();
   /** Each close in flight, settled once its process exited or the close failed. */
   private closes = new Map<ThreadId, Promise<void>>();
+  /**
+   * Each open in flight, from before its provider is spawned until the open settles: a process
+   * still waiting for its handshake is in the thread's process set too (ADR 0191).
+   */
+  private opens = new Map<ThreadId, Promise<void>>();
   private turnPermissions = new Map<ThreadId, number>();
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
@@ -85,6 +90,10 @@ export class Sessions {
   /** The close in flight for the thread, if one is: it settles when that close does. */
   closed(id: ThreadId): Promise<void> | undefined {
     return this.closes.get(id);
+  }
+  /** The open in flight for the thread, if one is: it settles when that open does. */
+  opening(id: ThreadId): Promise<void> | undefined {
+    return this.opens.get(id);
   }
   private assertUnfenced(id: ThreadId): void {
     if (this.dependencies.fenced?.(id)) throw new SessionFenced();
@@ -147,6 +156,8 @@ export class Sessions {
     if (stateBefore.config.provider !== "codex")
       permissions.applied(actor.id, access, this.dependencies.clock.now());
     this.dependencies.repo.beginSessionOpen(actor.id);
+    const opened = Promise.withResolvers<void>();
+    this.opens.set(actor.id, opened.promise);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
     const generation = ++actor.generation;
@@ -513,39 +524,42 @@ export class Sessions {
               detail: original.detail,
             })
           : original;
-      try {
-        const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
-        const routeField = (value: string | undefined): string | null =>
-          value === undefined
-            ? null
-            : scrub(
-                errorSecrets.reduce(
-                  (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
-                  value,
-                ),
-              ).slice(0, 256);
-        const model = routeField(openingModel);
-        const instance = routeField(openingInstance);
-        const backend = this.dependencies.repo.backend(actor.id);
-        const diagnostic = this.dependencies.openFailed?.(
-          actor.id,
-          {
-            provider: stateBefore.config.provider,
-            code: failure.code,
-            title: failure.title,
-            detail: failure.detail,
-          },
-          {
-            ...(model ? { model } : {}),
-            ...(instance ? { instance } : {}),
-            ...(backend ? { backend } : {}),
-          },
-        );
-        void Promise.resolve(diagnostic).catch(() => {});
-      } catch {
-        // Diagnostics are optional; their failure cannot replace the sanitized
-        // provider error or prevent lifetime/capacity cleanup below.
-      }
+      // Fenced by a move (ADR 0191): not a failure to report; the send goes back to the queue.
+      const fenced = error instanceof SessionFenced;
+      if (!fenced)
+        try {
+          const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
+          const routeField = (value: string | undefined): string | null =>
+            value === undefined
+              ? null
+              : scrub(
+                  errorSecrets.reduce(
+                    (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
+                    value,
+                  ),
+                ).slice(0, 256);
+          const model = routeField(openingModel);
+          const instance = routeField(openingInstance);
+          const backend = this.dependencies.repo.backend(actor.id);
+          const diagnostic = this.dependencies.openFailed?.(
+            actor.id,
+            {
+              provider: stateBefore.config.provider,
+              code: failure.code,
+              title: failure.title,
+              detail: failure.detail,
+            },
+            {
+              ...(model ? { model } : {}),
+              ...(instance ? { instance } : {}),
+              ...(backend ? { backend } : {}),
+            },
+          );
+          void Promise.resolve(diagnostic).catch(() => {});
+        } catch {
+          // Diagnostics are optional; their failure cannot replace the sanitized
+          // provider error or prevent lifetime/capacity cleanup below.
+        }
       await actor.flush();
       if (generation === actor.generation) {
         const session = actor.session;
@@ -563,16 +577,18 @@ export class Sessions {
         lifetime.abort();
         try {
           actor.apply([
-            { type: "process.exited", deliberate: false },
+            { type: "process.exited", deliberate: fenced },
             { type: "queue.changed", source: "provider", count: 0 },
           ]);
         } finally {
           this.dependencies.released(actor.id);
         }
       }
-      throw failure;
+      throw fenced ? error : failure;
     } finally {
       this.dependencies.repo.finishSessionOpen(actor.id);
+      if (this.opens.get(actor.id) === opened.promise) this.opens.delete(actor.id);
+      opened.resolve();
     }
   }
   async assertWorkspaceAvailable(cwd: string, threadId: ThreadId): Promise<void> {

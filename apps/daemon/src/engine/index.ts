@@ -65,7 +65,7 @@ import { SettledTrees } from "./settled-trees.ts";
 import { backgroundPortsHost, type BackgroundPortsHost } from "./background-ports.ts";
 import {
   defaultProviderIdleMs,
-  providerProcessState,
+  listProviderProcesses,
   releaseRequest,
   releasedThread,
   type ProviderProcess,
@@ -447,6 +447,7 @@ export class Engine {
     () => this.clock.now(),
     {
       closeProvider: (id) => this.liveness.closeProvider(id),
+      hasProcess: (id) => this.liveness.hasProcess(id),
       // The fence lifted: what it held dispatches, given a slot first.
       released: (id) => {
         this.wakeQueued();
@@ -784,26 +785,11 @@ export class Engine {
   }
   /** Live provider processes per thread, for `ace status`; bounded by live actors. */
   providerProcesses(): ProviderProcess[] {
-    const processes: ProviderProcess[] = [];
-    for (const actor of this.actors.values()) {
-      const state = providerProcessState({
-        session: Boolean(actor.session),
-        closing: this.sessions.isClosing(actor.id),
-        idleSince: actor.idleSince,
-        idleDue: actor.idleDue,
-      });
-      const provider = this.repo.state(actor.id)?.config.provider;
-      if (!state || !provider) continue;
-      const releaseAt = actor.releaseAt();
-      processes.push({
-        threadId: actor.id,
-        provider,
-        state,
-        ...(actor.idleSince === undefined ? {} : { idleSince: actor.idleSince }),
-        ...(state === "idle-warm" && releaseAt !== undefined ? { releaseAt } : {}),
-      });
-    }
-    return processes;
+    return listProviderProcesses(
+      this.actors.values(),
+      (id) => this.sessions.isClosing(id),
+      (id) => this.repo.state(id)?.config.provider,
+    );
   }
   private requestRelease(id: ThreadId, request: "release" | "withdraw"): void {
     const actor = this.actors.get(id);

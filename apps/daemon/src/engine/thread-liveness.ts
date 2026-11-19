@@ -168,19 +168,31 @@ export class ThreadLiveness {
   async closeProvider(id: ThreadId): Promise<void> {
     const actor = this.ports.actor(id);
     if (!actor) return;
-    actor.lifetime?.abort();
     const { sessions } = this.ports;
-    // A close already in flight has cleared the session before its process exits: wait for it.
-    // A close that fails leaves the session in place, and it is tried once more.
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // Ends an open still waiting for its handshake: its lifetime is the spawned process's.
+    actor.lifetime?.abort();
+    // An open settles once its process is gone; a close already in flight has cleared the
+    // session before its process exits. Both are waited for. A close that fails leaves the
+    // session in place, and it is tried again.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const opening = sessions.opening(id);
       const inFlight = sessions.closed(id);
-      if (inFlight) await inFlight;
+      if (opening) await opening;
+      else if (inFlight) await inFlight;
       else if (actor.session) await sessions.close(actor, "user").catch(() => undefined);
       else break;
       await actor.flush();
     }
-    if (actor.session || sessions.isClosing(id))
-      throw new Error("The provider's process didn't exit");
+    if (this.hasProcess(id)) throw new Error("The provider's process didn't exit");
+  }
+  /** Whether the thread has a provider process here: attached, opening, or closing. */
+  hasProcess(id: ThreadId): boolean {
+    const actor = this.ports.actor(id);
+    return (
+      Boolean(actor?.session) ||
+      this.ports.sessions.isClosing(id) ||
+      this.ports.sessions.opening(id) !== undefined
+    );
   }
   /** Idle retained sessions need cleanup, but have no unfinished outcome to cancel. */
   unfinished(id: ThreadId): boolean {
