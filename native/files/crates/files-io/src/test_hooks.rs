@@ -23,11 +23,15 @@ type Refusals = Vec<(usize, Vec<String>)>;
 /// The moves a test reported as meeting a taken destination.
 type Taken = Vec<(usize, Vec<(String, String)>)>;
 
+/// The save steps a test made stop, as a crash between two steps would leave them.
+type Halts = Vec<(usize, Vec<(Step, String)>)>;
+
 #[derive(Default)]
 struct Installed {
     watchers: Arc<Mutex<Vec<(usize, Watcher)>>>,
     exchange: Arc<Mutex<Refusals>>,
     taken: Arc<Mutex<Taken>>,
+    halts: Arc<Mutex<Halts>>,
 }
 
 fn installed() -> &'static Installed {
@@ -36,6 +40,7 @@ fn installed() -> &'static Installed {
         watchers: Arc::new(Mutex::new(Vec::new())),
         exchange: Arc::new(Mutex::new(Vec::new())),
         taken: Arc::new(Mutex::new(Vec::new())),
+        halts: Arc::new(Mutex::new(Vec::new())),
     })
 }
 
@@ -64,6 +69,8 @@ impl Drop for Guard {
         exchange.retain(|(id, _)| *id != self.id);
         let mut taken = hooks.taken.lock().unwrap_or_else(PoisonError::into_inner);
         taken.retain(|(id, _)| *id != self.id);
+        let mut halts = hooks.halts.lock().unwrap_or_else(PoisonError::into_inner);
+        halts.retain(|(id, _)| *id != self.id);
     }
 }
 
@@ -109,6 +116,31 @@ pub(crate) fn reports_taken(from: &str, to: &str) -> bool {
     taken
         .iter()
         .any(|(_, pairs)| pairs.iter().any(|(one, other)| one == from && other == to))
+}
+
+/// Stops the save of `path` at `step`, leaving everything it has done so far on disk, the way a
+/// crash between two steps would.
+pub fn halt_at(step: Step, path: &str) -> Guard {
+    let id = next();
+    let hooks = installed();
+    let mut halts = hooks.halts.lock().unwrap_or_else(PoisonError::into_inner);
+    halts.push((id, vec![(step, path.to_owned())]));
+    Guard { id }
+}
+
+/// Whether a test stopped the save of `path` here; the stop is used once, like a crash.
+pub(crate) fn halted(step: Step, path: &str) -> bool {
+    let hooks = installed();
+    let mut halts = hooks.halts.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut stopped = false;
+    for (_, steps) in halts.iter_mut() {
+        steps.retain(|(at, named)| {
+            let matches = *at == step && named == path;
+            stopped |= matches;
+            !matches
+        });
+    }
+    stopped
 }
 
 /// Runs every watcher for one step.

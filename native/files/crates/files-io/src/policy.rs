@@ -29,6 +29,9 @@ const TRASH: &str = ".ace-upload-trash-";
 /// What a case-only move parks an entry under while it travels between two spellings.
 const MOVING: &str = ".ace-upload-move-";
 
+/// What a save writes down before its copy takes the target's name.
+pub(crate) const JOURNAL: &str = ".ace-upload-journal-";
+
 /// The folder a read-only request may serve, with the stored path that names it.
 ///
 /// One walk proves the names and hands back the handle, so a link swapped in after the check
@@ -113,6 +116,31 @@ pub(crate) fn trash_endpoint(name: &str) -> bool {
 /// Whether `name` is the generated staging name a case-only move parks its entry under.
 pub(crate) fn moving_endpoint(name: &str) -> bool {
     generated(name, MOVING, 160)
+}
+
+/// Whether `name` is a save journal: one record at the checkout root.
+pub(crate) fn save_journal(name: &str) -> bool {
+    generated(name, JOURNAL, 64)
+}
+
+/// Whether `name` is one of the private names a save stages its work under.
+///
+/// A save's own copy is the prefix followed by `<process>-<sequence>`, and the entry it moves
+/// aside on Windows is a moving name; a record may name only those two shapes.
+pub(crate) fn save_staging(name: &str) -> bool {
+    if moving_endpoint(name) {
+        return true;
+    }
+    let Some(id) = name.strip_prefix(TEMPORARY) else {
+        return false;
+    };
+    let Some((pid, sequence)) = id.split_once('-') else {
+        return false;
+    };
+    !pid.is_empty()
+        && !sequence.is_empty()
+        && pid.bytes().all(|byte| byte.is_ascii_digit())
+        && sequence.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 /// A name the daemon generates: its own prefix plus an id from the catalog's alphabet.

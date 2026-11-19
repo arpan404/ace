@@ -62,6 +62,17 @@ impl Staged {
         self.name.as_deref().unwrap_or_default()
     }
 
+    /// The identity of the copy this save wrote, read through the handle it holds.
+    pub(crate) fn identity(&self) -> Result<(u64, u64), Error> {
+        let file = self.file.as_ref().ok_or_else(|| {
+            Error::Io(std::io::Error::other(
+                "the staging handle was closed before its identity was read",
+            ))
+        })?;
+        let metadata = file.metadata()?;
+        crate::version::identity_of_handle(file, &metadata)
+    }
+
     /// The version of the copy this save wrote, read through the handle it still holds.
     ///
     /// The handle follows the copy to the name it was published under, so the version is the one

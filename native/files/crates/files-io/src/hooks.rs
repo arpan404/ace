@@ -17,6 +17,11 @@ pub enum Step {
     AfterCreateDir,
     /// A measurement's target was authorized, before the bytes it holds are read.
     MeasureTarget,
+    /// A save's journal is durable, before its copy takes the target's name.
+    BeforeSaveSwap,
+    /// A save's copy took the target's name (or its old entry was moved aside), before the entry
+    /// it displaced is cleaned up.
+    AfterSaveSwap,
     /// A guarded publish holds the destination's handle, before the copy replaces it.
     #[cfg(windows)]
     GuardedPublish,
@@ -25,6 +30,12 @@ pub enum Step {
 #[cfg(not(feature = "test-hooks"))]
 /// Nothing watches: the step passes straight through.
 pub(crate) fn reached(_step: Step, _from: &str, _to: &str) {}
+
+#[cfg(not(feature = "test-hooks"))]
+/// No test stopped it here, so the operation runs on.
+pub(crate) fn halted(_step: Step, _path: &str) -> bool {
+    false
+}
 
 #[cfg(all(not(feature = "test-hooks"), unix))]
 /// No test refused it, so the atomic exchange is available.
@@ -43,3 +54,6 @@ pub(crate) use crate::test_hooks::{may_exchange, reports_taken};
 
 #[cfg(feature = "test-hooks")]
 pub(crate) use crate::test_hooks::reached;
+
+#[cfg(feature = "test-hooks")]
+pub(crate) use crate::test_hooks::halted;
