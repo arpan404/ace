@@ -362,14 +362,14 @@ fn a_folder_replaced_after_an_empty_window_is_read_again() {
         |root| std::fs::create_dir(root.join("d")).unwrap(),
     );
     std::fs::write(session.path("d/transient.txt"), b"x").unwrap();
-    std::thread::sleep(Duration::from_millis(1_500));
+    std::thread::sleep(Duration::from_millis(2_000));
     std::fs::remove_file(session.path("d/transient.txt")).unwrap();
-    // The window closes one debounce after the delete, with nothing to say about the pair.
-    std::thread::sleep(Duration::from_millis(6_500));
+    // The window closes with nothing to say about the pair, which is the window that must leave
+    // no reading behind for the next one.
+    let reported = changes(&after_quiet(&session));
     assert!(
-        session.seen().is_empty(),
-        "a create and its delete in one window are not news, saw {:?}",
-        session.seen()
+        reported.is_empty(),
+        "a create and its delete in one window are not news, saw {reported:?}"
     );
 
     std::fs::remove_dir(session.path("d")).unwrap();

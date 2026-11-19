@@ -13,7 +13,10 @@ use files_safe::Root;
 use files_watch::{Batch, Change, ChangeKind, WatchOptions, Watcher};
 
 pub const DEBOUNCE: Duration = Duration::from_millis(100);
-pub const WAIT: Duration = Duration::from_secs(15);
+/// How long a test watches for an answer before calling it missing. FSEvents on a loaded machine
+/// can take many seconds to hand an event over, and a wait that is too short reads as a watcher
+/// that said nothing.
+pub const WAIT: Duration = Duration::from_secs(30);
 const SETTLE: Duration = Duration::from_secs(2);
 
 /// One OS watcher at a time: several FSEvents streams in one process interfere on macOS.
