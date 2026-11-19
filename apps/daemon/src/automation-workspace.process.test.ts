@@ -1,7 +1,7 @@
 // Reason: an automation file trigger's reconciliation only meets its real edge when ace-files
 // actually restarts under a real watcher: what the watcher lost while the process was down can
 // only be recovered by the restored watch's rescan, and a fake would script the answer.
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -58,6 +58,34 @@ function contextFor(root: string, tool: FilesTool): ServiceContext {
 }
 
 describe.skipIf(!binary)("automation file triggers over real ace-files", () => {
+  it("reports an offline edit that kept the size and put the modification time back", async () => {
+    const { root, host, tool } = await fixture();
+    const ready = Promise.withResolvers<void>();
+    const dispose = automationWorkspace(contextFor(root, tool)).subscribe(
+      root,
+      ["**"],
+      async (event) => {
+        received.push(event);
+      },
+      { onReady: () => ready.resolve() },
+    );
+    closing.push(async () => dispose());
+    await ready.promise;
+
+    const same = join(root, "same.txt");
+    const before = await stat(same);
+    // Down goes ace-files, and an edit lands that leaves everything a version records where it
+    // was: the same length, and the modification time put back afterwards.
+    host.children.at(-1)?.kill();
+    await writeFile(same, "diff\n");
+    await utimes(same, before.atime, before.mtime);
+    await until(() => received.some((event) => pathsOf(event).includes("same.txt")));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(forPath("same.txt")).toHaveLength(1);
+    expect(forPath("same.txt")[0]?.variables).toMatchObject({ kind: "changed", count: "1" });
+  }, 30_000);
+
   it("reconciles a restart without inventing changes, and detects an offline edit", async () => {
     const { root, host, tool } = await fixture();
     const ready = Promise.withResolvers<void>();

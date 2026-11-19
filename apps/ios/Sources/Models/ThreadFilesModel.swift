@@ -23,6 +23,39 @@ struct FilesFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// How a screen waits for a checkout whose path index is still building: one deadline, and every
+/// request and sleep after it takes only what the deadline has left. A slow answer therefore
+/// cannot outlast the wait, and one query's wait never spends another's.
+struct IndexWait {
+    /// The instant the wait runs out.
+    let deadline: ContinuousClock.Instant
+    private let now: () -> ContinuousClock.Instant
+
+    /// A wait of `seconds` starting when it is made.
+    init(
+        seconds: TimeInterval = 8,
+        now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }
+    ) {
+        self.init(deadline: now().advanced(by: .seconds(seconds)), now: now)
+    }
+
+    /// A wait to an instant, with the clock it reads; tests name both.
+    init(deadline: ContinuousClock.Instant, now: @escaping () -> ContinuousClock.Instant) {
+        self.deadline = deadline
+        self.now = now
+    }
+
+    /// What is left of the wait, zero or negative once it has run out.
+    var remaining: Duration { now().duration(to: deadline) }
+
+    /// The pause before asking again, or nil when there is nothing left to wait for.
+    func pause(upTo interval: Duration = .milliseconds(300)) -> Duration? {
+        let left = remaining
+        guard left > .zero else { return nil }
+        return min(interval, left)
+    }
+}
+
 /// The checkout as the bridge lists it (`bridge/checkout-tree-live.ts`): only the folders the
 /// person opened, a page at a time.
 struct FileTree: Decodable, Sendable, Equatable {
@@ -314,9 +347,10 @@ extension FilesScope {
 }
 
 extension ClientModel {
-    /// One Files request (`bridge/checkout-files.ts`); a refusal throws its sentence.
-    func files<T: Decodable>(_ scope: FilesScope, _ operation: [String: Any], as type: T.Type) async throws -> T {
-        let value = try await service(["type": "native.files", "scope": scope.wire, "operation": operation], as: ServiceValue.self)
+    /// One Files request (`bridge/checkout-files.ts`); a refusal throws its sentence. `timeout`
+    /// bounds the wait, so a caller spending a deadline asks for no more than it has left.
+    func files<T: Decodable>(_ scope: FilesScope, _ operation: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
+        let value = try await service(["type": "native.files", "scope": scope.wire, "operation": operation], as: ServiceValue.self, timeout: timeout)
         if case .object(let fields) = value, case .bool(false) = fields["ok"] {
             var code = "failed"
             var message = "Couldn't reach the files. Try again."

@@ -83,6 +83,10 @@ class FakeClient implements FilesToolClient {
     throw new Error("the fake lists folders, it does not describe entries");
   }
 
+  fingerprint(): never {
+    throw new Error("the fake lists folders, it does not fingerprint them");
+  }
+
   read(): never {
     throw new Error("the fake lists folders, it does not read them");
   }

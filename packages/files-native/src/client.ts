@@ -29,6 +29,7 @@ export type EntryReply = Extract<Reply, { type: "entry" }>;
 export type DescriptionReply = Extract<Reply, { type: "description" }>;
 export type ReadReply = Extract<Reply, { type: "read" }>;
 export type VersionReply = Extract<Reply, { type: "version" }>;
+export type FingerprintReply = Extract<Reply, { type: "fingerprint" }>;
 export type IndexReply = Extract<Reply, { type: "index" }>;
 
 /**
@@ -106,6 +107,17 @@ export class FilesClient {
   ): Promise<DescriptionReply> {
     const { reply } = await this.#process.request({ op: "describeEntry", root, path }, options);
     if (reply.type !== "description") throw unexpected("describeEntry", reply);
+    return reply;
+  }
+
+  /** A digest of the file's bytes, taken without moving them off ace-files. */
+  async fingerprint(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<FingerprintReply> {
+    const { reply } = await this.#process.request({ op: "fingerprint", root, path }, options);
+    if (reply.type !== "fingerprint") throw unexpected("fingerprint", reply);
     return reply;
   }
 

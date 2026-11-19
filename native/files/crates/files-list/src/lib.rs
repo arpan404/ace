@@ -26,5 +26,5 @@ mod stamp;
 pub use crate::clock::{Clock, SystemClock};
 pub use crate::entry::{Entry, Kind};
 pub use crate::error::Error;
-pub use crate::lister::Lister;
+pub use crate::lister::{Lister, is_pinned};
 pub use crate::page::{ListOptions, Page};

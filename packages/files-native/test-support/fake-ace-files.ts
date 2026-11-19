@@ -160,6 +160,14 @@ function answer(id: number, op: Extract<Message, { type: "request" }>["op"]): vo
     case "createFile":
       respond(id, { type: "version", version: "0:0:0:1:1" });
       return;
+    case "fingerprint":
+      respond(id, {
+        type: "fingerprint",
+        version: "0:0:0:0:0",
+        size: 12,
+        digest: `sha256:${op.path}`,
+      });
+      return;
     case "createDir":
     case "rename":
     case "remove":

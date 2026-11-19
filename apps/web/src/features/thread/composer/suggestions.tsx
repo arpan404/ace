@@ -2,7 +2,7 @@ import { commandSuggestions, mentionSuggestions } from "@ace/ui-core";
 import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
 import { useConnectionGeneration, useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Trigger } from "./draft.ts";
@@ -49,6 +49,22 @@ export function indexStillBuilding(
 ): boolean {
   return answer?.ready === false && now - since < buildingWaitMs;
 }
+/** A deadline per mention query: one query's wait never shortens the wait of another. */
+const deadlineLimit = 32;
+const deadlineKey = (key: readonly unknown[]) => JSON.stringify(key);
+/** Records a query's first still-building answer, dropping the oldest keys past the limit. */
+function withDeadline(held: Readonly<Record<string, number>>, key: string, at: number) {
+  const next: Record<string, number> = { ...held, [key]: at };
+  const keys = Object.keys(next);
+  for (const stale of keys.slice(0, Math.max(0, keys.length - deadlineLimit))) delete next[stale];
+  return next;
+}
+const withoutDeadline = (held: Readonly<Record<string, number>>, key: string) => {
+  if (!(key in held)) return held;
+  const next = { ...held };
+  delete next[key];
+  return next;
+};
 const sameThread = (a: ReturnType<typeof threadReference>, b: ReturnType<typeof threadReference>) =>
   a.id === b.id && a.title === b.title && a.workspaceId === b.workspaceId;
 export function useSuggestions(
@@ -92,20 +108,47 @@ export function useSuggestions(
     // Opening the menu retries discovery even when its target is unchanged.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [sources, scoped, ready, socket, reference, commandOpen, draft, provider]);
-  // When the first still-building answer arrived, kept across the refetches it causes.
-  const buildingSince = useRef<number | undefined>(undefined);
+  // When each mention query's first still-building answer arrived, keyed by its own query. The
+  // wait belongs to the query, so a cached answer for one query never inherits another's deadline,
+  // and Try again clears it. The answer records it, never render.
+  const [deadlines, setDeadlines] = useState<Record<string, number>>({});
+  const mentionKey = deadlineKey([
+    "thread",
+    "mention",
+    thread.id,
+    trigger?.kind === "mention" ? trigger.query : "",
+  ]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
-    queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
+    queryFn: async ({ signal }) => {
+      const answer = await sources.context.complete(thread, trigger?.query ?? "", signal);
+      // The first still-building answer starts the wait; later ones keep it, so polling cannot
+      // renew it. A ready answer ends the wait for this query.
+      setDeadlines((held) =>
+        answer.ready === false
+          ? held[mentionKey] === undefined
+            ? withDeadline(held, mentionKey, Date.now())
+            : held
+          : withoutDeadline(held, mentionKey),
+      );
+      return answer;
+    },
     enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
     refetchInterval: (query) => {
-      const since = buildingSince.current;
-      return since !== undefined && indexStillBuilding(query.state.data, since) ? 300 : false;
+      const data = query.state.data;
+      if (data?.ready !== false) return false;
+      const since = deadlines[deadlineKey(query.queryKey)];
+      return since === undefined || indexStillBuilding(data, since) ? 300 : false;
     },
   });
-  if (mentions.data?.ready === false) buildingSince.current ??= Date.now();
-  else buildingSince.current = undefined;
+  const waiting = mentions.data?.ready === false;
+  const since = deadlines[mentionKey];
+  /** Try again: this query's wait starts over, so a fresh building answer gets its full time. */
+  const retryMentions = () => {
+    setDeadlines((held) => withoutDeadline(held, mentionKey));
+    void mentions.refetch();
+  };
   const known =
     catalog && catalog.reference === reference && !catalog.failed ? catalog.entries : undefined;
   if (!trigger) return { state: "closed", entries: known };
@@ -113,9 +156,8 @@ export function useSuggestions(
   if (!scoped || !ready) return { state: "loading", kind, query };
   let items: Suggestion[];
   if (kind === "mention") {
-    const building =
-      buildingSince.current !== undefined &&
-      indexStillBuilding(mentions.data, buildingSince.current);
+    // An answer that has not recorded its deadline yet is the first of its wait.
+    const building = waiting && (since === undefined || indexStillBuilding(mentions.data, since));
     const failing = mentions.isError || mentions.isRefetchError;
     items = mentionSuggestions({
       query,
@@ -129,11 +171,10 @@ export function useSuggestions(
       Object.assign(item, { kind, insert: item.path ? `@${item.path}` : `@${item.label}` }),
     );
     // A failed read is retryable even while a cached answer still says the index is building.
-    if (!items.length && failing)
-      return { state: "failed", kind, query, retry: () => void mentions.refetch() };
+    if (!items.length && failing) return { state: "failed", kind, query, retry: retryMentions };
     if (!items.length && (mentions.isPending || building)) return { state: "loading", kind, query };
     if (!items.length && mentions.data?.ready === false)
-      return { state: "failed", kind, query, retry: () => void mentions.refetch() };
+      return { state: "failed", kind, query, retry: retryMentions };
   } else {
     if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
     if (catalog.failed)
