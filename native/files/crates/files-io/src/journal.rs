@@ -146,23 +146,62 @@ impl Journal {
     }
 }
 
+/// The checkout's one save lock, held from before a save journals until its cleanup is done.
+///
+/// A save and a start both work on the same journal directory, so both take this lock: a second
+/// helper cannot reconcile a save that is still in flight. The lock file lives beside the journals
+/// at the checkout root and is never removed — a lock file that disappears while a process holds
+/// it would let a third process lock a different file with the same name.
+pub struct SaveLock {
+    _file: std::fs::File,
+}
+
+/// Takes the checkout's save lock, waiting for any save or start that holds it.
+pub fn lock_saves(root: &Root) -> Result<SaveLock, Error> {
+    // A link planted under the lock's name could point at a file outside the checkout; a link is
+    // never the daemon's own lock.
+    match root.dir().symlink_metadata(policy::LOCK) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(Error::InvalidArgument(format!(
+                "{} is not a lock file",
+                policy::LOCK
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = root.dir().open_with(policy::LOCK, &options)?;
+    let file = file.into_std();
+    file.lock()?;
+    Ok(SaveLock { _file: file })
+}
+
 /// Resolves every journal a crash left at `root`, the way opening a checkout does.
+///
+/// The checkout's save lock is held for the whole pass, so a start never reads a record whose
+/// save is still swapping, and a save that starts meanwhile waits for the replay to finish.
 ///
 /// Each record is read, acted on through the folder it names, and removed once its state is
 /// known. A record whose state cannot be read is kept for another start rather than guessed at.
 pub fn reconcile_saves(root: &Root) -> Result<Vec<SaveRecovery>, Error> {
     let dir = root.dir();
-    let mut journals = Vec::new();
-    for entry in dir.entries()? {
-        let entry = entry?;
-        let Ok(name) = entry.file_name().into_string() else {
-            continue;
-        };
-        if policy::save_journal(&name) {
-            journals.push(name);
-        }
+    // A save writes its record only while it holds the lock, so a root with no record has nothing
+    // to replay and needs no lock file: opening a checkout must not change the folder's stamp.
+    if journal_names(dir)?.is_empty() {
+        return Ok(Vec::new());
     }
-    journals.sort();
+    let _lock = lock_saves(root)?;
+    // A save may have finished between the scan and the lock; the record list is read again so
+    // only records still on disk are replayed.
+    let journals = journal_names(dir)?;
     let mut outcomes = Vec::new();
     for name in journals {
         match resolve(root, &name) {
@@ -179,6 +218,22 @@ pub fn reconcile_saves(root: &Root) -> Result<Vec<SaveRecovery>, Error> {
         }
     }
     Ok(outcomes)
+}
+
+/// The names of the save records at the checkout root, in a stable order.
+fn journal_names(dir: &Dir) -> Result<Vec<String>, Error> {
+    let mut journals = Vec::new();
+    for entry in dir.entries()? {
+        let entry = entry?;
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if policy::save_journal(&name) {
+            journals.push(name);
+        }
+    }
+    journals.sort();
+    Ok(journals)
 }
 
 /// Reads one journal and settles what the save it names left behind.

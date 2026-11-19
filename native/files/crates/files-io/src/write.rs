@@ -16,7 +16,7 @@ use files_safe::Root;
 use crate::Error;
 use crate::describe::Walks;
 use crate::handle::{self, Noclobber, Staged};
-use crate::journal::Journal;
+use crate::journal::{self, Journal};
 use crate::version;
 
 /// What a save did.
@@ -124,6 +124,13 @@ fn save(
     // Open the folder for syncing before the rename. A folder this process may write but not
     // read cannot be synced, and the save must fail while the old file is still in place.
     let syncable = handle::syncable(&dir)?;
+    // A versioned save writes a journal beside the checkout's others and cleans up an entry it
+    // displaced, so it holds the one lock a start also takes: a second helper can never replay a
+    // save whose swap is still in flight.
+    let _lock = match expected {
+        Some(_) => Some(journal::lock_saves(root)?),
+        None => None,
+    };
     before_publish();
     let published = match expected {
         None => publish_new(&dir, &name, &mut staged)?,
@@ -613,7 +620,7 @@ mod tests {
                     .to_string_lossy()
                     .into_owned()
             })
-            .filter(|name| name.starts_with(".ace-upload-"))
+            .filter(|name| name.starts_with(".ace-upload-") && name != crate::policy::LOCK)
             .collect()
     }
 

@@ -190,7 +190,7 @@ fn a_guarded_save_without_an_atomic_exchange_never_touches_the_target() {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|name| name.starts_with(".ace-upload-"))
+        .filter(|name| name.starts_with(".ace-upload-") && name != ".ace-upload-journal-lock")
         .collect();
     assert!(
         leftovers.is_empty(),
@@ -211,7 +211,7 @@ fn private_names(dir: &std::path::Path) -> Vec<String> {
                 .to_string_lossy()
                 .into_owned()
         })
-        .filter(|name| name.starts_with(".ace-upload-"))
+        .filter(|name| name.starts_with(".ace-upload-") && name != ".ace-upload-journal-lock")
         .collect();
     names.sort();
     names
@@ -391,4 +391,39 @@ fn a_start_never_removes_an_entry_its_record_does_not_name() {
         "an entry the record does not name is never removed"
     );
     assert_eq!(fixture.read("foreign.md"), b"the bytes that landed\n");
+}
+
+#[test]
+fn a_start_waits_for_a_save_that_holds_the_checkout_lock() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let fixture = Fixture::new();
+    // A record on disk is what a start would replay; the lock is what makes it wait for the save.
+    fixture.write(
+        ".ace-upload-journal-999-1",
+        b"1\x00doc.md\x00.ace-upload-999-2\x00\x001:2\x003:4",
+    );
+    let held = files_io::lock_saves(fixture.root()).expect("hold the checkout's save lock");
+    let (finished, waited) = mpsc::channel();
+    let path = fixture.dir().to_path_buf();
+    let starter = std::thread::spawn(move || {
+        let root = files_safe::Root::open(&path).expect("open the checkout");
+        let resolved = files_io::reconcile_saves(&root).is_ok();
+        let _ = finished.send(resolved);
+    });
+
+    // A second helper must not reconcile a save whose swap is still in flight.
+    assert!(
+        waited.recv_timeout(Duration::from_millis(250)).is_err(),
+        "a start must wait for the save that holds the checkout's lock"
+    );
+    drop(held);
+    assert!(
+        waited
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the waiting start finishes"),
+        "the start resolves the checkout once the lock is free"
+    );
+    starter.join().expect("the start thread");
 }
