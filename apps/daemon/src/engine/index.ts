@@ -153,6 +153,7 @@ export class Engine {
           repo: this.repo,
           actors: () => this.actors.entries(),
           closing: (id) => this.sessions.isClosing(id),
+          held: (id) => this.fenced(id),
           retire: (id) => this.controls.wake(id),
         },
         retiring,
