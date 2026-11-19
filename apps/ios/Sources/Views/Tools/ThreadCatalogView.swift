@@ -40,31 +40,37 @@ struct ThreadCatalogView: View {
     @State private var loading = false
     private var filtered: [CatalogReply.Entry] { entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) } }
     var body: some View {
-        ScrollView {
-            QuietSection {
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } }.buttonStyle(.textAction()).disabled(loading) }
-            if !loaded && problem == nil { SkeletonRows(label: "Reading skills and commands") }
-            if let notice { QuietSectionRow { QuietRowText(title: notice, tone: AceDesign.Ink.muted) } }
-            ForEach(filtered) { entry in
-                NavigationLink { CatalogInvokeView(model: model, threadId: threadId, entry: entry) } label: {
-                    QuietSectionRow {
-                        QuietRowText(title: entry.title ?? entry.name, detail: entry.description)
-                        Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
-                        RowCaret()
+        List {
+            if let problem {
+                ProblemRow(problem, id: "catalog.problem", disabled: loading) { Task { await read() } }
+            }
+            if !loaded && problem == nil {
+                SkeletonRows(label: "Reading skills and commands").listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+            }
+            if let notice {
+                Text(notice).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+            }
+            if !filtered.isEmpty {
+                Section {
+                    ForEach(filtered) { entry in
+                        NavigationLink { CatalogInvokeView(model: model, threadId: threadId, entry: entry) } label: {
+                            InsetRow(entry.title ?? entry.name, systemImage: nil, value: entry.kind.capitalized, subtitle: entry.description)
+                        }
                     }
                 }
+                .insetRowBackground()
             }
             if loaded && !entries.isEmpty && filtered.isEmpty {
-                QuietSectionRow { QuietRowText(title: "No matching skills or commands.", tone: AceDesign.Ink.muted) }
+                EmptyState.search(query).listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             if loaded && entries.isEmpty && problem == nil && notice == nil {
-                QuietSectionRow { QuietRowText(title: "No skills or commands available for this thread.", tone: AceDesign.Ink.muted) }
+                EmptyState(icon: .command, title: "No skills or commands")
+                    .padding(.vertical, AceDesign.Space.group)
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
-            }.padding(.vertical, AceDesign.Space.related)
         }
-        .buttonStyle(.plain)
-        .background(AceDesign.Surface.background)
+        .insetGroupedList()
         .searchable(text: $query, prompt: "Find a skill or command")
         .navigationTitle("Skills and commands").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }.refreshable { await read() }
@@ -88,28 +94,35 @@ private struct CatalogInvokeView: View {
     @State private var saved = false
     @State private var saving = false
     var body: some View {
-        ScrollView {
-            QuietSection {
-            QuietSectionRow { Text(entry.description) }
-            QuietSectionRow {
-            TextField("Instructions or arguments", text: $words, axis: .vertical).lineLimit(3...8)
+        List {
+            Section {
+                TextField("Instructions or arguments", text: $words, axis: .vertical).lineLimit(3...8)
+            } footer: {
+                if !entry.description.isEmpty { Text(entry.description) }
             }
-            QuietSectionRow {
-            Button(saved ? "Saved for delivery" : "Use \(entry.name)") {
-                saving = true
-                Task {
-                    let id = model.admissions.nextId()
-                    saved = await model.admissions.wait(id: id) {
-                        model.command(["type": "thread.send", "threadId": threadId, "input": [["type": "mention", "entryId": entry.id, "name": entry.name, "kind": entry.kind, "arguments": words]]], requestId: id)
-                    }
-                    saving = false
-                }
-            }.buttonStyle(.textAction(.prominent)).disabled(!model.canOperate || saving || saved)
+            .insetRowBackground()
+            Section {
+                Button(saved ? "Saved for delivery" : "Use \(entry.name)") { use() }
+                    .buttonStyle(.primaryAction)
+                    .disabled(!model.canOperate || saving || saved)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                if let error = model.error { ProblemRow(error, id: "catalog.useProblem") }
             }
-            if let error = model.error { ServiceProblem(message: error) }
-            }.padding(.vertical, AceDesign.Space.related)
         }
-        .background(AceDesign.Surface.background)
+        .insetGroupedList()
         .navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)
+    }
+    private func use() {
+        saving = true
+        Task {
+            let id = model.admissions.nextId()
+            saved = await model.admissions.wait(id: id) {
+                model.command(["type": "thread.send", "threadId": threadId,
+                               "input": [["type": "mention", "entryId": entry.id, "name": entry.name, "kind": entry.kind, "arguments": words]]],
+                              requestId: id)
+            }
+            saving = false
+        }
     }
 }

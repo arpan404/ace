@@ -1,5 +1,9 @@
 import { marketPickFixture, marketPublishFixture, type MarketplaceSeed } from "@ace/fake-daemon";
-import type { MarketEntrySummary } from "@ace/protocol/marketplace";
+import type {
+  MarketDiscover,
+  MarketEntrySummary,
+  MarketPublisherPage,
+} from "@ace/protocol/marketplace";
 
 /*
  * The fake app's marketplace: the entries market.acehq.dev lists, by ace, beside a third-party
@@ -170,7 +174,14 @@ export function fakeMarket(now: number): MarketplaceSeed {
     fresh: listed.toSorted((a, b) => b.updated - a.updated),
     collections: [],
     publishers: [
-      { handle: "ace", displayName: "ace", verified: true, entries: byAce.length, downloads: 900 },
+      {
+        handle: "ace",
+        displayName: "ace",
+        verified: true,
+        official: true,
+        entries: byAce.length,
+        downloads: 900,
+      },
       {
         handle: "harbour",
         displayName: "Harbour Studio",
@@ -211,7 +222,32 @@ export function fakeMarket(now: number): MarketplaceSeed {
         update: "1.0.0",
       },
     ],
-    publishing: { ...marketPublishFixture(), discover },
+    publishing: publishing(discover, listed),
     pick: marketPickFixture(),
   };
+}
+
+/** The publishing fixture with the official publisher's own page, as the signed list marks it. */
+function publishing(discover: Omit<MarketDiscover, "readAt">, listed: MarketEntrySummary[]) {
+  const fixture = marketPublishFixture();
+  const entries = listed.filter((entry) => entry.byAce);
+  const page: MarketPublisherPage = {
+    profile: {
+      id: ace.id,
+      handle: ace.name,
+      displayName: "ace",
+      bio: "The bots, Suits and skills the ace team makes and reviews.",
+      links: [{ label: "Site", url: "https://acehq.dev" }],
+      joined: 1_680_000_000_000,
+      verified: true,
+      official: true,
+      proofs: [{ kind: "account" }],
+      pins: [],
+    },
+    pinned: [],
+    entries,
+    downloads: 900,
+    official: true,
+  };
+  return { ...fixture, discover, publishers: [...(fixture.publishers ?? []), page] };
 }

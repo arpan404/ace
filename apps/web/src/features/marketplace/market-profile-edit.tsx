@@ -142,7 +142,12 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
   return (
     <div className="mk-profile-head">
       <div style={{ display: "grid", gap: 12, justifyItems: "center" }}>
-        <Avatar name={name || profile.displayName} size={96} picture={picture} />
+        <Avatar
+          name={name || profile.displayName}
+          size={96}
+          ace={profile.official}
+          picture={picture}
+        />
         <button
           type="button"
           {...part("link")}

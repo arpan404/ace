@@ -85,7 +85,8 @@ struct RequestSheet: View {
     let request: ApprovalRow
     let model: ClientModel
     @Binding var questionDraft: QuestionDraftState
-    let openBrowser: () -> Void
+    /// Shows the thread's browser; nil where the sheet can't reach it.
+    let openBrowser: (() -> Void)?
     let close: () -> Void
     var body: some View {
         if request.kind == "plan_review" {
@@ -96,7 +97,8 @@ struct RequestSheet: View {
         } else {
             NavigationStack {
                 ScrollView {
-                    RequestCard(request: request, model: model, maxHeight: .infinity, questionDraft: $questionDraft, openBrowser: openBrowser)
+                    RequestCard(request: request, model: model, maxHeight: .infinity, questionDraft: $questionDraft,
+                                openBrowser: openBrowser.map { open in { close(); open() } })
                         .padding(.horizontal, AceDesign.Space.margin)
                         .padding(.vertical, AceDesign.Space.row)
                 }

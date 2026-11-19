@@ -174,7 +174,7 @@ struct DeviceScreen: View {
         .environment(\.colorScheme, .dark)
     }
     private func idleButton(_ title: String, run: @escaping () -> Void) -> some View {
-        Button(title, action: run).buttonStyle(.textAction(.prominent))
+        Button(title, action: run).buttonStyle(.secondaryAction)
             .disabled(!model.canOperate || devices.busy)
     }
 

@@ -42,7 +42,7 @@ struct PanelContent: View {
             }
         case .browser:
             NavigationStack {
-                let help = thread.approvals.first { $0.kind == "browser_help" }
+                let help = BrowserHelpPick.help(in: thread.approvals, chosen: thread.chosenHelp)
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
         case .visualization:
@@ -72,7 +72,8 @@ private struct PanelSummary: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: SubagentRoute.self) { route in
                     SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
-                                 openThread: openThread)
+                                 openThread: openThread,
+                                 openBrowser: { model.panel(thread.id, ["op": "open", "kind": PanelTool.browser.rawValue]) })
                 }
         }
     }

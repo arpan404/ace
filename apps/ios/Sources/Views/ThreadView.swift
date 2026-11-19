@@ -180,7 +180,8 @@ struct ThreadView: View {
                                         mention: model.canOperate ? { mention = $0 } : nil))
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
-                             openThread: { child in agentRoute = nil; openThread(child) })
+                             openThread: { child in agentRoute = nil; openThread(child) },
+                             openBrowser: { agentRoute = nil; open(.browser) })
             }
             .environment(\.focusComposer) { composerFocus += 1 }
             // Reply quotes what the agent said into this composer, caret in it to write the reply.
@@ -248,7 +249,7 @@ struct ThreadView: View {
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
-            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread, openBrowser: { open(.browser) }) }
             .transferSheet(model: model, kind: "thread")
             .sheet(item: $goalSheet) { opened in
                 if let goal = screen.goal {

@@ -1,58 +1,7 @@
 import { afterEach, expect, it } from "vitest";
-import { z } from "zod";
-import { Command, type InteractionResolution, type ThreadId } from "@ace/protocol";
-import { evalWorld, type EvalWorld } from "./evals/world.ts";
-import { fakeHeadlessBackend } from "./browser-mcp-test-support.ts";
+import { Help, answer, browsing, closeBrowsing, openRequest } from "./browser-help-test-support.ts";
 
-let running: EvalWorld | undefined;
-afterEach(async () => {
-  await running?.close();
-  running = undefined;
-});
-
-const Opened = z.object({ tabId: z.string() });
-const Help = z.object({ status: z.string(), requestId: z.string(), tabId: z.string() });
-
-async function browsing() {
-  const world = await evalWorld({ browser: false, browserBackend: fakeHeadlessBackend() });
-  running = world;
-  const { agent, threadId } = await world.agent({});
-  const opened = await agent.call("browser_open", { url: "https://example.com/login" });
-  expect(opened.failed).toBe(false);
-  return { world, agent, threadId, tabId: Opened.parse(opened.data).tabId };
-}
-
-/** The open help request on `thread`, once the agent's call has reached ace. */
-async function openRequest(current: EvalWorld, thread: ThreadId) {
-  for (let attempt = 0; attempt < 400; attempt++) {
-    await current.flush();
-    const state = current.store.snapshotThread(thread);
-    const open = Object.values(state?.interactions ?? {}).find(
-      (each) => each.state === "pending" && each.request.kind === "browser_help",
-    );
-    if (open) return open;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("No help request opened");
-}
-
-function answer(
-  current: EvalWorld,
-  interactionId: string,
-  deviceId: string,
-  resolution: InteractionResolution,
-) {
-  const engine = current.daemon.engine;
-  if (!engine) throw new Error("Missing engine");
-  const command = Command.parse({
-    id: `${deviceId}-${interactionId}`,
-    deviceId,
-    payload: { type: "interaction.resolve", interactionId, resolution },
-  });
-  return current.store.recordCommand(command.id, command.deviceId, () =>
-    engine.handler.handle(command, current.store),
-  );
-}
+afterEach(closeBrowsing);
 
 it("a help request makes the thread need the person until they press Done, and the agent hears done", async () => {
   const { world, agent, threadId, tabId } = await browsing();
@@ -97,6 +46,8 @@ it("a request for a tab the thread does not have is refused and nobody is asked"
 
 it("an unanswered request stays open after the turn ends, and the person's Done arrives as their next message", async () => {
   const { world, agent, threadId, tabId } = await browsing();
+  // A turn is running, so its end is a real one that closes what the turn left open.
+  await world.startTurn(threadId);
   const result = await agent.call("browser_request_help", {
     tabId,
     reason: "two_factor",
@@ -148,4 +99,35 @@ it("an agent that carries on in a new turn withdraws the request nobody answered
     ),
   ).toEqual([]);
   expect(world.store.getThread(threadId)?.status.state).not.toBe("needs_you");
+});
+
+it("asking again about a tab whose request an interrupted turn cancelled opens a new one the person can answer", async () => {
+  const { world, agent, threadId, tabId } = await browsing();
+  await world.startTurn(threadId);
+  const first = Help.parse(
+    (
+      await agent.call("browser_request_help", {
+        tabId,
+        reason: "login",
+        message: "Sign in",
+        timeoutSeconds: 5,
+      })
+    ).data,
+  );
+  expect(first.status).toBe("pending");
+  await world.interruptTurn(threadId);
+  await world.flush();
+  expect(world.store.snapshotThread(threadId)?.interactions).toSatisfy((all: object) =>
+    Object.values(all).every((each: { state: string }) => each.state !== "pending"),
+  );
+
+  // No new run starts in between (another agent of the thread may still be running), so
+  // nothing has withdrawn the old request's record yet.
+  const again = agent.call("browser_request_help", { tabId, reason: "login", message: "Sign in" });
+  const request = await openRequest(world, threadId);
+  expect(request.id).not.toBe(first.requestId);
+  expect(
+    answer(world, request.id, "person", { kind: "browser_help", outcome: "done" }),
+  ).toMatchObject({ ok: true });
+  expect(Help.parse((await again).data)).toMatchObject({ status: "done", tabId });
 });
