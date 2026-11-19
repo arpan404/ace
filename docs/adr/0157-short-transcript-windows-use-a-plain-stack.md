@@ -57,9 +57,11 @@ ADR 0062's window bounds and paging stay as they are.
 
 - Short threads, the common case on the phone, no longer depend on the lazy stack's estimates.
 - A switch costs one full layout of the window; the hysteresis keeps it to about one per window.
-- Not verified: whether a long window (lazy, above the limit) can still hit the loop. The
-  windows that stalled were short; a long one has many measured rows, so a one-row change moves
-  the estimate far less, but that is untested (#2124).
+- Long windows, still lazy, did not hit the loop when checked (#2124, 2026-11-16, iPhone 17 Pro
+  simulator, iOS 26.1, UI automation attached): `ios-stream`'s 201-row live tail swiped fast the
+  moment it opened, and a history window swiped the moment a third older page landed, settled in
+  6 of 6 runs each, every swipe in under 4 s. VoiceOver itself doesn't run in the simulator, so it
+  wasn't part of that check.
 - The limit came from two measurements; a measured reason can move it.
 
 ## Tests
@@ -70,3 +72,33 @@ ADR 0062's window bounds and paging stay as they are.
 - `AceUITests/TranscriptAccessibilityUITests/testSwipingTheMomentALongFinishedThreadOpensStaysResponsive`
   and `ThreadUITests/testASwipeAlongTheTranscriptsTrailingEdgeScrollsIt` (no longer an
   expected failure) swipe `ios-log-long` the moment it opens.
+- `AceUITests/TranscriptAccessibilityUITests/testSwipingTheMomentALongLiveWindowOpensStaysResponsive`
+  and `testSwipingTheMomentAHistoryWindowPagesInStaysResponsive` swipe long, lazy windows the
+  same way: `ios-stream`'s live tail as it opens, and a history window as an older page lands.
+
+## Amendment (2026-11-17): the feed shows once it has settled
+
+Decided by the owner (2026-11-17): a thread may take a few frames longer to open if that stops
+it jumping (#2218).
+
+A lazy stack draws a thread's first frames before its rows have measured, so a live thread
+(`ios-stream`) opened short of its end and then jumped there: in 8 of 9 runs, by up to 2,074 pt.
+An older page landing above the reader's line moved it about 320 pt, because the feed put the
+held row back from estimated heights.
+
+1. **A thread opening stays hidden until it settles.** The rows are drawn at opacity 0 until the
+   content's height and offset have held within half a point for two frames, with the feed at
+   the end it follows (`TranscriptSettle`). After 250 ms it shows as it is. It is shown in one
+   frame, with no animation.
+2. **An older page joins under a frozen frame.** When the page's rows are about to join, the last
+   drawn frame is laid over the feed (`TranscriptSurface`). Each frame, the row that was on top
+   is put back at its height on screen, from its own measured frame in the content rather than
+   from estimates. Once that has held for two frames (250 ms at most), the frozen frame goes. A
+   touch ends the hold at once.
+3. End anchoring (the decisions above), the keyboard's ride (ADR 0171) and Scroll to end are
+   unchanged. The hold only moves the offset while the feed is at rest under the frozen frame.
+
+Measured on the iPhone 17 Pro simulator (`TranscriptJumpUITests`, 9 runs each): `ios-stream` and
+`ios-log-long` open with no frame moving, and an older page joins with the line moving at most a
+point. Rows can still shift while a fling is moving, as lazy rows above come on screen and
+measure; that happens with or without a page and is outside this decision.

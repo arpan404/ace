@@ -149,6 +149,23 @@ test("@ offers recent files first, then matching tabs and the project's other th
   ]);
 });
 
+test("@ offers a folder with its slash beside the files it holds", () => {
+  const rows = mentionSuggestions({
+    query: "src",
+    recent: [],
+    paths: ["src/", "src/main.ts", "packages/context/"],
+    tabs: [],
+    threads: [],
+    threadId: undefined,
+    workspaceId: "w1",
+  });
+  expect(rows.map((row) => [row.label, row.detail, row.path])).toEqual([
+    ["src/", undefined, "src/"],
+    ["main.ts", "src/main.ts", "src/main.ts"],
+    ["context/", "packages/context/", "packages/context/"],
+  ]);
+});
+
 test("picking a file, thread or prompt leaves the reference the message sends", () => {
   const [file, thread] = mentionSuggestions({
     query: "",

@@ -105,6 +105,12 @@ export const ACE_WEB_SIGN_IN_PATH = "/account/signed-in";
 
 /** `POST /v1/account/login`; the body is optional. */
 export const AceLoginRequest = z.object({
+  /**
+   * Who will hold the session (ADR 0190): `person`, an app the person signed in on; `machine`, a
+   * daemon (`ace login`), whose session never speaks for the person. Without it, a sign-in with a
+   * `returnTo` is an app's and one without is a daemon's, as older apps and daemons send them.
+   */
+  holder: z.enum(["person", "machine"]).optional(),
   returnTo: z
     .string()
     .max(2048)
@@ -132,14 +138,87 @@ export const AceGrantRequest = z.object({
   kind: z.enum(["machine", "device"]),
   /** The machine's host id, or the requesting device's device id. */
   subject: z.string().min(1).max(128),
+  /**
+   * With a device grant: the daemon it is for (ADR 0190). Named, the grant is bound to that host
+   * id; a person's grant always is.
+   */
+  host: z
+    .string()
+    .regex(/^[A-Z2-7]{52}$/)
+    .optional(),
+  /**
+   * With `market-publish` from the person's own session: the one market request the grant may
+   * make, `METHOD /path` (ADR 0190). The market takes sensitive actions only from such a grant.
+   */
+  action: z.string().min(1).max(512).optional(),
+  /**
+   * With a device grant: this device's public key (an uncompressed P-256 point, base64url). A
+   * person's grant is bound to it, and each use is proven with its private key (ADR 0190).
+   */
+  key: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{87}$/)
+    .optional(),
 });
 export type AceGrantRequest = z.infer<typeof AceGrantRequest>;
 export const AceGrantResponse = z.object({
   /** Signed grant, verified with `@ace/account-grant`. */
   token: z.string().min(1).max(2048),
   expiresAt: z.number().int().positive(),
+  /**
+   * With a device grant asked for by the person's own session, naming `host` and `key`: the
+   * person's format 2 grant (ADR 0190). A client proves it on a socket to that daemon
+   * (`account.standing`), never offers it to the relay. Absent otherwise and from older backends.
+   */
+  standing: z.string().min(1).max(2048).optional(),
 });
 export type AceGrantResponse = z.infer<typeof AceGrantResponse>;
+
+/**
+ * `POST /v1/machine-credentials` (ADR 0190), authenticated by an ace session: a credential of
+ * this machine's own, bound to its host id, which the daemon keeps instead of the session. The
+ * answer is an `AceAccountGrant` whose token is the machine credential.
+ */
+export const AceMachineCredentialRequest = z.object({
+  hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  /** The relay host key the host id names (X25519, base64url). */
+  hostKey: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /**
+   * The credential to issue, chosen by the daemon and kept on its disk before it asks, so an
+   * answer lost on the way is recovered by using it (ADR 0190).
+   */
+  credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /** `machineCredentialProof` over the host id and credential, with the host key. */
+  proof: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  /** Redeem an enrollment ticket the app got for this host id, instead of a session bearer. */
+  ticket: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/)
+    .optional(),
+  /**
+   * The daemon was the session's only holder (`ace login`, or its own session file): the
+   * session can no longer be used by its token, and signing the machine out ends it.
+   */
+  sole: z.boolean().optional(),
+  /**
+   * The session was kept on this machine's disk (a session file from before machine
+   * credentials): it never speaks for the person again.
+   */
+  exposed: z.boolean().optional(),
+});
+export type AceMachineCredentialRequest = z.infer<typeof AceMachineCredentialRequest>;
+
+/**
+ * `POST /v1/machine-enrollments` (ADR 0190), authenticated by the person's session: a
+ * single-use ticket that signs one machine in. The app hands its daemon this, never its session;
+ * the daemon redeems it with proof of the host key, for a machine credential.
+ */
+export const AceMachineEnrollmentRequest = z.object({ hostId: z.string().regex(/^[A-Z2-7]{52}$/) });
+export const AceMachineEnrollment = z.object({
+  ticket: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  expiresAt: z.number().int().positive(),
+});
+export type AceMachineEnrollment = z.infer<typeof AceMachineEnrollment>;
 
 /** A machine signed in to an account, as `GET /v1/machines` lists it. */
 export const AceMachine = z.object({

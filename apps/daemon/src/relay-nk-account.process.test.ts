@@ -40,6 +40,7 @@ async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({ relay: { url: relay.url, keys: relayKeys } }, (store) => {
     account = machineAccount({
+      relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
       dataDir: root,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -54,7 +55,7 @@ async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
   });
   cleanup.push(() => f.close());
   cleanup.push(() => account?.close());
-  await account?.handover(backend.origin, backend.token);
+  await account?.handover(backend.origin, { token: backend.token });
   const accounts = aceAccountClient({ origin: backend.origin, fetch: globalThis.fetch });
   const grant = async (deviceId: string) =>
     (
@@ -136,10 +137,12 @@ async function nkWelcome(d: Daemon, early: Record<string, unknown>) {
 
 /** A welcome's fields, with the values that differ between any two connects made comparable. */
 function fields(welcome: Extract<ServerMessage, { type: "welcome" }>) {
-  const { headSeq, grantTtlMs, ticket, ...rest } = welcome;
+  const { headSeq, grantTtlMs, ticket, standingNonce, ...rest } = welcome;
   return {
     ...rest,
     headSeq: typeof headSeq,
+    // Every socket has its own nonce for proving the person's standing (ADR 0190).
+    standingNonce: standingNonce === undefined ? "absent" : "own",
     grantTtlMs: grantTtlMs === undefined ? "absent" : grantTtlMs > 60_000 ? "minutes" : "short",
     // XX hands the next ticket in the welcome; NK in `hello.confirmed`, after the confirmation.
     ticket: ticket === undefined ? "absent" : "handed",

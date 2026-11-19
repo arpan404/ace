@@ -16,7 +16,7 @@ export function ProvidersGroup(props: {
   return (
     <section {...part("settings-section")} className={settingsGroup} aria-labelledby={id}>
       <div className="mb-1.5 flex min-h-7 min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-        <h3 id={id} className="text-base font-semibold text-foreground">
+        <h3 {...part("section-title")} id={id} className="text-base font-semibold text-foreground">
           {props.label}
         </h3>
         {props.aside && (

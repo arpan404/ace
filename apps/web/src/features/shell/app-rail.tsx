@@ -10,7 +10,7 @@ import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
-import { ReleaseLineWord } from "./release-line-word.tsx";
+import { useBetaName } from "./beta-peel.tsx";
 import { UpdateButton } from "./update-button.tsx";
 import { usePlaceSignals } from "./use-place-signals.ts";
 import { useRailPlace } from "./use-rail-place.ts";
@@ -98,7 +98,7 @@ export function AppRail(props: {
   const merged = props.merged === true;
   const current = useRailPlace();
   const signals = usePlaceSignals();
-  const daemonLine = useDaemonReleaseLine();
+  const beta = useBetaName(useDaemonReleaseLine());
   const threads = useLastPlace(current === "home", "/new");
   const chats = useLastPlace(current === "chats", "/chats");
   const spade = useLastPlace(current === "spade", "/spade");
@@ -165,7 +165,6 @@ export function AppRail(props: {
         ))}
         {marketplace && props.market}
         <span className="flex-1" />
-        <ReleaseLineWord daemonLine={daemonLine} />
         <UpdateButton />
         {props.usage?.(current === "usage")}
         <Tip label="Settings" shortcut="settings">
@@ -180,24 +179,28 @@ export function AppRail(props: {
             <Icon icon={GearSixIcon} size={20} active={current === "settings"} />
           </Link>
         </Tip>
-        <AccountMenu />
+        <AccountMenu beta={beta} />
       </TooltipSide>
     </nav>
   );
 }
 
-/** Spade in a build without it: its mark, which goes nowhere yet. */
+/**
+ * Spade in a build without it: its mark, which goes nowhere yet. It takes focus, so the keyboard
+ * and a screen reader reach it and the tooltip says why it does nothing.
+ */
 export function SpadeComingSoon() {
   return (
     <Tip label="Spade · Coming soon">
-      <span
-        role="img"
+      <button
+        type="button"
+        aria-disabled="true"
         aria-label="Spade, coming soon"
         data-part="rail-item"
         className={`${railPlaceClass} cursor-default`}
       >
         <SpadeMark size={20} />
-      </span>
+      </button>
     </Tip>
   );
 }

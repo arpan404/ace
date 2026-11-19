@@ -1,45 +1,29 @@
 ---
 import Closing from "../components/Closing.astro";
 import AgentStrip from "../components/AgentStrip.astro";
-import Hero from "../components/Hero.astro";
-import LinkCards from "../components/site/LinkCards.astro";
-import MacStory from "../components/mac/MacStory.astro";
-import Principle from "../components/Principle.astro";
+import Parts from "../components/home/Parts.astro";
+import Showcase from "../components/home/Showcase.astro";
+import Yours from "../components/home/Yours.astro";
+import ZoomStory from "../components/zoom/ZoomStory.astro";
 import Spade from "../components/Spade.astro";
-import { product } from "../content/product.ts";
-import { route } from "../content/routes.ts";
 import Page from "../layouts/Page.astro";
+import { homeMeta } from "../seo/meta.ts";
 import { schemaFor, softwareApplication, sourceCode } from "../seo/schema.ts";
 
 const schema = schemaFor(Astro.site);
-/*
- * The home page is an overview: what ace is, the story of agents working as a team, then what
- * else ace does. Anything with a page of its own is linked here, never repeated.
- */
-const onward = [
-  "/features/computer-use/",
-  "/features/browser/",
-  "/features/review/",
-  "/features/remote-access/",
-  "/mcp/",
-  "/features/",
-].map((path) => {
-  const page = route(path);
-  return { href: page.path, title: page.name, body: page.summary };
-});
 ---
 
 <Page
   path="/"
-  title={product.title}
-  description={product.description}
+  title={homeMeta.title}
+  description={homeMeta.description}
   schema={[softwareApplication(schema), sourceCode(schema)]}
 >
-  <Hero />
-  <MacStory />
-  <Principle />
+  <ZoomStory />
   <AgentStrip />
+  <Showcase />
+  <Parts />
+  <Yours />
   <Spade />
-  <LinkCards heading="Also in ace" cards={onward} />
   <Closing />
 </Page>

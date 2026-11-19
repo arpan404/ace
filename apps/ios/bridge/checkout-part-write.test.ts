@@ -50,7 +50,7 @@ async function connect(seeded: Uint8Array = new TextEncoder().encode(big)) {
   client = owner;
   void owner.start();
   await until(() => owner.state === "ready");
-  const files = new CheckoutFiles(owner, async () => []);
+  const files = new CheckoutFiles(owner, async () => ({ paths: [], ready: true }));
   const ask = (operation: unknown) =>
     files.request(
       NativeFilesRequest.parse({ type: "native.files", scope: { threadId: thread }, operation }),

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { machineAccount } from "./machine-account.ts";
+import { fakeEnrollments, relayHostId, ticket } from "./enrollment-test-support.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -42,10 +43,18 @@ async function daemon(
 const token = "c".repeat(64);
 const session = "s".repeat(43);
 const origin = "https://account.example";
+// The app gets an enrollment ticket for its daemon from here, never handing over its session.
+fakeEnrollments(origin);
 
 it("signs this computer's daemon in with the app's saved session, then out", async () => {
   const local = await daemon();
-  const connection = { mode: "daemon", url: local.url, token, localHostId: "host" } as const;
+  const connection = {
+    mode: "daemon",
+    url: local.url,
+    token,
+    localHostId: "host",
+    localRelayHostId: relayHostId,
+  } as const;
   const saved = async (asked: string) => (asked === origin ? session : null);
   await machineAccount(connection, { op: "signIn", origin }, saved);
   await machineAccount(connection, { op: "signOut" }, saved);
@@ -54,7 +63,7 @@ it("signs this computer's daemon in with the app's saved session, then out", asy
       method: "PUT",
       url: "/v1/ace-account",
       auth: `Bearer ${token}`,
-      body: JSON.stringify({ origin, token: session }),
+      body: JSON.stringify({ origin, ticket }),
     },
     { method: "DELETE", url: "/v1/ace-account", auth: `Bearer ${token}`, body: "" },
   ]);
@@ -62,7 +71,13 @@ it("signs this computer's daemon in with the app's saved session, then out", asy
 
 it("signing in without a saved app session asks for the app's sign-in and calls nothing", async () => {
   const local = await daemon();
-  const connection = { mode: "daemon", url: local.url, token, localHostId: "host" } as const;
+  const connection = {
+    mode: "daemon",
+    url: local.url,
+    token,
+    localHostId: "host",
+    localRelayHostId: relayHostId,
+  } as const;
   await expect(
     machineAccount(connection, { op: "signIn", origin }, async () => null),
   ).rejects.toThrow("Sign in to your ace account in this app first.");
@@ -86,7 +101,13 @@ it("sets and clears the machine code and returns the daemon's new state", async 
     status: 200,
     body: { signedIn: true, machineCode: { set: url === "/v1/machine-code" } },
   }));
-  const connection = { mode: "daemon", url: local.url, token, localHostId: "host" } as const;
+  const connection = {
+    mode: "daemon",
+    url: local.url,
+    token,
+    localHostId: "host",
+    localRelayHostId: relayHostId,
+  } as const;
   const set = await machineAccount(connection, { op: "setCode", code: "2468" }, async () => null);
   expect(set.machineCode.set).toBe(true);
   await machineAccount(connection, { op: "clearCode" }, async () => null);
@@ -101,7 +122,13 @@ it("the daemon's refusal reaches the person in its own words", async () => {
     status: 400,
     body: { error: "A machine code has 4 to 128 characters." },
   }));
-  const connection = { mode: "daemon", url: local.url, token, localHostId: "host" } as const;
+  const connection = {
+    mode: "daemon",
+    url: local.url,
+    token,
+    localHostId: "host",
+    localRelayHostId: relayHostId,
+  } as const;
   await expect(
     machineAccount(connection, { op: "setCode", code: "2468" }, async () => null),
   ).rejects.toThrow("A machine code has 4 to 128 characters.");

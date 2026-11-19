@@ -13,7 +13,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { cn } from "@/lib/cn.ts";
 import { startedTitle, useDiscardSend } from "@/features/thread/index.ts";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import { useProjectScope } from "./use-project-scope.ts";
 import { publishStartedTitles } from "./started-titles.ts";
 
 const none: readonly string[] = [];
@@ -66,14 +66,15 @@ export function StartedTitlePublisher() {
 
 export function StartedRows() {
   const { creates, listed } = useCreates();
-  const { project } = useOrganizerState();
+  // Sends here start threads here: this machine's checkouts of the chosen project.
+  const scope = useProjectScope();
   const waiting = creates.filter((send) => {
     const id = realId(send);
     return (
       (send.state === "saving" || send.state === "sent" || send.state === "failed") &&
       (!id || !listed.includes(id)) &&
-      (project === null ||
-        (send.payload.type === "thread.create" && send.payload.workspaceId === project))
+      (!scope.checkouts ||
+        (send.payload.type === "thread.create" && scope.here.includes(send.payload.workspaceId)))
     );
   });
   if (!waiting.length) return null;

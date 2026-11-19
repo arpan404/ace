@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads (Inbox,
-/// Snoozed and Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside
-/// the lists and search everything) and compose: the tab bar's prominent button on iOS 27, a round
-/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Spade's tab is there while
+/// The single inbox (issue #560) across every paired machine, in tabs: Threads (Inbox, Snoozed and
+/// Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside the lists
+/// and search everything). A phone switches them with ace's own bar (`HomeBar`), New thread at its
+/// end; a regular window with the sidebar's foot (`SidebarPlaces`), New thread in the list's
+/// header. The system's tab bar never shows. Code review opens from the
+/// Projects list's top bar: as a place of its own in a regular window, over Projects on a phone. Spade's tab is there while
 /// a machine shows Spade (Settings › Beta). Grouping and wording come from each machine's runtime. A row and its
 /// thread belong to their machine.
 struct InboxView: View {
@@ -16,6 +18,8 @@ struct InboxView: View {
     /// Settings › Face ID; nil where the app has no lock (the debug fixture).
     var lock: AppLock?
     @State private var tab = InboxTab.threads
+    /// A place's tab tapped again while it shows: its list goes back to the top.
+    @State private var retap = HomeRetap()
     @State private var threadsPath: [InboxRoute] = []
     @State private var chatsPath: [InboxRoute] = []
     /// Each list as a drawer over its open page in a narrow regular window (`ThreadDrawer`).
@@ -31,6 +35,10 @@ struct InboxView: View {
     @State private var composing = false
     /// A place outside the lists, open over the home screen (`PlaceSheet`).
     @State private var place: PlaceSheet?
+    /// Code review's machine, project and list, shared by the iPad's place and the phone's sheet.
+    @State private var reviewScope = CodeReviewScope()
+    /// Code review open over Projects on a phone, from the top bar.
+    @State private var reviewing = false
     @State private var placeSerial = 0
     @State private var pairing = false
     @State private var snoozing: InboxKey?
@@ -93,6 +101,8 @@ struct InboxView: View {
             }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
             .task(id: scenePhase) {
+                // Spade's bots are read only while the app is on screen (`spadeActive`).
+                for session in inbox.sessions { session.client.spadeActive(scenePhase == .active) }
                 // Foreground reconciliation: renew every live activity's `staleDate` while
                 // the inbox is mounted, including its thread destinations. Cancelled on
                 // background or unmount; rows stay truthful and nothing ends here — `update`
@@ -112,56 +122,59 @@ struct InboxView: View {
             }
     }
 
-    /// The detached tab on iOS 27 (compose); before it, Search's own role takes the detached slot.
-    private static var composeRole: TabRole {
-        // `.prominent` exists only in the iOS 27 SDK (SwiftUI 8); CI builds with Xcode 26.
-        #if canImport(SwiftUI, _version: 8.0)
-        if #available(iOS 27, *) { return .prominent }
-        #endif
-        return .search
+    @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
+        Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
+            stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
+        }
+        Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
+            stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
+        }
+    }
+
+    /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
+    @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
+        if showsSpade {
+            // The system's bar never shows; the home bar draws Spade's face (`HomePlaceGlyph`).
+            Tab(value: InboxTab.spade) { spade } label: { Text(HomeTabs.title(.spade)) }
+        }
+    }
+
+    /// Code review's place in a regular window, chosen from the Projects list's top bar; a phone
+    /// opens it over Projects instead (`reviewing`).
+    @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
+        if sizeClass == .regular {
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
+        }
+    }
+
+    @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
+        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
     }
 
     private var tabs: some View {
+        // Built from small parts: one builder with every tab and condition takes Xcode 26's
+        // type checker longer than it allows.
         TabView(selection: tabChoice) {
-            Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
-                stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
-            }
-            .accessibilityIdentifier("tab.threads")
-            Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
-                stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
-            }
-            .accessibilityIdentifier("tab.chats")
-            // Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
-            if showsSpade {
-                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) { spade }
-                    .accessibilityIdentifier("tab.spade")
-            }
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
-                .accessibilityIdentifier("tab.review")
-            if HomeTabs.composeTab {
-                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
-                    .accessibilityIdentifier("tab.search")
-                if inbox.canStartThreads {
-                    Tab(tab == .chats ? "New chat" : "New thread", image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose,
-                        role: Self.composeRole) { Color.clear }
-                }
-            } else {
-                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
-                    .accessibilityIdentifier("tab.search")
-            }
+            placeTabs
+            spadeTab
+            reviewTab
+            searchTabs
         }
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
+        .environment(\.spadeWorking, inbox.spadeWorking)
+        .environment(\.homeRetap, retap)
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
-        .onChange(of: tab) { old, new in
-            // Coming back to a tab shows its page, never the drawer left out when it was left.
-            if new != .compose { threadsDrawer.close(); chatsDrawer.close() }
-            // The compose tab starts a chat from Chats, else a thread, and leaves the tab where it was.
-            guard new == .compose else { return }
-            tab = old == .compose ? .threads : old
-            compose(chat: tab == .chats)
+        // Coming back to a tab shows its page, never the drawer left out when it was left.
+        .onChange(of: tab) { threadsDrawer.close(); chatsDrawer.close() }
+        // Code review showing as the iPad's place when the window narrows to a phone's goes on
+        // showing, over Projects.
+        .onChange(of: sizeClass) { _, now in
+            guard now != .regular, tab == .review else { return }
+            tab = .threads
+            reviewing = true
         }
         .onChange(of: threadsPath) { old, new in placeChanged(.threads, old: old, new: new) }
         .onChange(of: chatsPath) { old, new in placeChanged(.chats, old: old, new: new) }
@@ -199,11 +212,18 @@ struct InboxView: View {
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
     /// at its foot so the person can go back to the lists.
     private var search: some View {
-        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks)
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks,
+                   hasLock: lock != nil)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
-            .modifier(HomeTabBar(shown: sizeClass != .regular))
+            .homeBar { if sizeClass != .regular { phoneBar } }
+            .modifier(HomeTabBar())
+    }
+
+    /// The phone's tab bar (`HomeBar`), at the foot of Search and Spade's first pages.
+    private var phoneBar: HomeBar {
+        HomeBar(tab: tabChoice, compose: inbox.canStartThreads ? { compose(chat: false) } : nil, needsYou: needsYou)
     }
 
     /// A paired machine shows Spade (Settings › Beta), so its tab is there.
@@ -211,20 +231,21 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade, tabBar: sizeClass != .regular)
+        SpadeTab(inbox: inbox, chosen: tab == .spade) { if sizeClass != .regular { phoneBar } }
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
     }
 
-    /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
+    /// Code review: pull requests and issues, a place of its own in a regular window as the web
+    /// rail's.
     private var review: some View {
-        CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
+        CodeReviewTab(inbox: inbox, scope: $reviewScope, openThread: { openThread($0) }, startThread: { startThread() },
                       openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
-            .modifier(HomeTabBar(shown: sizeClass != .regular))
+            .modifier(HomeTabBar())
     }
 
     private var sheets: some View {
@@ -232,6 +253,16 @@ struct InboxView: View {
             .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
                         places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
                                            openUnlisted: { openThread($0, listed: false) }))
+            // A phone's Code review, over Projects: a thread or New thread asked from it opens
+            // on the home screen as it closes.
+            .sheet(isPresented: $reviewing) {
+                CodeReviewTab(inbox: inbox, scope: $reviewScope,
+                              openThread: { key in reviewing = false; openThread(key) },
+                              startThread: { reviewing = false; startThread() },
+                              openMachines: { reviewing = false; present(PlaceSheet(id: nextSerial(), root: .machines)) },
+                              pair: pair.map { pair in { reviewing = false; pair() } },
+                              close: { reviewing = false })
+            }
             .sheet(isPresented: $pairing) {
                 if let machines {
                     NavigationStack {
@@ -248,6 +279,11 @@ struct InboxView: View {
             }
     }
 
+    /// Code review from the Projects list's top bar: its own place beside the sidebar in a regular
+    /// window, a sheet over Projects on a phone.
+    private func openReview() {
+        if sizeClass == .regular { tab = .review } else { reviewing = true }
+    }
     /// The compose button: a new chat on Chats, else a new thread.
     private func compose(chat: Bool) {
         if chat { composeProject = NewThreadDraft.chat }
@@ -318,6 +354,7 @@ struct InboxView: View {
                                               search: { tab = .search },
                                               place: { open($0) },
                                               compose: { compose(chat: list == .chats) },
+                                              review: { openReview() },
                                               page: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the

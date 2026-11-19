@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -30,7 +31,8 @@ afterEach(async () => {
   for (const step of cleanup.splice(0).toReversed()) await step();
 });
 async function temp() {
-  const root = await mkdtemp(join(tmpdir(), "ace-unpack-"));
+  // macOS hands out a folder reached through /var's link; the pinned open needs its real path.
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-unpack-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   // dest sits two levels down so `..` and `../..` both land in folders this test watches.
   const outside = join(root, "outside");

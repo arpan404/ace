@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -154,6 +154,7 @@ function taskPlan(root: string): TaskPlan {
     path: process.env.PATH ?? "",
     user: sid,
     systemRoot: process.env.SystemRoot ?? "C:\\Windows",
+    userHome: homedir(),
     name,
     environment: { ACE_LOG_LEVEL: "warn" },
   });
@@ -496,6 +497,7 @@ windows("Windows login task homes", () => {
         path: "",
         user: sid,
         systemRoot: "C:\\Windows",
+        userHome: "C:\\Users\\someone",
       }),
     ).toThrow(/must not contain %/);
   });

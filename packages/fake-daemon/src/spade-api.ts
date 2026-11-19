@@ -69,11 +69,46 @@ export class FakeSpadeApi implements FakeSpadeServer {
       held.resolve();
     };
   }
+  /** True: a card's settling event is stored but never sent live, so a follower misses it. */
+  missQuestionSettles = false;
+  /** Settlements of question cards accepted while `holdQuestionSettles` holds them. */
+  private heldSettles: (() => void)[] | undefined;
+
+  /**
+   * Accepts a card's answer, deferral or dismissal at once but stores it only when the result is
+   * called, as a Spade slow to send the update would.
+   */
+  holdQuestionSettles(): () => void {
+    const held: (() => void)[] = [];
+    this.heldSettles = held;
+    return () => {
+      if (this.heldSettles === held) this.heldSettles = undefined;
+      for (const settle of held.splice(0)) settle();
+    };
+  }
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
-  /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
+  /** `PUT /v1/main` without `by`: the old election's switch, obeyed until a host record. */
   mainEnabled = true;
+  /** This machine's host id, as Spade reads it from ace's home. */
+  here: string | undefined = undefined;
+  /** Where Spade lives, as this machine last heard (ADR 0187). */
+  hostRecord: Json | undefined = undefined;
+  /** The person switched Spade off here. */
+  mainOff = false;
+  /** Moves the person accepted here, by id, with the bot each brings. */
+  acceptedMoves = new Map<string, string>();
+  /** What the person accepted for each move, as sent. */
+  acceptances = new Map<string, Json>();
+  /** Names of the machines a move can go to, by host id. */
+  machineNames = new Map<string, string>();
+  /** Whether Spade's main bot shows here, as Spade decides it. */
+  private mainShown(): boolean {
+    if (this.mainOff) return false;
+    if (this.hostRecord && this.here) return this.hostRecord.host === this.here;
+    return this.mainEnabled;
+  }
   /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
   subscriptions: Json[] = [];
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
@@ -204,11 +239,17 @@ export class FakeSpadeApi implements FakeSpadeServer {
 
   /** Stores an event in a conversation and sends it to its live streams. */
   store(conversation: string, event: Json): void {
+    const stored = this.keep(conversation, event);
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** Stores an event without sending it live, as a stream that fell behind would miss it. */
+  private keep(conversation: string, event: Json): Json {
     const list = this.events.get(conversation) ?? [];
     const stored = { seq: list.length + 1, at: this.now(), event };
     list.push(stored);
     this.events.set(conversation, list);
-    this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+    return stored;
   }
 
   /** The agent's state and its few words, on its row and its live stream. */
@@ -262,9 +303,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox",
+    ask: "undeclared" | "outside_sandbox" | "drive",
+    app?: string,
   ): void {
-    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask });
+    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });
   }
 
   private request(
@@ -276,6 +318,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       reply: string;
       reviewerReason?: string;
       ask?: string;
+      app?: string | undefined;
     },
   ): void {
     const { callId, name, args, reply: id } = call;
@@ -294,6 +337,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(args === undefined ? {} : { arguments: args }),
       ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
       ...(call.ask === undefined ? {} : { ask: call.ask }),
+      ...(call.app === undefined ? {} : { app: call.app }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -359,6 +403,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
   refuseQuestion: { status: number; error: string } | undefined;
 
   /** The bodies the app sent to `method path`, parsed. */
+  /** The paths of the requests sent with `method` whose path matches `pattern`, in order. */
+  sentPaths(method: string, pattern: RegExp): string[] {
+    return this.requests
+      .filter((request) => request.method === method && pattern.test(request.path))
+      .map((request) => request.path);
+  }
+
   sent(method: string, path: string): Json[] {
     return this.requests
       .filter((request) => request.method === method && request.path === path)
@@ -507,6 +558,49 @@ export class FakeSpadeApi implements FakeSpadeServer {
       agent.pinned_at = body.pinned === true ? (agent.pinned_at ?? this.now()) : null;
       return reply({ agent });
     }
+    // The person accepts a bot moving here (ADR 0187); the daemon stamps it as theirs.
+    if (root === "moves" && id && sub === "accept" && request.method === "PUT") {
+      if (typeof body.bot !== "string") return problem(400, "Name the bot.");
+      this.acceptedMoves.set(id, body.bot);
+      this.acceptances.set(id, body);
+      return reply({ accepted: true });
+    }
+    if (root === "agents" && id && (sub === "move" || sub === "arrival")) {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      if (sub === "arrival") {
+        agent.arrived = null;
+        return { status: 204 };
+      }
+      if (request.method === "DELETE") {
+        agent.move = null;
+        return reply({ move: null });
+      }
+      if (request.method === "GET") return reply({ move: agent.move ?? null });
+      if (subId === "check") return reply({ checking: true });
+      if (agent.state !== "idle")
+        return problem(
+          409,
+          `${agent.name} is working; it can move once that ends, or once you stop it.`,
+        );
+      if (typeof body.move !== "string") return problem(400, "Name the move.");
+      const to = String(body.to);
+      agent.move = {
+        id: body.move,
+        to: { host: to, name: this.machineNames.get(to) ?? to },
+        state: "sending",
+        from: this.here ?? "this-mac",
+        via: `dev-${this.here ?? "this-mac"}`,
+        digest: "a".repeat(64),
+        replaces: agent.kind === "main" ? "main" : "bot",
+        sent: 3,
+        total: 12,
+        waiting: false,
+        problem: null,
+        can_cancel: true,
+      };
+      return reply({ move: agent.move }, 202);
+    }
     if (root === "agents") return this.agentRoute(request.method, id, body, query);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
@@ -545,8 +639,28 @@ export class FakeSpadeApi implements FakeSpadeServer {
       }
       return { status: 204 };
     }
+    if (root === "main" && id === "host" && request.method === "PUT") {
+      const held = this.hostRecord;
+      const newer =
+        !held ||
+        Number(body.version) > Number(held.version) ||
+        (Number(body.version) === Number(held.version) && Number(body.at) > Number(held.at));
+      if (newer) {
+        this.hostRecord = body;
+        this.mainEnabled = true;
+      }
+      return reply({ host: this.hostRecord });
+    }
+    if (root === "main" && request.method === "GET")
+      return reply({
+        here: this.here ?? null,
+        host: this.hostRecord ?? null,
+        shown: this.mainShown(),
+        off: this.mainOff,
+      });
     if (root === "main") {
-      this.mainEnabled = body.enabled !== false;
+      if (body.by === "person") this.mainOff = body.enabled === false;
+      else if (!this.hostRecord) this.mainEnabled = body.enabled !== false;
       return { status: 204 };
     }
     if (root === "conversations" && id)
@@ -574,7 +688,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   /** The agents `GET /v1/agents` lists, in its order: Spade first (while on), then by activity. */
   private listed(): FakeSpadeAgent[] {
     return this.agents
-      .filter((agent) => agent.kind !== "main" || this.mainEnabled)
+      .filter((agent) => agent.kind !== "main" || this.mainShown())
       .toSorted(
         (a, b) =>
           Number(b.kind === "main") - Number(a.kind === "main") ||
@@ -612,6 +726,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         agents: this.listed().map((agent) =>
           Object.assign({}, agent, this.work.rosterFields(agent), {
             computer: this.computer.of(agent.id),
+            autonomy: this.security.autonomy(agent.id),
           }),
         ),
       });
@@ -883,24 +998,35 @@ export class FakeSpadeApi implements FakeSpadeServer {
       );
       if (!asked || settled || (body.defer === true && deferred))
         return problem(409, "That question isn't open.");
-      if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
-      else if (body.dismiss === true)
-        this.store(id, { type: "question_dismissed", call_id: subId, late: deferred || undefined });
-      else if (Array.isArray(body.answers))
-        this.store(id, {
-          type: "question_answered",
-          call_id: subId,
-          answers: body.answers,
-          late: deferred || undefined,
-        });
-      else return problem(400, "Send exactly one of answers, defer or dismiss.");
-      if (agent) {
-        const later =
-          (agent.questions_for_later ?? 0) +
-          (body.defer === true ? questions : deferred ? -questions : 0);
-        agent.questions_for_later = Math.max(0, later);
-        if (agent.waiting_for === "question") this.status(agent, "idle", null);
-      }
+      if (body.defer !== true && body.dismiss !== true && !Array.isArray(body.answers))
+        return problem(400, "Send exactly one of answers, defer or dismiss.");
+      const settle = () => {
+        const put = (event: Json) =>
+          this.missQuestionSettles ? this.keep(id, event) : this.store(id, event);
+        if (body.defer === true) put({ type: "question_deferred", call_id: subId });
+        else if (body.dismiss === true)
+          put({
+            type: "question_dismissed",
+            call_id: subId,
+            late: deferred || undefined,
+          });
+        else
+          put({
+            type: "question_answered",
+            call_id: subId,
+            answers: body.answers,
+            late: deferred || undefined,
+          });
+        if (agent) {
+          const later =
+            (agent.questions_for_later ?? 0) +
+            (body.defer === true ? questions : deferred ? -questions : 0);
+          agent.questions_for_later = Math.max(0, later);
+          if (agent.waiting_for === "question") this.status(agent, "idle", null);
+        }
+      };
+      if (this.heldSettles) this.heldSettles.push(settle);
+      else settle();
       return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {
@@ -919,6 +1045,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
         agent.task_state = { status: "working" };
       if (agent) this.status(agent, "working", null);
       return reply({});
+    }
+    if (sub === "retry" && request.method === "POST") {
+      // Try again: only the last reply, while it failed; the new reply opens in its place.
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const last = list.findLast((stored) => stored.event.type === "reply_started");
+      const failed = list.some(
+        (stored) => stored.event.type === "reply_failed" && stored.event.reply === body.reply,
+      );
+      if (!failed || last?.event.reply !== body.reply)
+        return problem(409, "only the last reply can be tried again, and only when it failed");
+      this.store(id, { type: "reply_retried", reply: body.reply });
+      this.store(id, { type: "reply_started", reply: `${String(body.reply)}~again` });
+      if (agent) this.status(agent, "working", "Thinking");
+      return reply({}, 202);
     }
     if (sub === "stop" && request.method === "POST") {
       const open = list.findLast((stored) => stored.event.type === "reply_started");

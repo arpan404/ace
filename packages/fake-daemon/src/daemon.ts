@@ -71,7 +71,6 @@ import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { fencedDelivery, listActionChanged, staleInterrupt } from "./command-fences.ts";
-import { createdThreadInit, preparedThreadInit } from "./created-threads.ts";
 import { permissionUpdate, switchUpdate } from "./thread-updates.ts";
 import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
@@ -92,7 +91,6 @@ import type { FakeComputerUsing } from "./computer-using.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceControls } from "./workspace-wire.ts";
-import { completedThread, startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
   interruptFacts,
@@ -100,11 +98,12 @@ import {
   stopTaskFacts,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
-import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
+import { holdOnLimit, isQueueCommand, queuePage } from "./queue-commands.ts";
+import { runQueueCommand, type LimitCommandHost } from "./limit-commands.ts";
+import { createThread, prepareThread, type CreateCommandHost } from "./create-commands.ts";
 import type { FakeSkillLibrary } from "./skill-library.ts";
-import { limitSwitchEvents, switchEvents } from "./transitions.ts";
+import { switchEvents } from "./transitions.ts";
 import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
-import { fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
@@ -335,6 +334,10 @@ export class FakeDaemon implements Host {
       this.services.settings,
       () => this.services.providerStatuses,
     );
+    // Each fake machine mints its own logical project ids, as each daemon does (ADR 0180).
+    this.servicesWire.workspace.projects.identities.reseed(this.hostId);
+    if (options.projectIdentity === false)
+      this.servicesWire.workspace.projects.identities.enabled = false;
     this.review = new FakeReviewDesk(
       options.clock,
       (threadId, text, requestId) =>
@@ -405,7 +408,7 @@ export class FakeDaemon implements Host {
   /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
   get checkouts(): Pick<
     import("./files-wire.ts").FakeFilesWire,
-    "seed" | "seedBytes" | "seedProject" | "seedLinked"
+    "seed" | "seedBytes" | "seedProject" | "seedLinked" | "overwrite"
   > {
     return this.servicesWire.files;
   }
@@ -1052,6 +1055,10 @@ export class FakeDaemon implements Host {
       ),
     });
   }
+  private canOperate(device: string): boolean {
+    const scopes = this.options.deviceScopes?.[device];
+    return !scopes || scopes.includes("operate") || scopes.includes("admin");
+  }
   private canManageProjects(device: string): boolean {
     const scopes = this.options.deviceScopes?.[device];
     return (
@@ -1192,12 +1199,51 @@ export class FakeDaemon implements Host {
     };
   }
 
+  /** What `thread.prepare` and `thread.create` reach of this daemon. */
+  private get createHost(): CreateCommandHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const daemon = this;
+    return {
+      threads: this.threads,
+      context: this.servicesWire.context,
+      get remoteReachable() {
+        return daemon.remoteReachable;
+      },
+      hostId: this.hostId,
+      get displayName() {
+        return daemon.displayName;
+      },
+      isChat: (workspaceId) => this.projects.get(workspaceId)?.kind === "chat",
+      ...(this.options.threadCompletionSchedule
+        ? { scheduleCompletion: this.options.threadCompletionSchedule }
+        : {}),
+      createThread: (init) => this.createThread(init),
+      apply: (threadId, facts) => this.apply(threadId, facts),
+    };
+  }
+
+  /** What the queue commands reach of this daemon. */
+  private get limitHost(): LimitCommandHost {
+    return {
+      clock: this.options.clock,
+      thread: (id) => this.threads.get(id),
+      accounts: () => this.services.accounts,
+      migrationTarget: (host) => this.migrationTarget(host),
+      run: (commandId, threadId, decide) => this.run(commandId, threadId, decide),
+      append: (host, payloads, now) => this.append(host, payloads, now),
+    };
+  }
+
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     if (
       ProjectCommand.options.some((option) => option.shape.type.value === payload.type) &&
+      payload.type !== "workspace.chat.create" &&
       !this.canManageProjects(command.deviceId)
     )
+      return { commandId: command.id, ok: false, error: "forbidden" };
+    // A chat's hidden project is where a new thread starts: `operate` is enough, as on a daemon.
+    if (payload.type === "workspace.chat.create" && !this.canOperate(command.deviceId))
       return { commandId: command.id, ok: false, error: "forbidden" };
     if (
       (payload.type === "thread.create" || payload.type === "thread.prepare") &&
@@ -1263,54 +1309,7 @@ export class FakeDaemon implements Host {
       this.append(host, [decision], this.options.clock());
       return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
     }
-    if (isQueueCommand(payload)) {
-      const result = this.run(commandId, payload.threadId, (host) =>
-        queueCommand(
-          host,
-          payload,
-          this.options.clock(),
-          commandId,
-          payload.type === "thread.limit"
-            ? this.services.accounts.find(
-                (account) =>
-                  account.id ===
-                  (payload.action === "migrate_now"
-                    ? (payload.instanceId ?? this.migrationTarget(host))
-                    : (host.view.thread.live?.account ?? host.view.thread.execution?.instanceId)),
-              )
-            : undefined,
-        ),
-      );
-      // Moving a limited thread runs it on the chosen account from now on, or, as the daemon
-      // does when none is named, the same provider's account with headroom.
-      const host = this.threads.get(payload.threadId);
-      if (result.ok && host && payload.type === "thread.limit" && payload.action === "switch")
-        this.append(
-          host,
-          limitSwitchEvents(host, payload.selection, this.options.clock()),
-          this.options.clock(),
-        );
-      if (
-        result.ok &&
-        host &&
-        payload.type === "thread.limit" &&
-        payload.action === "migrate_now"
-      ) {
-        const account = payload.instanceId ?? this.migrationTarget(host);
-        if (account)
-          this.append(
-            host,
-            [
-              {
-                type: "thread.client.updated",
-                changes: { live: { ...host.view.thread.live, account } },
-              },
-            ],
-            this.options.clock(),
-          );
-      }
-      return result;
-    }
+    if (isQueueCommand(payload)) return runQueueCommand(this.limitHost, payload, commandId);
     switch (payload.type) {
       case "thread.markRead":
         return this.longThreads.markRead(commandId, payload, command.deviceId);
@@ -1364,58 +1363,10 @@ export class FakeDaemon implements Host {
         this.append(host, [update.event], this.options.clock());
         return { commandId, ok: true };
       }
-      case "thread.prepare": {
-        if (this.threads.has(payload.threadId))
-          return { commandId, ok: false, error: "thread_exists" };
-        const base = fakeWorktreeBase(payload, payload.title, this.remoteReachable);
-        if (!base.ok) return { commandId, ok: false, error: base.error };
-        this.createThread(preparedThreadInit(payload, base.fields));
-        return { commandId, ok: true, threadId: payload.threadId };
-      }
-      case "thread.create": {
-        // No provider is contacted; the host may schedule a fixture completion.
-        const id = payload.threadId ?? `thread-${commandId}`;
-        if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
-        const started = startedThread(id, payload, commandId);
-        const base = fakeWorktreeBase(payload, started.thread.title, this.remoteReachable);
-        if (!base.ok) return { commandId, ok: false, error: base.error };
-        if (payload.context?.draftId)
-          this.servicesWire.context.validateDraft(
-            command.deviceId,
-            payload.context.draftId,
-            payload.workspaceId,
-            id,
-          );
-        this.createThread(
-          createdThreadInit(id, payload, started.thread, base.fields, {
-            chat: this.projects.get(payload.workspaceId)?.kind === "chat",
-            host: this.hostId,
-            name: this.displayName,
-          }),
-        );
-        if (payload.context?.draftId)
-          this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
-        const attachments = this.servicesWire.context.messageAttachments(
-          id,
-          payload.context?.attachments.map((a) => a.sha256) ?? [],
-        );
-        for (const fact of started.facts)
-          if (
-            fact.type === "item.upsert" &&
-            fact.draft.type === "message" &&
-            fact.draft.role === "user" &&
-            attachments.length
-          )
-            fact.draft.attachments = attachments;
-        this.apply(id, started.facts);
-        const runId = this.threads.get(id)?.state.agents.root?.activeRun;
-        this.options.threadCompletionSchedule?.(() => {
-          const host = this.threads.get(id);
-          if (runId && host?.state.agents.root?.activeRun === runId)
-            this.apply(id, completedThread(commandId));
-        });
-        return { commandId, ok: true, threadId: ThreadId.parse(id) };
-      }
+      case "thread.prepare":
+        return prepareThread(this.createHost, payload, commandId);
+      case "thread.create":
+        return createThread(this.createHost, payload, command);
       case "thread.send": {
         const sent = this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {

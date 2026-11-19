@@ -81,7 +81,7 @@ fn attempt(launcher: &Path, network: Network, processes: Processes) -> Result<u8
         proxy_port: Some(port),
         ..Default::default()
     });
-    let plan = serde_json::to_string(&super::plan(&policy, network, processes))
+    let plan = serde_json::to_string(&super::plan(&policy, network, processes, false))
         .map_err(|e| e.to_string())?;
     let mode = if network == Network::Filtered {
         "filtered"

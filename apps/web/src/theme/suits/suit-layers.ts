@@ -111,8 +111,10 @@ export const suitGuardSheet = [
     (state) =>
       `[data-suit] ${part("status-icon")}[data-state="${state}"]{color:var(--status-${state})}`,
   ),
-  // Programmatic focus (route changes focus the page title, tabindex=-1) shows no ring, as in ace.
-  `[data-suit] [data-part]:focus-visible:not(${part("composer-input")}):not([tabindex="-1"]){outline:2px solid color-mix(in oklab, var(--ring) 70%, transparent);outline-offset:2px}`,
+  // Programmatic focus (route changes focus the page title, tabindex=-1) shows no ring, as in ace,
+  // and neither do the composer's field and a sheet's search field: always focused, their caret
+  // is their focus mark.
+  `[data-suit] [data-part]:focus-visible:not(${part("composer-input")}):not(${part("input")}[data-variant="search"]):not([tabindex="-1"]){outline:2px solid color-mix(in oklab, var(--ring) 70%, transparent);outline-offset:2px}`,
   "}",
 ].join("\n");
 

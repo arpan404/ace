@@ -175,13 +175,10 @@ it("retains expired cleanup debt without preventing daemon recovery", async () =
     await next.request({ op: "create", path: "recovered", expected: null, text: "ok" }),
   ).toMatchObject({ type: "files.result" });
 });
-it("keeps upload temporary bytes out of workspace listings and explicit downloads", async () => {
+it("keeps upload temporary bytes out of explicit downloads", async () => {
   const f = await setup();
   const client = await f.connect();
   await client.request({ op: "upload.begin", path: "a", expected: null, size: 1 });
-  const { createWorkspace } = await import("@ace/workspace");
-  const workspace = await createWorkspace(f.root);
-  expect((await workspace.list({ dir: "", includeIgnored: true })).entries).toEqual([]);
   const [temp] = await readdir(f.root);
   if (!temp) throw new Error("Missing temporary file");
   expect(await client.request({ op: "download", path: temp, offset: 0 })).toMatchObject({

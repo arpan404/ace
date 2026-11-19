@@ -3438,10 +3438,12 @@ name = "spade-core"
 version = "0.1.0"
 dependencies = [
  "jiff",
+ "percent-encoding",
  "schemars 1.2.3",
  "serde",
  "serde_json",
  "spade-models",
+ "url",
 ]
 
 [[package]]
@@ -3536,6 +3538,7 @@ dependencies = [
  "base64",
  "landlock",
  "libseccomp",
+ "nix 0.28.0",
  "rustix",
  "serde",
  "serde_json",
@@ -3631,6 +3634,7 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde_json",
+ "sha2 0.11.1",
  "spade-core",
  "tempfile",
  "thiserror 2.0.21",

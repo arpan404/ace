@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { betaHostProblem, planBeta, remoteTagNames, stagedBeta } from "./beta-plan.ts";
+import { betaHostProblem, planBeta, planBetaTag, remoteTagNames, stagedBeta } from "./beta-plan.ts";
 
 describe("where a beta is built", () => {
   it.each([
     ["darwin", "arm64", true],
     ["darwin", "x64", false],
-    ["linux", "arm64", false],
-    ["linux", "x64", false],
-    ["win32", "x64", false],
+    ["linux", "arm64", true],
+    ["linux", "x64", true],
+    ["win32", "x64", true],
+    ["win32", "arm64", false],
+    ["freebsd", "x64", false],
   ])("%s-%s builds betas: %s", (platform, arch, allowed) => {
     expect(betaHostProblem(platform, arch) === undefined).toBe(allowed);
   });
@@ -64,6 +66,48 @@ describe("the next beta", () => {
 
   it("refuses to build on a version that isn't a stable release", () => {
     expect(() => planBeta({ stable: "0.1.0-preview.1", tags: [] })).toThrow(/stable/);
+  });
+});
+
+describe("a beta tag the owner pushed", () => {
+  const tags = ["v0.0.23", "ace-0.0.24-beta-1", "ace-0.0.24-beta-2", "ace-0.1.0-beta-1"];
+
+  it("is accepted when it is the next build of a later version", () => {
+    const plan = planBetaTag({
+      stable: "0.0.23",
+      tag: "ace-0.0.24-beta-3",
+      tags: [...tags, "ace-0.0.24-beta-3"],
+    });
+    expect(plan).toMatchObject({
+      tag: "ace-0.0.24-beta-3",
+      version: "0.0.24-beta.3",
+      title: "ace 0.0.24 beta 3",
+    });
+  });
+
+  it("still checks out when its release is rerun after later betas were tagged", () => {
+    const later = [...tags, "ace-0.0.24-beta-3", "ace-0.0.24-beta-4"];
+    expect(planBetaTag({ stable: "0.0.23", tag: "ace-0.0.24-beta-2", tags: later }).version).toBe(
+      "0.0.24-beta.2",
+    );
+  });
+
+  it("is refused when it skips a build number", () => {
+    expect(() => planBetaTag({ stable: "0.0.23", tag: "ace-0.0.24-beta-5", tags })).toThrow(
+      /next beta of 0.0.24 is ace-0.0.24-beta-3/,
+    );
+  });
+
+  it("is refused when its version is not later than the stable release", () => {
+    expect(() => planBetaTag({ stable: "0.0.24", tag: "ace-0.0.24-beta-3", tags })).toThrow(
+      /later than 0.0.24/,
+    );
+  });
+
+  it("is refused when it isn't a beta tag", () => {
+    expect(() => planBetaTag({ stable: "0.0.23", tag: "ace-0.0.24-beta.3", tags })).toThrow(
+      /not a beta tag/,
+    );
   });
 });
 

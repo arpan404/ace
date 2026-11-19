@@ -42,6 +42,11 @@ impl RemoteError {
 }
 
 pub trait Remote: Send + Sync {
+    /// This machine's own host id, as the other machines list it (ADR 0187): where Spade's
+    /// host choice says the main bot lives. `None` while ace's home doesn't say.
+    fn host(&self) -> Option<String> {
+        None
+    }
     /// The linked machines.
     fn machines(&self) -> BoxFuture<'_, Result<Vec<Machine>, RemoteError>>;
     /// One inbox request to `machine` (a host id): Spade's status there and its JSON answer.

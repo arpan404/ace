@@ -13,6 +13,7 @@ mod goals;
 mod knowledge;
 mod media;
 mod memory;
+mod moves;
 mod oversight;
 mod plugins;
 mod questions;
@@ -47,7 +48,9 @@ use spade_store::StoredEvent;
 use tokio::sync::watch;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::engine::{AnswerError, CompactError, Engine, Frame, MaintenanceState, SendError};
+use crate::engine::{
+    AnswerError, CompactError, Engine, Frame, MaintenanceState, RetryError, SendError,
+};
 use crate::tools::{AceLink, GrantError};
 
 /// Set when the server begins shutting down, so live streams end and shutdown is not held up.
@@ -96,7 +99,7 @@ pub fn router(state: AppState) -> Router {
             "/agents/{id}/task/goal",
             put(goals::set).delete(goals::clear),
         )
-        .route("/main", put(agents::set_main))
+        .route("/main", get(moves::main_state).put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
         .route(
             "/endpoints/{id}",
@@ -127,6 +130,7 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/events", get(events))
         .route("/conversations/{id}/helpers", get(helpers))
         .route("/conversations/{id}/stop", post(stop))
+        .route("/conversations/{id}/retry", post(try_again))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route(
             "/conversations/{id}/plugin_outside/{ask_id}",
@@ -169,6 +173,7 @@ pub fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(moves::routes())
         .merge(wakes::routes())
         .merge(digests::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -273,7 +278,11 @@ fn stored(event: &StoredEvent) -> Value {
 pub(super) fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled | SendError::Group | SendError::Helper => StatusCode::CONFLICT,
+        SendError::Disabled
+        | SendError::Moving(..)
+        | SendError::Group
+        | SendError::Helper
+        | SendError::NoModel => StatusCode::CONFLICT,
         SendError::Empty
         | SendError::TooLong
         | SendError::TooManyImages
@@ -351,6 +360,31 @@ async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("stopped, but the stop could not be saved yet ({error}); Spade keeps trying"),
         ),
+    }
+}
+
+#[derive(Deserialize)]
+struct Retried {
+    /// The failed reply to answer again: the conversation's last.
+    reply: String,
+}
+
+/// Try again on the conversation's last reply, which failed: the same turn answered again in its
+/// place, with nothing posted twice (docs/chat-core.md).
+async fn try_again(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<Retried>,
+) -> Response {
+    match state.engine.try_again(&id, &body.reply) {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(RetryError::Send(error)) => send_problem(&error),
+        Err(error @ (RetryError::NotLast | RetryError::Busy | RetryError::NotAdmitted)) => {
+            problem(StatusCode::CONFLICT, &error.to_string())
+        }
+        Err(RetryError::Store(error)) => {
+            problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
+        }
     }
 }
 

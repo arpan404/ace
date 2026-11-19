@@ -5,6 +5,13 @@ import type { Mention } from "@ace/protocol";
 const lineOf = (node: Node) =>
   (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-line]");
 function selectedLines(root: HTMLElement): Mention["lines"] {
+  // The editor publishes its own selection: it draws carets over the text, so a native DOM
+  // selection never forms. Plain viewers fall back to the browser's selection below.
+  const published = root.querySelector<HTMLElement>("[data-selected-lines]")?.dataset.selectedLines;
+  if (published) {
+    const [start, end] = published.split("-").map(Number);
+    if (start && end) return { start, end };
+  }
   const selection = root.ownerDocument.getSelection();
   if (!selection || selection.isCollapsed || !selection.anchorNode || !selection.focusNode) return;
   const first = lineOf(selection.anchorNode),

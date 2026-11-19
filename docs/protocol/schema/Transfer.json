@@ -68,6 +68,17 @@
         "branchOnly": {
           "type": "boolean"
         },
+        "identityConflict": {
+          "properties": {
+            "identityId": {
+              "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+            }
+          },
+          "required": [
+            "identityId"
+          ],
+          "type": "object"
+        },
         "ignoredSkipped": {
           "maximum": 9007199254740991,
           "minimum": 0,

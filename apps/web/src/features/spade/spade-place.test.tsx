@@ -44,7 +44,7 @@ test("Spade is the list's first row, then each bot with what it asks or its last
   );
 });
 
-test("opening a bot shows its conversation as bubbles from both sides, each of its messages its own bubble, its tool calls not at all", async () => {
+test("opening a bot shows its conversation as bubbles from both sides, each of its messages its own bubble, its tool calls as one quiet line in words", async () => {
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -85,7 +85,7 @@ test("opening a bot shows its conversation as bubbles from both sides, each of i
   expect(
     within(await chat.findByRole("article", { name: "You" })).getByText("When do I plant garlic?"),
   ).toBeTruthy();
-  // One run of the bot's, each step's words its own bubble, never the search it ran between.
+  // One run of the bot's, each step's words its own bubble, the search it ran folded under them.
   const replies = chat.getAllByRole("article", { name: "Garden" });
   expect(replies).toHaveLength(1);
   const run = within(replies[0] ?? document.body);
@@ -94,7 +94,8 @@ test("opening a bot shows its conversation as bubbles from both sides, each of i
     run.getByText("Let me check.").closest("p, div") === run.getByText("October").closest("p, div"),
   ).toBe(false);
   expect(chat.getByText("October").tagName).toBe("STRONG");
-  expect(chat.queryByText("Searched the web")).toBeNull();
+  expect(chat.getByText("Searched the web")).toBeTruthy();
+  // In Spade's words: the tool's own name never shows.
   expect(chat.queryByText(/web_search/)).toBeNull();
 });
 

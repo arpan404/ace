@@ -1,16 +1,12 @@
 import { fileExportSource } from "../file-export-source.ts";
 import type { MediaAdmission, MediaOwner } from "@ace/media/media-connections";
-import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
+import { relayAttachments } from "./relay-attachments.ts";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
-import {
-  FileError,
-  chunkFilesChannel,
-  attachFilesRelay,
-  attachmentChannel,
-  type FilesService,
-} from "@ace/files";
+import { chunkFilesChannel, attachFilesRelay, type FilesService } from "@ace/files";
+import { filesScope } from "../files-scope.ts";
+import { relayFiles } from "../files-tool/relay-files.ts";
 import {
   BrowserClientMessage,
   AgentId,
@@ -36,6 +32,8 @@ export interface RelayServices {
   supportFiles?: FilesService | undefined;
   context?: import("../server-options.ts").ServerOptions["context"] | undefined;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces | undefined;
+  /** The daemon's ace-files: folder listings, quick open and folder watches (ADR 0178). */
+  filesNative?: import("../files-tool/wiring.ts").FilesNative | undefined;
   appDevices?:
     | import("@ace/devices").DevicesService
     | import("../lazy-devices.ts").LazyDevices
@@ -222,32 +220,40 @@ export function attachRelayService(
         return source === undefined || threadAccess(source);
       })
     : undefined;
-  const attachmentService = options.context;
-  const attachments = attachmentService?.downloadAttachment
-    ? attachmentChannel({
-        async resolve(thread, hash, maxBytes) {
-          const authorized = () => authorize("read") && threadAccess(thread);
-          if (!authorized() || !attachmentService.downloadAttachment)
-            throw new Error("Thread attachment unavailable");
-          const download = await attachmentService.downloadAttachment(
-            device,
-            thread,
-            hash,
-            maxBytes,
-            authorized,
-          );
-          return { download, authorized };
-        },
-        // Credits bound each stream to one 64 KiB frame, so a backlog from other traffic on a
-        // slow link waits its turn instead of failing the image.
-        async send(message) {
-          await channel.send(message);
-        },
-        async binary(bytes) {
-          await channel.sendBinary(bytes);
-        },
-      })
-    : undefined;
+  const attachments = relayAttachments(options.context, channel, device, authorize, threadAccess);
+  /** The same binding the main socket's chunk channel, listings and watches use. */
+  const resolve = filesScope({
+    authorize,
+    threadAccess,
+    connected: () => true,
+    options: {
+      threadFiles: options.threadFiles,
+      supportFiles: options.supportFiles,
+      filesNative: options.filesNative,
+      store: options.store,
+    },
+  });
+  /** Pushes on this channel are bounded like the chunk channel's, never gated on admin. */
+  const push = (message: Parameters<HostChannel["send"]>[0]) => {
+    if (!authorize("read")) return;
+    if (channel.bufferedBytes > 256 * 1024) {
+      channel.close();
+      return;
+    }
+    void channel.send(message).catch(() => channel.close());
+  };
+  const filesChannel = relayFiles({
+    clientId: sessionId,
+    authorize,
+    threadAccess,
+    matches: (threadId, root) => options.threadFiles?.matches(threadId, root) ?? false,
+    resolve,
+    tool: options.filesNative?.tool,
+    folders: options.filesNative?.folders,
+    push,
+    buffered: () => channel.bufferedBytes,
+    ...(options.warn ? { warn: options.warn } : {}),
+  });
   const chunks =
     options.threadFiles || options.supportFiles
       ? chunkFilesChannel({
@@ -259,68 +265,12 @@ export function attachRelayService(
             }
             void channel.send(message).catch(() => channel.close());
           },
-          async resolve(threadId, scope, operation, workspaceId) {
-            if (workspaceId !== undefined) {
-              if (!options.threadFiles) throw new Error("Project files unavailable");
-              return projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
-                authorize("read"),
-              );
-            }
-            if (scope === "support" && options.supportFiles)
-              return {
-                service: options.supportFiles,
-                allowed: (access) => authorize(access),
-              };
-            const files = options.threadFiles;
-            if (!threadId || !files || !threadAccess(threadId))
-              throw new Error("File thread unavailable");
-            if (operation?.op === "link.download")
-              return files.linkedFiles.bind(
-                threadId,
-                operation,
-                () => authorize("read") && threadAccess(threadId),
-              );
-            if (
-              operation?.op === "artifact.download" &&
-              operation.artifactId.startsWith("browser-")
-            ) {
-              const artifacts = files.browserArtifacts;
-              if (!artifacts.owns(threadId, operation.artifactId))
-                throw new Error("Artifact is not readable by this thread");
-              return {
-                service: await artifacts.get(),
-                allowed: (access) =>
-                  access === "read" &&
-                  authorize("read") &&
-                  threadAccess(threadId) &&
-                  artifacts.owns(threadId, operation.artifactId),
-              };
-            }
-            const root = files.root(threadId);
-            const { service, release } = await files.acquire(threadId);
-            let source: ThreadId | undefined;
-            try {
-              source = fileExportSource(service, options.store, operation);
-              if (source !== undefined && (source !== threadId || !threadAccess(source)))
-                throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
-            } catch (error) {
-              release();
-              throw error;
-            }
-            return {
-              service,
-              release,
-              allowed: (access) =>
-                authorize(access) &&
-                threadAccess(threadId) &&
-                files.matches(threadId, root) &&
-                (source === undefined || threadAccess(source)),
-            };
-          },
+          resolve,
         })
       : undefined;
   return {
     async accept(message: ClientMessage) {
+      if (filesChannel.accept(message)) return;
       if (attachments?.accept(message)) return;
       if (message.type === "files.request" && message.operation.op === "attachment.download") {
         await channel.send({
@@ -386,6 +336,7 @@ export function attachRelayService(
     close() {
       chunks?.close();
       legacy?.close();
+      filesChannel.close();
       void attachments?.close().catch(() => {});
     },
   };

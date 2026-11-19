@@ -38,8 +38,11 @@ impl Store {
     /// What `conversation` spent from `since_ms` on.
     pub fn spent_by(&self, conversation: &str, since_ms: i64) -> Result<u64> {
         let total: i64 = self.lock()?.query_row(
-            "SELECT COALESCE(SUM(cost_micros), 0) FROM spend
-             WHERE at_ms >= ?2 AND conversation_id = ?1",
+            &format!(
+                "SELECT COALESCE(SUM(cost_micros), 0) FROM spend
+                 WHERE at_ms >= ?2 AND conversation_id = ?1 AND conversation_id NOT IN {}",
+                crate::gate::ARRIVING_CONVERSATIONS
+            ),
             params![conversation, since_ms],
             |row| row.get(0),
         )?;
@@ -55,12 +58,14 @@ impl Store {
     ) -> Result<HashMap<String, AgentSpend>> {
         let from = day_start.min(month_start);
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT conversation_id,
                     COALESCE(SUM(CASE WHEN at_ms >= ?1 THEN cost_micros ELSE 0 END), 0),
                     COALESCE(SUM(CASE WHEN at_ms >= ?2 THEN cost_micros ELSE 0 END), 0)
-             FROM spend WHERE at_ms >= ?3 GROUP BY conversation_id",
-        )?;
+             FROM spend WHERE at_ms >= ?3 AND conversation_id NOT IN {}
+             GROUP BY conversation_id",
+            crate::gate::ARRIVING_CONVERSATIONS
+        ))?;
         let rows = statement.query_map(params![day_start, month_start, from], |row| {
             let today: i64 = row.get(1)?;
             let month: i64 = row.get(2)?;
@@ -119,6 +124,9 @@ impl Store {
         let wanted = serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_owned());
         let raw: Vec<(i64, i64, String)> = {
             let connection = self.lock()?;
+            if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+                return Ok(Vec::new());
+            }
             let mut statement = connection.prepare_cached(
                 "SELECT seq, at_ms, body FROM events
                  WHERE conversation_id = ?1 AND seq >= ?2 AND seq < ?3
@@ -143,6 +151,8 @@ impl Store {
         let mut statement = connection.prepare(
             "SELECT e.conversation_id, json_extract(e.body, '$.' || ?2) FROM events e
              WHERE json_extract(e.body, '$.type') = ?1
+               AND e.conversation_id NOT IN (SELECT id FROM move_claims
+                                             WHERE kind = 'conversation' AND hidden = 1)
                AND e.seq = (SELECT MAX(seq) FROM events
                             WHERE conversation_id = e.conversation_id
                               AND json_extract(body, '$.type') = ?1)",
@@ -154,7 +164,11 @@ impl Store {
 
     /// The conversation's last event number, 0 when it has none.
     pub fn last_seq(&self, conversation: &str) -> Result<i64> {
-        Ok(self.lock()?.query_row(
+        let connection = self.lock()?;
+        if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+            return Ok(0);
+        }
+        Ok(connection.query_row(
             "SELECT COALESCE(MAX(seq), 0) FROM events WHERE conversation_id = ?1",
             params![conversation],
             |row| row.get(0),
@@ -178,6 +192,9 @@ impl Store {
         let wanted = serde_json::to_string(types).unwrap_or_else(|_| "[]".to_owned());
         let raw: Vec<(i64, i64, String)> = {
             let connection = self.lock()?;
+            if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+                return Ok(Vec::new());
+            }
             let mut statement = connection.prepare_cached(
                 "SELECT seq, at_ms,
                         CASE json_extract(body, '$.type')

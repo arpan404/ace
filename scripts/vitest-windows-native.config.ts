@@ -195,7 +195,6 @@ export default defineConfig({
       "packages/terminal/src/pty.process.test.ts",
       "packages/browser/src/video-sharpness.process.test.ts",
       "packages/workspace/src/pinned-directory.process.test.ts",
-      "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
       // Usage measurement must stay confined and cancellable on native Windows too.
       "apps/daemon/src/storage/usage-*.test.ts",
@@ -341,11 +340,6 @@ export default defineConfig({
       "packages/mcp-server/src/discovery-fifo.process.test.ts",
       // Windows has no FIFOs.
       "packages/plugins/src/source-fifo.process.test.ts",
-      // These write native paths into Git config text, which Git reads as bad escapes on
-      // Windows; config-paths.process.test.ts runs the same cases with "/" paths.
-      "packages/workspace/src/include-watch.process.test.ts",
-      "packages/workspace/src/branch-includes.process.test.ts",
-      "packages/workspace/src/head-reconciliation.process.test.ts",
     ],
     // Shared files also hold POSIX cases; each listed one has a Windows counterpart or no
     // Windows meaning. Names are matched whole.

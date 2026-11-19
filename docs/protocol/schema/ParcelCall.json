@@ -1,0 +1,161 @@
+{
+  "$id": "https://ace.local/protocol/v1/ParcelCall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "offer",
+          "type": "string"
+        },
+        "parcel": {
+          "$ref": "https://ace.local/protocol/v1/ParcelFacts.json"
+        },
+        "to": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "action",
+        "to",
+        "parcel"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "chunk",
+          "type": "string"
+        },
+        "data": {
+          "maxLength": 262144,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "offset": {
+          "maximum": 1073741824,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parcelId": {
+          "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+        }
+      },
+      "required": [
+        "action",
+        "parcelId",
+        "offset",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "commit",
+          "type": "string"
+        },
+        "parcelId": {
+          "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+        }
+      },
+      "required": [
+        "action",
+        "parcelId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "cancel",
+          "type": "string"
+        },
+        "parcelId": {
+          "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+        }
+      },
+      "required": [
+        "action",
+        "parcelId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "outbox",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "read",
+          "type": "string"
+        },
+        "length": {
+          "maximum": 196608,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 1073741824,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parcelId": {
+          "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+        }
+      },
+      "required": [
+        "action",
+        "parcelId",
+        "offset",
+        "length"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "ack",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "delivered",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "parcelId": {
+          "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+        },
+        "reason": {
+          "maxLength": 400,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "parcelId",
+        "outcome"
+      ],
+      "type": "object"
+    }
+  ]
+}

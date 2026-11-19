@@ -1,39 +1,29 @@
 import SwiftUI
 
-/// Where a pull request can go from its state, as words: Ready for review, Convert to draft,
-/// Close, Reopen, Update branch. Closing and a rebase update ask first; the rest are one tap,
-/// each pinned to the version shown by the section that sends it.
-struct ForgeLifecycleRow: View {
+/// Where a pull request can go from its state: Ready for review, Convert to draft, Close,
+/// Reopen, Update branch, each a row action of the Manage section (ADR 0184). Closing and a
+/// rebase update ask first; the rest are one tap, each pinned to the version shown by the
+/// section that sends it.
+struct ForgeLifecycleRows: View {
     let steps: [ForgeManage.Step]
     let enabled: Bool
     let take: (String) -> Void
     @State private var asking: ForgeManage.Step?
 
     var body: some View {
-        if !steps.isEmpty {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: AceDesign.Space.row) { words }
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) { words }
-            }
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .confirmationDialog(asking?.label ?? "", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
-                                titleVisibility: .visible, presenting: asking) { step in
-                Button(step.label, role: step.kind == "close" ? .destructive : nil) { take(step.kind) }
-            } message: { step in Text(Self.warning(step.kind)) }
-        }
-    }
-
-    @ViewBuilder private var words: some View {
         ForEach(steps, id: \.self) { step in
             Button(step.label) { if Self.asks(step.kind) { asking = step } else { take(step.kind) } }
-                .buttonStyle(.textAction(Self.leads(step.kind) ? .prominent : .plain))
+                .buttonStyle(.rowAction)
+                .padding(.horizontal, AceDesign.Space.margin)
                 .disabled(!enabled)
                 .accessibilityIdentifier("forge.manage.\(step.kind)")
+                .confirmationDialog(step.label, isPresented: Binding(get: { asking == step }, set: { if !$0 { asking = nil } }),
+                                    titleVisibility: .visible) {
+                    Button(step.label, role: step.kind == "close" ? .destructive : nil) { take(step.kind) }
+                } message: { Text(Self.warning(step.kind)) }
         }
     }
 
-    /// The way forward from a state: out of draft, open again, up to date. The rest are muted.
-    static func leads(_ kind: String) -> Bool { kind == "ready" || kind == "reopen" || kind == "update.merge" }
     /// The changes that are hard to take back from a phone.
     static func asks(_ kind: String) -> Bool { kind == "close" || kind == "update.rebase" }
     static func warning(_ kind: String) -> String {

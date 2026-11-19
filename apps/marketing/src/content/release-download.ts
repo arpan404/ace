@@ -1,10 +1,12 @@
 import {
   defaultArch,
+  filesFor,
   pickInstaller,
   readRelease,
   versionOf,
   type Pick,
   type Platform,
+  type ReleaseFile,
 } from "./release-pick.ts";
 
 /*
@@ -20,6 +22,8 @@ export interface Downloads {
   notesUrl: string;
   publishedAt: string | undefined;
   byPlatform: Record<Platform, Pick>;
+  /** Every file the release has for each system; none when the release couldn't be read. */
+  files: Record<Platform, ReleaseFile[]>;
 }
 
 /** Every link opens the latest release page: used whenever the release can't be read. */
@@ -30,6 +34,7 @@ export function releasePageDownloads(latestReleasePage: string): Downloads {
     notesUrl: latestReleasePage,
     publishedAt: undefined,
     byPlatform: { mac: page, windows: page, linux: page },
+    files: { mac: [], windows: [], linux: [] },
   };
 }
 
@@ -46,5 +51,10 @@ export function downloadsFromRelease(body: unknown): Downloads {
     notesUrl: release.html_url,
     publishedAt: release.published_at ?? undefined,
     byPlatform: { mac: pick("mac"), windows: pick("windows"), linux: pick("linux") },
+    files: {
+      mac: filesFor(release, "mac"),
+      windows: filesFor(release, "windows"),
+      linux: filesFor(release, "linux"),
+    },
   };
 }

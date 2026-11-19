@@ -148,6 +148,8 @@ export class FakeMarketplaceWire {
   readonly #listeners = new Set<(message: MarketServerMessage) => void>();
   /** Every install the person accepted, oldest first. */
   readonly accepted: FakeMarketAcceptance[] = [];
+  /** Refuses each install with this error while set, as a market that wants a fresh sign-in. */
+  refuseInstall: Extract<MarketResult, { op: "error" }> | undefined;
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
@@ -376,6 +378,7 @@ export class FakeMarketplaceWire {
           };
         if (stored.review.blocked)
           return { op: "error", code: "refused", message: stored.review.blocked };
+        if (this.refuseInstall) return this.refuseInstall;
         const { review } = stored;
         const acceptance = { review, choices: operation.choices };
         this.accepted.push(acceptance);
@@ -415,11 +418,22 @@ export class FakeMarketplaceWire {
         this.#changed();
         return { op: "done", installed: on };
       }
+      case "turnOnForBots": {
+        const item = this.#installed.get(key("spade-skill", operation.name));
+        if (!item) return { op: "error", code: "not_found", message: "That skill isn't installed" };
+        const approved: MarketInstalled = { ...item, botsApproved: true };
+        this.#installed.set(key(item.type, item.name), approved);
+        this.#changed();
+        return { op: "done", installed: approved };
+      }
       case "spadeSkills":
         return {
           op: "spadeSkills",
           skills: [...this.#installed.values()]
-            .filter((item) => item.type === "spade-skill" && item.state === "on")
+            .filter(
+              (item) =>
+                item.type === "spade-skill" && item.state === "on" && item.botsApproved !== false,
+            )
             .map((item) => ({
               name: item.name,
               version: item.version,

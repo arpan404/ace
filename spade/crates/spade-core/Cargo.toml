@@ -11,8 +11,10 @@ publish.workspace = true
 jiff.workspace = true
 schemars.workspace = true
 serde.workspace = true
+percent-encoding = "2"
 serde_json.workspace = true
 spade-models = { path = "../spade-models" }
+url = "2"
 
 [lints]
 workspace = true

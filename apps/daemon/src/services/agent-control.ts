@@ -134,6 +134,12 @@ export function startAgentControl(context: ServiceContext): void {
       if (!transfers) throw new AgentControlError("machine_unavailable", "transfers_not_ready");
       return transfers.agents.transfer(caller, operation);
     },
+    // Parcels start after this service too (ADR 0182).
+    parcels: async (caller, operation) => {
+      const parcels = services.parcels;
+      if (!parcels) throw new AgentControlError("machine_unavailable", "parcels_not_ready");
+      return parcels.agent(caller, operation);
+    },
     runRole: (role) => services.roles?.get(role),
     startConversation: createConversationStarts(context, delegations, delegations.conversations),
     pr: async (caller, operation, signal) => {

@@ -956,7 +956,9 @@ export class GitCli {
               }),
             );
         }
-        if (code === 0 && (inputError || !inputDelivered))
+        // A call with no input has nothing to deliver: a Git that exits before its empty stdin
+        // reports `finish` (as one can under load) did all of its work.
+        if (code === 0 && options.input !== undefined && (inputError || !inputDelivered))
           return reject(
             new GitError("git_failed", "Git stopped reading its input before the end", {
               code,

@@ -1,101 +1,53 @@
-import { folderIndex, updateFolderIndex } from "./folder-index.ts";
-import { z } from "zod";
 import { withGit, type GitProcessOptions } from "./git-process.ts";
-import { StringDecoder } from "node:string_decoder";
 import { constants } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { ContextError, requireContext } from "./errors.ts";
+import { requireContext } from "./errors.ts";
 import { ignoredPaths } from "./git-ignore-batch.ts";
-import { PathIndex } from "./path-index.ts";
-import { containedPath, pathMetadata, type MetadataScope } from "./workspace-path.ts";
+import { containedPath, pathMetadata } from "./workspace-path.ts";
 
-/** Errors proving a watched path no longer belongs in the index. */
-function excluded(error: unknown): boolean {
-  return (
-    error instanceof ContextError &&
-    ["not_found", "ignored", "outside_workspace"].includes(error.code)
-  );
+/** One file below a folder, as ace-files lists it: relative, `/` separated, size in bytes. */
+export interface WorkspaceFileEntry {
+  path: string;
+  size: number;
 }
-/** Watcher folders nested in another changed folder are covered by its listing. */
-function outermost(folders: readonly string[]): string[] {
-  const all = new Set(folders);
-  if (all.has(".")) return ["."];
-  return [...all].filter((folder) => {
-    for (let at = folder.indexOf("/"); at >= 0; at = folder.indexOf("/", at + 1))
-      if (all.has(folder.slice(0, at))) return false;
-    return true;
-  });
-}
-/** Keep each Git argument vector far below the platform's ARG_MAX. */
-function argumentGroups(paths: readonly string[], budget = 128 * 1024): string[][] {
-  const groups: string[][] = [];
-  let group: string[] = [],
-    bytes = 0;
-  for (const path of paths) {
-    const size = Buffer.byteLength(path) + 1;
-    if (group.length && bytes + size > budget) {
-      groups.push(group);
-      group = [];
-      bytes = 0;
-    }
-    group.push(path);
-    bytes += size;
-  }
-  if (group.length) groups.push(group);
-  return groups;
-}
+
+/** What a folder mention lists. The daemon answers it from ace-files' paged listing. */
+export type WorkspaceFolderLister = (folder: string) => AsyncIterable<WorkspaceFileEntry>;
 
 export interface WorkspaceFiles {
   readonly root: string;
-  readonly index: PathIndex;
-  initialize(): Promise<void>;
-  update(paths: readonly string[]): Promise<void>;
   inspect(path: string): Promise<"file" | "folder">;
   read(path: string, limit: number): Promise<{ bytes: Buffer; more: boolean }>;
+  /**
+   * Every non-ignored file below `folder`, recursively. Listing is ace-files' work; this reader
+   * only passes the request on, so a folder mention shows the same files the tree does.
+   */
+  list(folder: string): AsyncIterable<WorkspaceFileEntry>;
 }
+
+export interface WorkspaceReaderOptions {
+  /** ace-files' folder listing; without it a folder mention reports `unsupported`. */
+  list?: WorkspaceFolderLister | undefined;
+}
+/**
+ * One checkout's mention reader: resolves a mention path inside the root, applies Git's ignore
+ * rules to it, and reads its bytes. It keeps no index and watches nothing; quick open and folder
+ * listings come from ace-files through the daemon.
+ */
 export class GitWorkspace implements WorkspaceFiles {
   readonly root: string;
-  index: PathIndex;
-  private cap: number;
-  private ordinaryFolder = false;
-  private options: GitProcessOptions;
-  constructor(root: string, cap = 100_000, options: GitProcessOptions = {}) {
-    this.options = options;
+  readonly #options: GitProcessOptions;
+  readonly #list: WorkspaceFolderLister | undefined;
+  #ordinaryFolder: boolean | undefined;
+  constructor(root: string, options: GitProcessOptions = {}, reader: WorkspaceReaderOptions = {}) {
+    this.#options = options;
     this.root = resolve(root);
-    this.cap = cap;
-    this.index = new PathIndex(cap);
+    this.#list = reader.list;
   }
-  /** `gitArgs` is the full Git argument vector; `ls-files -z` output is streamed. */
-  private async listing(gitArgs: string[], visit: (path: string) => void): Promise<void> {
-    const result = await withGit(this.root, gitArgs, this.options, async (child) => {
-      child.stdin.end();
-      const decoder = new StringDecoder("utf8");
-      let pending = "";
-      for await (const chunk of child.stdout) {
-        const data = z.instanceof(Buffer).parse(chunk);
-        pending += decoder.write(data);
-        let end: number;
-        while ((end = pending.indexOf("\0")) >= 0) {
-          const path = pending.slice(0, end);
-          pending = pending.slice(end + 1);
-          if (path) visit(path);
-        }
-        requireContext(pending.length <= 1024, "quota", "Path exceeds index limit");
-      }
-      requireContext(
-        pending.length === 0 && decoder.end().length === 0,
-        "invalid_request",
-        "Incomplete Git listing",
-      );
-    });
-    requireContext(
-      result.code === 0,
-      "invalid_request",
-      result.stderr.trim() || "Cannot list workspace files",
-    );
-  }
-  async initialize(): Promise<void> {
+  /** A folder that is not a Git repository mentions any file except Git metadata. */
+  private async ordinaryFolder(): Promise<boolean> {
+    if (this.#ordinaryFolder !== undefined) return this.#ordinaryFolder;
     requireContext(
       (await realpath(this.root)) === this.root,
       "outside_workspace",
@@ -104,39 +56,28 @@ export class GitWorkspace implements WorkspaceFiles {
     const repository = await withGit(
       this.root,
       ["rev-parse", "--is-inside-work-tree"],
-      this.options,
+      this.#options,
       async (child) => {
         child.stdin.end();
         child.stdout.resume();
       },
     );
-    this.ordinaryFolder =
+    const ordinary =
       repository.code === 128 &&
       repository.stderr.startsWith(
         "fatal: not a git repository (or any of the parent directories):",
       );
     requireContext(
-      repository.code === 0 || this.ordinaryFolder,
+      repository.code === 0 || ordinary,
       "invalid_request",
       repository.stderr.trim() || "Cannot inspect workspace repository",
     );
-    if (this.ordinaryFolder) {
-      this.index = await folderIndex(this.root, this.cap);
-      return;
-    }
-    const next = new PathIndex(this.cap);
-    await this.listing(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], (path) =>
-      next.update(path, true),
-    );
-    await this.listing(["ls-files", "-z", "--cached", "--ignored", "--exclude-standard"], (path) =>
-      next.update(path, false),
-    );
-    await this.listing(["ls-files", "-z", "--deleted"], (path) => next.update(path, false));
-    this.index = next;
+    this.#ordinaryFolder = ordinary;
+    return ordinary;
   }
   private async checked(path: string): Promise<string> {
     const contained = await containedPath(this.root, path);
-    if (this.ordinaryFolder) {
+    if (await this.ordinaryFolder()) {
       requireContext(
         !contained.local.split(/[\\/]/).includes(".git"),
         "ignored",
@@ -144,7 +85,7 @@ export class GitWorkspace implements WorkspaceFiles {
       );
       return contained.absolute;
     }
-    const ignored = await ignoredPaths(this.root, [contained.local], this.options);
+    const ignored = await ignoredPaths(this.root, [contained.local], this.#options);
     requireContext(!ignored.has(contained.local), "ignored", "Path is ignored by Git");
     return contained.absolute;
   }
@@ -186,67 +127,9 @@ export class GitWorkspace implements WorkspaceFiles {
       await file.close();
     }
   }
-  /**
-   * Reconcile a batch of watcher hints with one ignore check and one set of
-   * subtree listings, whatever the batch size. Containment and symlink rules
-   * are proven per path before Git sees it; ancestors are stat'ed once.
-   */
-  async update(paths: readonly string[]): Promise<void> {
-    if (
-      paths.some(
-        (path) => path === ".git" || path.endsWith(".gitignore") || path.startsWith(".git/"),
-      )
-    ) {
-      await this.initialize();
-      return;
-    }
-    if (this.ordinaryFolder) {
-      await updateFolderIndex(this.root, this.index, this.cap, paths);
-      return;
-    }
-    const scope: MetadataScope = new Map();
-    const gone: string[] = [];
-    const candidates: { path: string; local: string; folder: boolean }[] = [];
-    for (const path of new Set(paths)) {
-      try {
-        const { local, info } = await containedPath(this.root, path, scope);
-        // Sockets, FIFOs and devices are never indexed or mentionable.
-        if (info.isFile() || info.isDirectory())
-          candidates.push({ path, local, folder: info.isDirectory() });
-        else gone.push(path);
-      } catch (error) {
-        if (!excluded(error)) throw error;
-        gone.push(path);
-      }
-    }
-    const ignored = await ignoredPaths(
-      this.root,
-      candidates.map((candidate) => candidate.local),
-      this.options,
-    );
-    const folders: string[] = [];
-    for (const candidate of candidates) {
-      if (ignored.has(candidate.local)) gone.push(candidate.path);
-      else if (candidate.folder) folders.push(candidate.path);
-      else this.index.update(candidate.path, true);
-    }
-    for (const path of gone) {
-      this.index.update(path, false);
-      for (const child of this.index.under(path)) this.index.update(child, false);
-    }
-    for (const group of argumentGroups(outermost(folders))) await this.reconcile(group);
-  }
-  /** Tracked ignored and deleted paths are filtered, since --cached lists both. */
-  private async reconcile(folders: readonly string[]): Promise<void> {
-    const next = new PathIndex(this.cap);
-    // Literal pathspecs keep folders named like globs or ":magic" exact.
-    const listing = (args: string[], present: boolean) =>
-      this.listing(["--literal-pathspecs", "ls-files", "-z", ...args, "--", ...folders], (path) =>
-        next.update(path, present),
-      );
-    await listing(["--cached", "--others", "--exclude-standard"], true);
-    await listing(["--cached", "--ignored", "--exclude-standard"], false);
-    await listing(["--deleted"], false);
-    for (const folder of folders) this.index.replaceSubtree(folder, next);
+  list(folder: string): AsyncIterable<WorkspaceFileEntry> {
+    const list = this.#list;
+    requireContext(list, "unsupported", "Folder listings need ace-files");
+    return list(folder);
   }
 }

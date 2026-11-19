@@ -62,7 +62,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|agent-env|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|injection|mcp-ready|agent-env|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
             },
             async (args) => {
               // Windows paths arrive with backslashes; the rewrites below match `/` paths.
@@ -168,11 +168,6 @@ export async function bundleDaemon(
                 contents = contents.replaceAll('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/terminal/src/pty.ts"))
                 contents = contents.replace(guardianSourcePath, guardianBundlePath);
-              if (args.path.endsWith("/workspace/src/node-search.ts"))
-                contents = contents.replace(
-                  '"./node-search-worker.ts"',
-                  '"./workspace-search-worker.mjs"',
-                );
               if (args.path.endsWith("/notify/src/worker.ts"))
                 contents = contents.replace('"./worker-entry.ts"', '"./notification-worker.mjs"');
               if (args.path.endsWith("/usage/src/worker.ts"))
@@ -251,9 +246,6 @@ export async function bundleDaemon(
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
-  const workspaceIncluded = [...inputs].some((input) =>
-    input.endsWith("packages/workspace/src/descriptor.ts"),
-  );
   if ([...inputs].some((input) => input.endsWith("packages/terminal/src/pty.ts")))
     stageTerminalGuardian(repo, root, target);
   const helpers = [
@@ -297,8 +289,6 @@ export async function bundleDaemon(
     ["packages/diagnostics/src/sqlite-process.ts", "diagnostics-sqlite-process.mjs"],
     ["packages/browser-extension/src/host-main.ts", "browser-extension-host.mjs"],
   ];
-  if (workspaceIncluded)
-    helpers.push(["packages/workspace/src/node-search-worker.ts", "workspace-search-worker.mjs"]);
   for (const [entry, output] of helpers) {
     if (!entry || !output) throw new Error("Invalid helper entry");
     const helper = await build({

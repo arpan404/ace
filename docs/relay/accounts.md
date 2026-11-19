@@ -28,6 +28,8 @@ By hand, from `apps/cloud`:
    `env.production.d1_databases[0].database_id`.
 2. `bunx wrangler d1 migrations apply ACCOUNTS --remote --env production`.
    This applies every migration not yet applied, `0002_login_return.sql` included.
+   Apply `0004_machine_credentials.sql` before deploying the Worker that uses it, and deploy
+   that Worker before releasing daemons that exchange their sessions (ADR 0190).
 3. In WorkOS, register exactly `https://YOUR_RELAY_DOMAIN/v1/account/callback` as a
    redirect of your AuthKit application. Use a separate WorkOS environment for
    development.
@@ -80,15 +82,18 @@ Keep `relay.acehq.dev` on the Worker while any installed app or outside MCP clie
 
 ### Releases deploy it
 
-After the first deploy, each release tag (`v*`) deploys production from that tag: the
-`cloud` job in `.github/workflows/release.yml` applies D1 migrations, runs
-`wrangler deploy --env production` and then the smoke check on both hostnames. A manual run of the
-workflow leaves production alone. Secrets set in Cloudflare are untouched by deploys.
+After the first deploy, each release tag (`vX.Y.Z` or `ace-X.Y.Z-beta-N`) deploys from that tag
+([ADR 0188](../adr/0188-tag-driven-release-pipeline.md)): once every platform has built, the
+release pipeline runs `bun run deploy:workers staging`, then `bun run deploy:workers production`,
+before the desktop release is published ([docs/release/workers.md](../release/workers.md)).
+Staging (`staging.cloud.acehq.dev`) has its own database and Durable Objects. Each deploy applies
+D1 migrations, deploys the new version, smokes every hostname and rolls back to the previous
+version if the smoke fails. Secrets set in Cloudflare are untouched by deploys. Migrations may
+only add; see that document for expand-then-contract.
 
-The job needs the `CLOUDFLARE_API_TOKEN` repository secret, and fails saying so
-without it. Create the token in the Cloudflare dashboard (My Profile › API Tokens)
-from the "Edit Cloudflare Workers" template, add Account › D1 › Edit, and limit it to
-ace's account and the relay's zone. Then `gh secret set CLOUDFLARE_API_TOKEN` and paste it.
+The deploy jobs read `CLOUDFLARE_API_TOKEN` from the `staging` and `production` GitHub
+environments (never a repository secret); docs/release/workers.md lists the token's scope. Set it
+with `gh secret set CLOUDFLARE_API_TOKEN --env production` (and `--env staging`).
 
 Settings are all or nothing. With none of them, the Worker answers account routes
 with 503 `account_not_configured` and refuses `/host` and `/client`, since the
@@ -145,7 +150,9 @@ No column holds a usable credential. Session tokens, login ids, claim tickets,
 OAuth state and browser bindings are SHA-256 digests. WorkOS refresh tokens, PKCE
 verifiers, and a completed sign-in's session (kept so a lost claim response can be
 retried until the sign-in expires) are AES-256-GCM sealed to their row's digest.
-Machines are host id, account id, name, platform, first and last seen.
+Machines are host id, account id, name, platform, first and last seen. Machine credentials (ADR 0190) are a digest, the digest of the session they live on, the host id and account they speak
+for, and whether the daemon was that session's only holder. Each session keeps its `standing`:
+`person`, `legacy` or `exposed`.
 
 ## Account API
 
@@ -153,20 +160,22 @@ Responses are never cached. Credentials travel in the Authorization header, neve
 in a URL. Errors are `{ "error": code }`. `@ace/client/ace-account` wraps these
 routes, validates responses and bounds response bodies.
 
-| Route                             | Behaviour                                                                                                            |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/account/login`          | Optional `{ returnTo }`; returns `id`, private `secret`, public `loginUrl`, `expiresAt` (10 minutes)                 |
-| `GET /v1/account/login?id=…`      | Browser entry, any number of times; a "Continue to sign in" page, spends nothing                                     |
-| `POST /v1/account/login/continue` | The page's form (`id`), once, from the backend's own origin; sets an HttpOnly binding cookie and redirects to WorkOS |
-| `GET /v1/account/callback`        | WorkOS callback; checks state, the cookie and PKCE; redirects to `returnTo?status=` when set                         |
-| `GET /v1/account/login/:id`       | Claim ticket bearer; `pending` or `complete` with the session                                                        |
-| `DELETE /v1/account/login/:id`    | Claim ticket bearer; cancels the sign-in and revokes its session                                                     |
-| `GET /v1/account/session`         | Session bearer; refreshes with WorkOS, returns account and expiry                                                    |
-| `DELETE /v1/account/session`      | Session bearer; revokes this session                                                                                 |
-| `GET /v1/keys`                    | Public grant keys: `{ keys: [{ id, publicKey }] }`                                                                   |
-| `POST /v1/grants`                 | Session bearer; `{ kind, subject }` returns `{ token, expiresAt }`                                                   |
-| `GET /v1/machines`                | Session bearer; this account's machines, most recently seen first                                                    |
-| `DELETE /v1/machines/:hostId`     | Session bearer; forgets one of this account's machines                                                               |
+| Route                             | Behaviour                                                                                                                                                                                                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/account/login`          | Optional `{ returnTo }`; returns `id`, private `secret`, public `loginUrl`, `expiresAt` (10 minutes)                                                                                                                                                              |
+| `GET /v1/account/login?id=…`      | Browser entry, any number of times; a "Continue to sign in" page, spends nothing                                                                                                                                                                                  |
+| `POST /v1/account/login/continue` | The page's form (`id`), once, from the backend's own origin; sets an HttpOnly binding cookie and redirects to WorkOS                                                                                                                                              |
+| `GET /v1/account/callback`        | WorkOS callback; checks state, the cookie and PKCE; redirects to `returnTo?status=` when set                                                                                                                                                                      |
+| `GET /v1/account/login/:id`       | Claim ticket bearer; `pending` or `complete` with the session                                                                                                                                                                                                     |
+| `DELETE /v1/account/login/:id`    | Claim ticket bearer; cancels the sign-in and revokes its session                                                                                                                                                                                                  |
+| `GET /v1/account/session`         | Session or machine credential bearer; refreshes with WorkOS, returns account and expiry                                                                                                                                                                           |
+| `DELETE /v1/account/session`      | Session bearer: revokes this session. Machine credential bearer: revokes it, and its session when it was the only holder                                                                                                                                          |
+| `POST /v1/machine-credentials`    | A session bearer, or an enrollment `ticket`; `{ hostId, hostKey, credential, proof, sole?, exposed? }`, proven with the host key, issues that credential for the host id (ADR 0190); asked again, it answers the same                                             |
+| `POST /v1/machine-enrollments`    | The person's session bearer; `{ hostId }` returns a single-use `{ ticket, expiresAt }` the app hands its daemon instead of its session                                                                                                                            |
+| `GET /v1/keys`                    | Public grant keys, and the X25519 key machine credentials are proven against: `{ keys: [{ id, publicKey }], exchangeKey }`                                                                                                                                        |
+| `POST /v1/grants`                 | Session or machine credential bearer; `{ kind, subject, host?, key?, action? }`. A machine-held principal gets format 2 device grants and machine market grants; the person's session with `host` and `key` also gets the person's grant in `standing` (ADR 0190) |
+| `GET /v1/machines`                | Session bearer; this account's machines, most recently seen first                                                                                                                                                                                                 |
+| `DELETE /v1/machines/:hostId`     | Session bearer; forgets one of this account's machines                                                                                                                                                                                                            |
 
 `returnTo` is exactly `ace://account/signed-in` (desktop and iOS) or
 `<allowed web origin>/account/signed-in` (the web app's landing page; `app://ace` is

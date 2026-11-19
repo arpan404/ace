@@ -126,6 +126,10 @@ impl Tool for PluginCall {
         })
     }
 
+    fn sealed(&self) -> bool {
+        self.server.sealed()
+    }
+
     /// The plugin and its accepted version, the server, the server's own tool name and its schema.
     fn identity(&self) -> String {
         format!(

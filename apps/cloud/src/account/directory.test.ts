@@ -22,17 +22,21 @@ it("the account backend signs a cloud credential that cannot authorize a relay h
   const publicKey = grantPublicKey(signingKey);
   const keys = { keys: [publicKey] };
   const routes = directoryRoutes({
-    sessions: {
+    principals: {
       read: async (token) =>
         token === "s".repeat(43)
           ? {
+              kind: "session",
+              hash: "h",
               account: { id: "alice", email: "alice@example.com", name: "Alice" },
               expiresAt: 999999,
               signedInAt: 900,
+              standing: "person",
             }
           : undefined,
       revoke: unused,
     },
+    sessionStore: { expose: async () => {}, standingNow: async () => "person" as const },
     machines: { register: unused, seen: unused, list: unused, forget: unused },
     keys,
     signingKey,
@@ -98,14 +102,18 @@ async function marketGrantFor(emailVerified: boolean) {
   const signingKey = { id: "cloud-test", privateKey: new Uint8Array(32).fill(7) };
   const keys = { keys: [grantPublicKey(signingKey)] };
   const routes = directoryRoutes({
-    sessions: {
+    principals: {
       read: async () => ({
+        kind: "session",
+        hash: "h",
         account: { id: "alice", email: "alice@example.com", name: "Alice", emailVerified },
         expiresAt: 999999,
         signedInAt: 900,
+        standing: "person",
       }),
       revoke: unused,
     },
+    sessionStore: { expose: unused, standingNow: async () => "person" as const },
     machines: { register: unused, seen: unused, list: unused, forget: unused },
     keys,
     signingKey,
@@ -139,4 +147,35 @@ it("the account backend refuses a market publishing grant to an account whose em
   const { response } = await marketGrantFor(false);
   expect(response.status).toBe(403);
   expect(await response.json()).toMatchObject({ error: "email_unverified" });
+});
+
+it("a session signed out or retired after it was read gets no grant, in any format", async () => {
+  const signingKey = { id: "cloud-test", privateKey: new Uint8Array(32).fill(7) };
+  const routes = directoryRoutes({
+    principals: {
+      read: async () => ({
+        kind: "session",
+        hash: "h",
+        account: { id: "alice", email: "alice@example.com", name: "Alice" },
+        expiresAt: 999999,
+        signedInAt: 900,
+        standing: "person",
+      }),
+      revoke: unused,
+    },
+    // Gone by the time the grant is decided.
+    sessionStore: { expose: async () => {}, standingNow: async () => undefined },
+    machines: { register: unused, seen: unused, list: unused, forget: unused },
+    keys: { keys: [grantPublicKey(signingKey)] },
+    signingKey,
+    now: () => 1000,
+  });
+  const response = await routes.grant(
+    new Request("https://cloud.acehq.dev/v1/grants", {
+      method: "POST",
+      headers: { authorization: `Bearer ${"s".repeat(43)}` },
+      body: JSON.stringify({ kind: "device", subject: "phone" }),
+    }),
+  );
+  expect(response.status).toBe(401);
 });

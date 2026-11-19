@@ -179,6 +179,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::oversight::NO_CAPS,
         backfill: None,
     },
+    Migration {
+        // ADR 0187: moves of bots between machines, kept on both sides.
+        sql: crate::moves::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

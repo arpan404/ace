@@ -521,6 +521,9 @@ impl Engine {
             reviewer_reason,
             ask,
             tool_key,
+            app,
+            acts_in,
+            launch,
             ..
         }) = asked
         else {
@@ -535,6 +538,9 @@ impl Engine {
             reviewer_reason: reviewer_reason.clone(),
             ask: *ask,
             tool_key: tool_key.clone(),
+            app: app.clone(),
+            acts_in: acts_in.clone(),
+            launch: *launch,
             helper: Some(Box::new(HelperAsk {
                 // The bot's job, whose end clears the wait, even for a rerun.
                 job: routing::base_job(&helper.job).to_owned(),
@@ -672,7 +678,7 @@ impl Engine {
     /// a rerun on the bot's model, ADR 0162), `state` one of `queued`,
     /// `working`, `waiting` (on the person) or `ended`. `None` for an unknown conversation.
     pub fn helpers_view(&self, id: &str) -> Result<Option<Vec<Value>>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         let mut shown = Vec::new();

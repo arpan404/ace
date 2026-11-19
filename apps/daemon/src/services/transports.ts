@@ -1,5 +1,6 @@
 import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { startFilesRelay } from "../files-relay.ts";
+import { isHostedRelay } from "../relay-account.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
 import { Resources } from "./resources.ts";
@@ -20,6 +21,8 @@ export async function startRelayTransport(
     onRegistration?: (registered: boolean) => void;
     /** Gives up the registration, answered or not (`startFilesRelay`). */
     signal?: AbortSignal;
+    /** This daemon's `ace-client` name (ADR 0189), for ace's own relay. */
+    aceClient?: string;
   } = {},
 ) {
   if (!relay) return undefined;
@@ -40,6 +43,9 @@ export async function startRelayTransport(
     },
     get threadFiles() {
       return options.threadFiles;
+    },
+    get filesNative() {
+      return options.filesNative;
     },
     get appDevices() {
       return options.devices;
@@ -68,6 +74,9 @@ export async function startRelayTransport(
     get relayMain() {
       return options.relayMain;
     },
+    machineCalls: () => options.machineCalls,
+    transfers: () => options.transferTarget,
+    hostedRelay: isHostedRelay(relay.url, options.remoteConfig?.hostedRelayUrl),
     store: options.store,
     auth,
     account: options.machineAccount,
@@ -75,6 +84,7 @@ export async function startRelayTransport(
     onRefused: access.onRefused,
     onRegistration: access.onRegistration,
     signal: access.signal,
+    aceClient: access.aceClient,
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),

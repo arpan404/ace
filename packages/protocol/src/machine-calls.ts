@@ -8,6 +8,8 @@ import { WatchedThread } from "./agent-monitor.ts";
 import { MessageText } from "./message-limits.ts";
 import { MessageArrival } from "./message-arrival.ts";
 import { SpadeInboxRequest } from "./spade-remote.ts";
+import { ParcelCall } from "./parcels.ts";
+import { MachinePaths } from "./machine-paths.ts";
 
 /**
  * Agent calls between paired machines (ADR 0078). The calling daemon forwards over the target's
@@ -71,6 +73,11 @@ export const MachineDescription = z.object({
   delegateAccounts: z.boolean().optional(),
   /** Its accounts per provider, for `delegate` with `accountId` there. */
   accounts: MachineAccounts.optional(),
+  /**
+   * The paths it serves now (ADR 0114), told only to a paired device over an authenticated call,
+   * so a parcel can still reach it through a relay when its direct address doesn't (ADR 0182).
+   */
+  paths: MachinePaths.optional(),
 });
 export type MachineDescription = z.infer<typeof MachineDescription>;
 
@@ -199,6 +206,8 @@ export const MachineCall = z.discriminatedUnion("op", [
    * its schema. Under the Agents grant; answered with `MachineSpadeResult`.
    */
   z.strictObject({ op: z.literal("spade"), request: SpadeInboxRequest }),
+  /** Data between agents on the two machines (ADR 0182), under the Agents grant. */
+  z.strictObject({ op: z.literal("parcel"), parcel: ParcelCall }),
 ]);
 export type MachineCall = z.infer<typeof MachineCall>;
 export const MachineCallRequest = z.object({ origin: MachineCallOrigin, call: MachineCall });

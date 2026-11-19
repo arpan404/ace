@@ -93,16 +93,22 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
+        // At accessibility sizes the glyph steps aside and the age goes under the title, so the
+        // title has the row's width and wraps only between words.
         HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
-            glyph().alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            if !typeSize.isAccessibilitySize {
+                glyph().alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-                    Text(title)
-                        .aceFont(InboxRowType.title, relativeTo: .callout)
-                        .foregroundStyle(AceTheme.Colours.foreground)
-                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                if typeSize.isAccessibilitySize {
+                    titleText.fixedSize(horizontal: false, vertical: true)
                     if let updatedAt { ForgeRowAge(updatedAt: updatedAt) }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                        titleText.lineLimit(1)
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        if let updatedAt { ForgeRowAge(updatedAt: updatedAt) }
+                    }
                 }
                 HStack(alignment: .center, spacing: AceTheme.Spacing.xs) {
                     line()
@@ -116,6 +122,12 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
         .padding(.top, AceDesign.Size.rowPaddingTop).padding(.bottom, AceDesign.Size.rowPaddingBottom)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .aceFont(InboxRowType.title, relativeTo: .callout)
+            .foregroundStyle(AceTheme.Colours.foreground)
     }
 }
 

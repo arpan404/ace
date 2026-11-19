@@ -119,7 +119,55 @@ async function bots(context: CommandContext, one: boolean): Promise<void> {
   });
 }
 
+const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
+async function move(context: CommandContext): Promise<void> {
+  const { listBots, findBot } = await import("../spade-bots.ts");
+  const { acceptThere, findMachine, moveBot, newMoveId } = await import("../spade-move.ts");
+  const { option, timeoutMs } = await import("../args.ts");
+  const { usageFailure } = await import("../output.ts");
+  const { emit } = await import("../io.ts");
+  const to = option(context.args, "to");
+  if (!to) throw usageFailure("Say where with --to MACHINE.", { argument: "--to" });
+  // The person's say there: through that machine's daemon, `here` being this one.
+  const there = option(context.args, "target-remote");
+  if (!there)
+    throw usageFailure(
+      `Moving needs your say on ${to} too: pass --target-remote PROFILE for it (see ace remote list), or move the bot from the app.`,
+      { argument: "--target-remote" },
+    );
+  const targetArgs = { ...context.args, flags: { ...context.args.flags } };
+  if (there === "here") delete targetArgs.flags.remote;
+  else targetArgs.flags.remote = there;
+  const limit = option(context.args, "timeout") === undefined ? 1_800_000 : timeoutMs(context.args);
+  await withSession(context, context.args, async ({ client, signal }) => {
+    const call = await spadeCaller(client, signal);
+    const bot = findBot(await listBots(call), context.args.words[0]);
+    const listed = await client.request(
+      { type: "spade.machines", requestId: crypto.randomUUID() },
+      { signal },
+    );
+    const { SpadeMachinesResult } = await import("@ace/protocol");
+    const machine = findMachine(SpadeMachinesResult.parse(listed).machines, to);
+    const id = newMoveId(crypto.randomUUID());
+    const accept = (acceptance: Parameters<typeof acceptThere>[2]) =>
+      withSession(context, targetArgs, async (target) =>
+        acceptThere(await spadeCaller(target.client, target.signal), id, acceptance),
+      );
+    const moved = await moveBot(call, bot, machine, id, limit, wait, accept);
+    await emit(context.args, moved, {
+      human: (value) => [
+        value.state === "done"
+          ? `${value.bot.name} moved to ${value.to.name}. Its routines are paused there until you resume them, and what you allowed it here you give again there.`
+          : `${value.bot.name} stays here.`,
+      ],
+      quiet: (value) => [value.bot.id],
+    });
+  });
+}
+
 export const spadeHandlers: Handlers = {
+  "spade.move": move,
   "spade.status": status,
   "spade.on": (context) => switchSpade(context, true),
   "spade.off": (context) => switchSpade(context, false),

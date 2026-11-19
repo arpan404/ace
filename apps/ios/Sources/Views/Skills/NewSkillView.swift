@@ -49,7 +49,7 @@ struct NewSkillView: View {
             ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-                    if let problem { QuietProblem(message: problem, id: "skill.new.create.problem").id(Self.problemAnchor) }
+                    if let problem { ProblemRow(problem, id: "skill.new.create.problem").id(Self.problemAnchor) }
                     QuietField("Name") {
                         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                             TextField("release-notes", text: $name)
@@ -121,8 +121,8 @@ struct NewSkillView: View {
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("skill.new.nameReadProblem")
-                Button("Retry") { Task { await checkName() } }
-                    .buttonStyle(.textAction(.prominent))
+                Button("Try again") { Task { await checkName() } }
+                    .buttonStyle(.textAction())
             }
         } else if let problem = check?.problem, !trimmed.isEmpty {
             Text(problem).aceFont(AceDesign.TextRole.meta)
@@ -152,7 +152,7 @@ struct NewSkillView: View {
     private var agentsSection: some View {
         QuietSection("Agents") {
             if let choicesProblem {
-                QuietProblem(message: choicesProblem, id: "skill.new.choices.problem") { Task { await readChoices() } }
+                ProblemRow(choicesProblem, id: "skill.new.choices.problem") { Task { await readChoices() } }
             } else if !choicesLoaded {
                 SkeletonRows(count: 3, label: "Reading agents")
             } else if agents.isEmpty {

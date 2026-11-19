@@ -15,6 +15,8 @@ struct AgentTreePage: View {
     let openThread: ((String) -> Void)?
     /// The main agent's transcript is the thread itself: back to Chat.
     var openChat: (() -> Void)? = nil
+    /// Shows the thread's browser, for a subagent's browser help; nil where this page can't.
+    var openBrowser: (() -> Void)? = nil
     @State private var stop = StopConfirmation()
     @State private var expanded: Set<String> = []
     @State private var paging: String?
@@ -51,7 +53,7 @@ struct AgentTreePage: View {
         } message: { Text(stop.asking?.message ?? "") }
         .sheet(item: $reviewing) { item in
             if let request = thread.interactions[item.id], request.state == "pending" {
-                RequestSheet(request: request, model: model, questionDraft: $questionDraft, openBrowser: {}) { reviewing = nil }
+                RequestSheet(request: request, model: model, questionDraft: $questionDraft, openBrowser: openBrowser) { reviewing = nil }
             }
         }
         .onAppear { model.sheet(["kind": "agents", "open": true]) }

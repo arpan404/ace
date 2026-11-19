@@ -103,11 +103,16 @@ it("cancels a workspace append queued behind another mutation before it can writ
     ).rejects.toMatchObject({ code: "BUSY" });
     resume.resolve();
     await blocker;
-    expect(await sockets.client.next()).toMatchObject({
-      type: "files.changed",
-      change: { path: "blocking" },
-    });
-    expect(await sockets.client.next()).toMatchObject({ type: "files.cancelled" });
+    // The change's version is read after the queue, so the cancellation reply may reach the
+    // socket first; neither may arrive before the blocked write itself finished.
+    const messages = [await sockets.client.next(), await sockets.client.next()];
+    expect(messages).toContainEqual(
+      expect.objectContaining({
+        type: "files.changed",
+        change: expect.objectContaining({ path: "blocking" }),
+      }),
+    );
+    expect(messages).toContainEqual(expect.objectContaining({ type: "files.cancelled" }));
     expect(
       await sockets.client.request({ op: "upload.resume", uploadId: upload.uploadId }),
     ).toMatchObject({ type: "files.upload", offset: 0 });

@@ -9,18 +9,25 @@ import { tmpdir } from "node:os";
 import { once } from "node:events";
 import { InstalledRelease, DaemonHealth } from "@ace/protocol";
 import { checked, runProcess } from "@ace/service";
-import { smokeMedia, verifyMediaDesktop } from "./media-smoke.ts";
+import { smokeMedia } from "./media-smoke.ts";
+import { smokeFiles } from "./files-smoke.ts";
+import { aceFilesVersion } from "./ace-files.ts";
+import { verifyDesktopNatives } from "./native-smoke.ts";
 import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
 import { z } from "zod";
 import { smokeOptions } from "./smoke-options.ts";
 import { ScreenHelperIdentity } from "./screen-identity.ts";
 const options = smokeOptions(process.argv.slice(2));
 const artifact = resolve(options.root);
+const repo = resolve(import.meta.dirname, "../../..");
 const manifest = InstalledRelease.parse(
   JSON.parse(await readFile(join(artifact, "release.json"), "utf8")),
 );
 if (manifest.target !== `${process.platform}-${process.arch}`)
   throw new Error("Smoke check requires the target host");
+/** A native executable's path inside the bundle, as the checksum list and bundle layout name it. */
+const nativePath = (folder: string, name: string) =>
+  manifest.target.startsWith("win32-") ? `${folder}/${name}.exe` : `${folder}/${name}`;
 // Release mode authenticates the archive before executing any packaged binary.
 if (options.manifestPath && options.keyPath) {
   const { manifestPath, keyPath } = options;
@@ -36,12 +43,13 @@ if (options.manifestPath && options.keyPath) {
   const archive = resolve(manifestPath, "..", signed.archive);
   if ((await hashFile(archive)) !== signed.sha256)
     throw new Error("Signed archive checksum mismatch");
-  const extracted = await mkdtemp(join(tmpdir(), "ace-media-signed-"));
+  const extracted = await mkdtemp(join(tmpdir(), "ace-native-signed-"));
   try {
     await unpackArchive(archive, join(extracted, "release"));
     for (const path of [
       "files.json",
-      manifest.target.startsWith("win32-") ? "media/ace-media.exe" : "media/ace-media",
+      nativePath("media", "ace-media"),
+      nativePath("files", "ace-files"),
     ])
       if (
         (await hashFile(join(extracted, "release", path))) !==
@@ -58,8 +66,10 @@ if (!options.manifestPath)
 const files = z
   .object({ checksums: z.record(z.string(), z.string()) })
   .parse(JSON.parse(await readFile(join(artifact, "files.json"), "utf8")));
-const mediaPath = manifest.target.startsWith("win32-") ? "media/ace-media.exe" : "media/ace-media";
+const mediaPath = nativePath("media", "ace-media");
+const filesPath = nativePath("files", "ace-files");
 if (!files.checksums[mediaPath]) throw new Error("Packaged ace-media checksum is missing");
+if (!files.checksums[filesPath]) throw new Error("Packaged ace-files checksum is missing");
 for (const [path, expected] of Object.entries(files.checksums)) {
   if (
     path.split(/[\\/]/).some((part) => part === "..") ||
@@ -71,24 +81,31 @@ for (const [path, expected] of Object.entries(files.checksums)) {
     throw new Error(`Packaged file checksum mismatch: ${path}`);
 }
 if (process.platform === "win32" && options.authenticode)
-  execFileSync("signtool", ["verify", "/pa", join(artifact, mediaPath)], {
-    stdio: "inherit",
-    timeout: 30_000,
-  });
+  for (const path of [mediaPath, filesPath])
+    execFileSync("signtool", ["verify", "/pa", join(artifact, path)], {
+      stdio: "inherit",
+      timeout: 30_000,
+    });
 await smokeMedia(
   artifact,
   manifest.target,
   manifest.version,
   join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
 );
+await smokeFiles(
+  artifact,
+  manifest.target,
+  aceFilesVersion({ repo, target: manifest.target }),
+  join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
+);
 const app = options.app;
 if (app) {
   const resources =
     process.platform === "darwin" ? join(app, "Contents/Resources") : join(app, "resources");
-  await verifyMediaDesktop(
+  await verifyDesktopNatives(
     app,
     manifest.target,
-    resolve(import.meta.dirname, "../../../native/screen-helper/identity.txt"),
+    join(repo, "native/screen-helper/identity.txt"),
     {
       production: options.production,
       authenticode: options.authenticode,
@@ -105,6 +122,12 @@ if (app) {
     resources,
     manifest.target,
     manifest.version,
+    join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
+  );
+  await smokeFiles(
+    resources,
+    manifest.target,
+    aceFilesVersion({ repo, target: manifest.target }),
     join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
   );
 }

@@ -28,9 +28,9 @@ impl Tool for GroupAsk {
         ToolDef {
             spec: ToolSpec {
                 name: "group_ask".to_owned(),
-                description: "While answering a message in a group, asks another member of the \
-                              group to do part of the work. The member answers in the group (the \
-                              person sees it) and its answer comes back here. Only in a group."
+                description: "While answering a message in a club, asks another member of the \
+                              club to do part of the work. The member answers in the club (the \
+                              person sees it) and its answer comes back here. Only in a club."
                     .to_owned(),
                 schema: json!({
                     "type": "object",

@@ -91,7 +91,7 @@ struct ChangesLineRow: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(row.kind == "add" ? "Added" : row.kind == "del" ? "Removed" : "Unchanged") line \(number): \(row.text)")
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityHint(commentable ? "Picks the line for a comment" : "Shows this file on Uncommitted, where lines take comments")
+            .accessibilityHint(commentable ? "Select line to comment" : "Open file in Uncommitted")
         }
     }
     /// The line's leading whitespace (tabs as four spaces) and the code after it.

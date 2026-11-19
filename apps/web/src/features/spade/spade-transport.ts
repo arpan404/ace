@@ -31,6 +31,21 @@ export interface TransportDeps {
 }
 
 /**
+ * A change only the person may make (ADR 0163 amendment 2, ADR 0187): raising how a bot decides,
+ * and accepting a bot moving here. Spade takes it only with the daemon's stamp, so it never goes
+ * the desktop's direct way.
+ */
+export function spadePersonOnly(method: string, path: string): boolean {
+  if (method !== "PUT") return false;
+  const bare = path.split("?")[0] ?? "";
+  return (
+    bare === "/v1/security/autonomy" ||
+    /^\/v1\/agents\/[^/]+\/security\/autonomy$/.test(bare) ||
+    /^\/v1\/moves\/[^/]+\/accept$/.test(bare)
+  );
+}
+
+/**
  * Spade's API for the screens, by whichever way works: straight to Spade through the desktop
  * app's main process (ADR 0123) when it knows one and this connection is to the daemon beside
  * it, else through the daemon. Screens and the live follow see one interface either way.
@@ -80,8 +95,13 @@ export class SpadeTransport {
     exchange: SpadeExchange,
     options: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined } = {},
   ): Promise<SpadeReply> {
-    // The direct path sends text bodies; anything else goes the daemon's way.
-    if ((exchange.encoding ?? "text") === "text" && (await this.path()) === "direct") {
+    // The direct path sends text bodies; anything else goes the daemon's way, and so does a
+    // change only the person may make, which the daemon stamps as theirs.
+    if (
+      (exchange.encoding ?? "text") === "text" &&
+      !spadePersonOnly(exchange.method, exchange.path) &&
+      (await this.path()) === "direct"
+    ) {
       const reply = await this.direct(exchange, options.signal);
       if (reply) return reply;
     }

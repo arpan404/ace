@@ -66,9 +66,11 @@ struct QuietRowText: View {
     }
 }
 
-/// A word that acts ("Move here", "Link a pull request", "Retry"): the action role, no icon, no
-/// fill at rest, 44pt taps. `prominent` is the one ink-and-semibold way forward; `plain` reads
-/// muted; `destructive` is the failed colour, kept for actions that lose something.
+/// A word that acts inline, inside a sentence's line ("Move here", "Link a pull request"): the
+/// action role in the action colour, so it never reads as a label or as disabled (ADR 0184), no
+/// fill at rest, 44pt taps. `prominent` is the semibold way forward; `destructive` is the failed
+/// colour, kept for actions that lose something. A page's actions use the button styles in
+/// AceButtonStyles.swift instead.
 struct TextActionStyle: ButtonStyle {
     enum Tone { case prominent, plain, destructive }
     var tone: Tone = .plain
@@ -87,8 +89,7 @@ struct TextActionStyle: ButtonStyle {
     }
     private func colour(pressed: Bool) -> Color {
         switch tone {
-        case .prominent: AceDesign.Ink.primary
-        case .plain: AceDesign.Ink.muted
+        case .prominent, .plain: AceDesign.Ink.action
         case .destructive: AceTheme.StatusText.failed
         }
     }

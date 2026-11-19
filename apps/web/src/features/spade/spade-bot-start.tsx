@@ -9,6 +9,7 @@ import {
 import {
   spadeAgentNameMax,
   spadeAgentTaskMax,
+  spadeFirstUsableModel,
   type SpadeAgent,
   type SpadeTemplate,
 } from "@ace/ui-core/spade-chat";
@@ -25,7 +26,7 @@ import type { SpadeMessage } from "./spade-attachments.ts";
 import { AvatarPopover, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
-import { ConversationSkeleton, Scroller, useSpadeLine } from "./spade-screen-parts.tsx";
+import { ConversationSkeleton, PageScroller, useSpadeLine } from "./spade-screen-parts.tsx";
 import { RunsWith, TemplateRows } from "./spade-new-bot-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
@@ -321,7 +322,7 @@ function NewBotConversation(props: {
     <Screen page="spade" title="">
       <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
         <h1 className="sr-only">New bot</h1>
-        <Scroller>
+        <PageScroller>
           <div className="flex flex-col items-center gap-2 pt-2">
             <AvatarPopover
               value={avatar}
@@ -350,6 +351,7 @@ function NewBotConversation(props: {
               name={shown}
               model={model}
               newBotModel={models.data?.newBotModel}
+              firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
               onModel={setModel}
               onMachine={(next) => {
                 // Another machine has its own models and templates.
@@ -370,7 +372,7 @@ function NewBotConversation(props: {
               setAvatar({ kind: "face", face: picked.face });
             }}
           />
-        </Scroller>
+        </PageScroller>
         <SpadeComposer
           name={shown}
           draftKey="spade:new-bot"

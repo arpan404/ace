@@ -89,13 +89,19 @@ export interface SuggestPorts {
   /** New thread's draft scope in a project, and its file completion. */
   draft: {
     draftScope(workspaceId: string): Promise<string>;
-    complete(workspaceId: string, query: string, limit: number): Promise<string[]>;
+    complete(
+      workspaceId: string,
+      query: string,
+      limit: number,
+    ): Promise<{ paths: string[]; ready: boolean }>;
   };
 }
 
 const pause = 120;
 const fresh = 30_000;
 const quiet = { timeoutMs: 15_000 };
+/** How long `@` keeps asking a checkout whose index is still building, and how often. */
+const buildingWait = { deadlineMs: 5_000, retryMs: 250 };
 
 export class ComposerSuggest {
   readonly #ports: SuggestPorts;
@@ -281,17 +287,53 @@ export class ComposerSuggest {
     // Recent files and matching threads show at once; completed files join them.
     const early = rows([], []);
     put(early.length ? "ready" : "loading", early);
-    const [paths, tabs] = await Promise.all([
-      this.#complete(scope, workspaceId, query).catch(() => undefined),
-      threadId ? this.#browserTabs(threadId) : Promise.resolve([]),
-    ]);
+    // The browser's tabs are the phone's own lookup with its own timeout: a slow one neither
+    // spends the file deadline below nor is cut short by it.
+    const tabs = threadId ? this.#browserTabs(threadId) : Promise.resolve([]);
+    // One deadline starts before the first file request and every request and sleep after it
+    // spends what is left, so a slow daemon and the retries it causes cannot outlast the wait.
+    const deadline = this.#ports.now() + buildingWait.deadlineMs;
+    let completion = await this.#complete(scope, workspaceId, query, deadline).catch(
+      () => undefined,
+    );
+    // A checkout whose index is still building answers empty with `ready: false`: ask again,
+    // unless the query moved on or its deadline passed.
+    while (completion?.ready === false && this.#ports.now() < deadline) {
+      const wait = Math.min(buildingWait.retryMs, deadline - this.#ports.now());
+      if (!(await this.#pause(wait, seq))) return;
+      completion = await this.#complete(scope, workspaceId, query, deadline).catch(() => undefined);
+    }
     if (seq !== this.#seq) return;
-    const all = rows(paths ?? [], tabs);
+    const all = rows(completion?.paths ?? [], await tabs);
     if (all.length) put("ready", all);
-    else put(paths ? "empty" : "failed");
+    else if (completion?.ready === false) put("failed", early);
+    else put(completion ? "empty" : "failed");
   }
 
-  async #complete(scope: Scope, workspaceId: string, query: string): Promise<string[]> {
+  /** Wait before asking again; a newer query or `close` ends the wait early. */
+  #pause(ms: number, seq: number): Promise<boolean> {
+    const answer = Promise.withResolvers<boolean>();
+    const cancel = this.#ports.schedule(ms, () => {
+      this.#cancel = undefined;
+      answer.resolve(seq === this.#seq);
+    });
+    this.#cancel = () => {
+      cancel();
+      this.#cancel = undefined;
+      answer.resolve(false);
+    };
+    return answer.promise;
+  }
+
+  async #complete(
+    scope: Scope,
+    workspaceId: string,
+    query: string,
+    deadline: number,
+  ): Promise<{ paths: string[]; ready: boolean } | undefined> {
+    // The request may only take what the wait has left; past the deadline there is nothing to ask.
+    const timeoutMs = deadline - this.#ports.now();
+    if (timeoutMs <= 0) return undefined;
     if (scope.type === "draft") return this.#ports.draft.complete(workspaceId, query, 8);
     const reply = await this.#ports.owner.request(
       {
@@ -303,10 +345,10 @@ export class ComposerSuggest {
           limit: 8,
         },
       },
-      quiet,
+      { timeoutMs },
     );
     if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
-    return reply.result.paths.slice(0, 8);
+    return { paths: reply.result.paths.slice(0, 8), ready: reply.result.ready };
   }
 
   /** The thread's browser tabs agents may read, read again after two seconds. */

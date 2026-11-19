@@ -212,7 +212,8 @@ struct DeviceNote: View {
             Text(sentence).aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceDesign.Ink.muted)
             if let action {
-                Button(action, action: run).buttonStyle(.textAction(.prominent))
+                Button(action, action: run).buttonStyle(.secondaryAction)
+                    .padding(.top, AceDesign.Space.tight)
             }
         }
         .padding(.vertical, AceDesign.Space.related)

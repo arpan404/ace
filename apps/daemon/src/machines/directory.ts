@@ -37,6 +37,8 @@ export interface DirectoryDeps {
   reachable?(machine: string, sentAt?: number): void;
   /** Times short reads, so a slow link gets longer timeouts; without it they stay fixed. */
   now?(): number;
+  /** A machine described itself, e.g. with the paths it serves (ADR 0182). */
+  described?(profile: RemoteProfile, description: MachineDescription): void;
 }
 /**
  * Short reads that measure how long the machine takes to answer. Their own timeouts never
@@ -124,9 +126,13 @@ export class MachineDirectory {
     const listed = await Promise.all(
       profiles.map(async (profile): Promise<MachineSummary | undefined> => {
         try {
-          const description = MachineDescription.parse(
-            await this.call(profile.name, origin, { op: "describe" }, { timeoutMs: 4000 }),
+          const sent = await this.callAs(
+            profile.name,
+            origin,
+            { op: "describe" },
+            { timeoutMs: 4000 },
           );
+          const description = MachineDescription.parse(sent.answer);
           const summary: MachineSummary = {
             machine: profile.name,
             name: description.name,
@@ -137,10 +143,13 @@ export class MachineDirectory {
             providers: description.providers,
           };
           if (description.grants) summary.grants = description.grants;
+          // Transfers go by every route (ADR 0192): a relay-only link takes them too.
           if (description.transfers !== undefined) summary.transfers = description.transfers;
           if (description.accounts) summary.accounts = description.accounts;
           this.seen.set(profile.name, summary);
           this.hosts.set(profile.name, description.hostId);
+          // The pairing the describe went as, not whichever is saved under the name by now.
+          this.deps.described?.(sent.profile, description);
           return summary;
         } catch (error) {
           const offline = error instanceof MachineFailure && error.kind !== "refused";
@@ -187,6 +196,18 @@ export class MachineDirectory {
     call: MachineCall,
     options: MachineTransportOptions,
   ): Promise<unknown> {
+    return (await this.callAs(machine, origin, call, options)).answer;
+  }
+  /**
+   * A call, with the pairing it was sent as: the one saved under that name when it went, which
+   * may no longer be the one saved now. What the answer says belongs to that pairing only.
+   */
+  async callAs(
+    machine: string,
+    origin: MachineCallOrigin,
+    call: MachineCall,
+    options: MachineTransportOptions,
+  ): Promise<{ answer: unknown; profile: RemoteProfile }> {
     const profiles = this.deps.profiles();
     this.deps.connections?.retain(profiles);
     const profile = profiles.find((entry) => entry.name === machine);
@@ -243,7 +264,7 @@ export class MachineDirectory {
           fromThread: origin.threadId,
           outcome: "ok",
         });
-      return result;
+      return { answer: result, profile };
     } catch (error) {
       const failure = error instanceof MachineFailure ? error : new MachineFailure("offline");
       if (failure.kind === "refused" && failure.refusal !== "invalid" && call.op !== "status") {

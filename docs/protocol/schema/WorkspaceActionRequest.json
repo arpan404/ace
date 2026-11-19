@@ -937,6 +937,10 @@
               "const": "workspaces.match",
               "type": "string"
             },
+            "subpath": {
+              "maxLength": 4096,
+              "type": "string"
+            },
             "url": {
               "maxLength": 4096,
               "minLength": 1,
@@ -946,6 +950,61 @@
           "required": [
             "op",
             "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "workspace.checkout",
+              "type": "string"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "after": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            },
+            "identityId": {
+              "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+            },
+            "limit": {
+              "default": 32,
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "workspaces.identitySuggestions",
+              "type": "string"
+            },
+            "remotes": {
+              "items": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            "subpath": {
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "remotes",
+            "subpath"
           ],
           "type": "object"
         },

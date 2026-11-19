@@ -7,9 +7,17 @@ Date: 2026-11-13, amended 2026-11-15. As built for
 [agents.md](agents.md). The pure rules are `spade_core::autonomy` and `spade_core::task`; the
 engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.rs`.
 
-## One level: the auto-review
+## How a bot decides: the auto-review, or Full access
 
-Every bot is on the auto-review (ADR 0163). Where a call goes is decided by what it does, its
+A plugin server is **sealed** when the sandbox holds it, it launches under the enforced offline
+policy (no socket of its own, no connect, bind or listen; only where the machine holds every
+boundary) and its entry injects no environment of its own (`Tool::sealed`). Only a sealed server's tools are the
+sandbox's to decide; every other connector or plugin tool is decided as on the host, sandboxed or
+not, in both modes: the sandbox holds files, not what a server does with a token over the network
+(ADR 0171, amendment 4).
+
+Every bot is on the auto-review (ADR 0163) unless the person puts it in Full access (ADR 0163,
+amendment 2; below). Where a call goes is decided by what it does, its
 effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md),
 `spade_core::effect::route`). The reviewer sees only what the table below sends it, and the ADR
 0135 review still checks calls the gate runs when it is switched on (never a sandboxed one).
@@ -19,6 +27,26 @@ effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effec
   conversation whose latest stored level is `ask` or `full_access` (`Store::latest_field`), then
   stores the setting `access_levels_retired` and removes `access_levels_pinned`.
 - Nothing else stores a level: creating or changing a bot never writes one.
+
+### Full access
+
+A security setting per bot (`autonomy` in `security:<bot>`, `PUT
+/v1/agents/{id}/security/autonomy`), with a machine default (`PUT /v1/security/autonomy`). A
+worker without its own follows its parent and is never freer than a bot above it; a helper
+decides as its bot. Raising a bot (or the machine) to Full access needs the person's stamp from
+ace's daemon (`x-ace-person`, `security::attest`); going back never does. The gate reads the mode
+as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as_person`,
+`change_access` and `unknown` to the person, a granted push under untrusted content too),
+`effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
+unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
+access change, a request to leave the sandbox, and a tool that declares nothing outside the
+sandbox or able to reach the network (once, as on the auto-review); a tool the person declined
+stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
+reviewer under untrusted content or while Spade's classifier is off (`Call::remote`,
+`Call::classifier`); only a plugin server sealed offline with no environment of its own is exempt
+(`Tool::sealed`). A stamp's nonce is claimed in Spade's store, so it stays used across restarts. Everything else runs with no reviewer and no request.
+Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
+the ADR 0135 review is skipped. The sandbox is unchanged.
 
 ### Effects
 
@@ -60,12 +88,15 @@ In order, first match wins:
 | Facts                                                                             | Goes to                                                                               |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
-| `pay`, `drive`, `change_access`, `unknown`                                        | the person, unless allowed always                                                     |
+| `pay`, `change_access`, `unknown`                                                 | the person, unless allowed always                                                     |
 | `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
+| `drive` in a sensitive place, or one Spade can't name                             | the person (`ask: drive`), even when allowed always                                   |
+| `drive` elsewhere                                                                 | runs on Always allow; otherwise the reviewer, told where it acts (below)              |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
+| a connector's or plugin's tool that can reach the network, in the sandbox         | decided as on the host, below (ADR 0171, amendment 4)                                 |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
 | it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
-| in a sandbox that holds files and network                                         | runs                                                                                  |
+| in a sandbox that holds files and network (a plugin's only when sealed)           | runs                                                                                  |
 | in the sandbox, but its checkpoint couldn't be taken                              | the reviewer, told so                                                                 |
 | a command asking to run outside (`outside_sandbox: true`)                         | the person (`ask: outside_sandbox`)                                                   |
 | a routine set up under untrusted content                                          | the reviewer, with that concern                                                       |
@@ -82,11 +113,97 @@ sourced tools would be offered under (two servers, or names cut to a provider's 
 offered for neither. A remembered allow still asks the person while untrusted content is in view.
 A covered push or comment under untrusted content is reviewed with the grant named. Requests the
 rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's `reviewer_reason`
-is the rule's line, such as "It could spend money, so you decide.", "It acts in a page or app as
-you, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
+is the rule's line, such as "It could spend money, so you decide.", "It acts in Mail, mail or
+messages, where it can send in your name, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
 decide.", "It sends something in your name to github.com/acme/app#7, so you decide.", "It
 declares something Spade doesn't know yet, so you decide.", "It doesn't say what it does, so you
 decide once for this bot." or "It asks to run outside the sandbox, so you decide."
+
+### Driving a page or app
+
+[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 3. Right before the gate
+decides, Spade asks ace where a `drive` step acts (`spade_core::effect::drive::lookup`): the tab
+it runs in (its `tabId`, else ace's current tab) from `browser_tabs list`, or every app ace could
+open for its `app` from `screen_apps`. A step that opens an address acts there. A tab that is
+loading, missing or private, a name that matches several apps, and input on a simulator or device
+have no place, and go to the person. Right before the step runs, Spade asks again; if the place
+changed, the step isn't run and the bot looks again. It goes to the person in mail, messages or chat, a bank,
+wallet, payment, checkout or cart, a password manager, the system's settings, a sign-in, account,
+security, settings, keys or members page, a social site, a web browser driven through the screen,
+or a place Spade can't name (`drive::sensitive`). Elsewhere the reviewer is told it acts there
+as the person and to escalate a send, a payment, a purchase, an access change or a password;
+under untrusted content, to check the step serves the person's request.
+
+A request for a step outside those places offers "Allow \<app\> for this bot" (the request's
+`app`). It answers always and adds the grant `drive_app {app}` (the app's id) or
+`drive_site {host}` for the place the request kept (`acts_in`): the steps it covers are reviewed,
+told the person allowed the app, without asking. A drive grant is refused for a sensitive place,
+a `tool` grant never covers a driving tool, and the request never stores an Always allow.
+
+#### Where each operation acts
+
+One table decides (`spade_core::effect::drive::table`): a row per tool and operation, what that
+operation acts on in ace's own implementation, the only fields the gate reads to find it, and
+whether ace must hold it there (`expect`) before the reviewer alone may let it run. A field an
+operation ignores never moves the place, and a tool or operation missing from the table has no
+place, so the person decides. Read-only tools (`browser_snapshot`, `_wait_for`, `_find`,
+`_screenshot`, `_logs`, `screen_apps`, `screen_display`, `screen_windows`, `screen_ui_tree`,
+`screen_screenshot`, `sim_list`, `sim_ui`, `sim_screenshot`, `sim_logs`) are `read` and never
+reach the table.
+
+| Tool and operation                                   | What it acts on in ace                                                                      | How the gate finds it                                                  | Held |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---- |
+| `browser_open`                                       | navigates `tabId`, else the caller's own tab, to `url`                                      | `url`; without one, the tab ace lists (`tabId`, current)               | no   |
+| `browser_tabs list`                                  | lists the tabs                                                                              | the current tab (`tabId` ignored)                                      | no   |
+| `browser_tabs open`                                  | a new tab at `url`                                                                          | `url`; without one, no place                                           | no   |
+| `browser_tabs select`                                | makes `tabId` current, then opens `url` there if given                                      | `url` if given, else the tab `tabId` names                             | yes  |
+| `browser_tabs keep`, `close`                         | the tab `tabId` names (`url` ignored); the last one closes all                              | the tab `tabId` names; without one, no place                           | yes  |
+| `browser_act` (click … scroll)                       | input to `tabId`, else the caller's current tab                                             | the tab ace lists (`tabId`, else current)                              | yes  |
+| `browser_act dialog`                                 | the tab that raised `dialogId`, whatever `tabId` says                                       | the tab whose `pending_dialog` is `dialogId`                           | yes  |
+| `browser_evaluate` with `mode: read-only`            | a side-effect-free script (an isolated world, `throwOnSideEffect`) in `tabId`, else current | the tab ace lists                                                      | yes  |
+| `browser_evaluate`, unrestricted (ace's default)     | any script in the page                                                                      | no place: the person decides                                           | —    |
+| `browser_history back`, `forward`, `reload`, `stop`  | moves `tabId`, else current                                                                 | the tab ace lists                                                      | yes  |
+| `browser_history` with no direction                  | reads the tab's history                                                                     | the tab ace lists                                                      | no   |
+| `browser_measure`                                    | every repetition's input to `tabId`, else current                                           | the tab ace lists                                                      | yes  |
+| `browser_settings resize`, `emulate`, `record_start` | the tab's size, device or recording                                                         | the tab ace lists                                                      | no   |
+| `browser_settings record_stop`, `extensions`         | the session's recording, the browser's extensions (`tabId` ignored)                         | no place: the person decides                                           | —    |
+| `browser_settings close`                             | the whole browser and every tab                                                             | no place: the person decides                                           | —    |
+| `browser_request_help`                               | hands the named tab to the person                                                           | the tab `tabId` names                                                  | no   |
+| `screen_state`, `screen_act`                         | the app ace opens for `app`; a batch goes to its id                                         | every app `screen_apps` lists for `app`                                | yes  |
+| `screen_open_app` (older toolkit)                    | opens `bundleId`                                                                            | the app `bundleId`                                                     | no   |
+| `screen_ui_act`, `screen_input`, `screen_measure`    | a session's app (older toolkit)                                                             | no place: the person decides                                           | —    |
+| `sim_start`, `sim_stop`                              | the device `simId`                                                                          | the device: the person decides, every step                             | —    |
+| `sim_act open_app`, `open_url`                       | the app or address the device opens                                                         | `appId`, or `url` as the device's page: the person decides, every step | —    |
+| `sim_act install`, `record_*`, `posture`             | the device                                                                                  | the device: the person decides, every step                             | —    |
+| `sim_act ui`, `tap`, … `type`, `key`, `clipboard_*`  | whatever app is in the device's foreground                                                  | no place: the person decides                                           | —    |
+
+So does every step in an app whose window shows another device or computer, on every screen tool
+path (`screen_state`, `screen_act`, the older `screen_open_app`, another machine's): the iOS
+Simulator, Xcode and Android Studio (their device windows can't be told apart from the rest of them), Android emulators and
+qemu, scrcpy, iPhone Mirroring, QuickTime Player, Vysor, Genymotion, Sidecar-style displays, Screen
+Sharing, VNC and RDP clients, and VM apps (UTM, Parallels, VMware Fusion, VirtualBox and others).
+They are in the same app table, by name and id, and can't be allowed for a bot.
+
+Every step on a simulator or device goes to the person, whatever the operation: ace holds nothing
+there to a place, so a device place has no route but the person's (`Place::persons_alone`, checked
+before an Always allow, a grant or the reviewer), and a step ace can't hold asks even when the
+person allowed the tool always.
+
+ace checks a held step in the tab's queue, and the command then runs inside its hold: every CDP
+command that sends input or moves the page, from any session the backend holds (the page, its
+frames, the person's own Chrome, the desktop's tabs) and whichever helper sends it, and every
+input the desktop takes as an operation, checks the place where it leaves for the page: inside
+the transport's slot, right before the write, after waiting for one, and against the page's own
+answer to where it is (asked of the page right then, so a route a handler just changed counts
+before the browser reports it; a frame, or a page that gives no value, falls back to the
+browser's report, and one that can't answer fails the step). A dialog's answer can't ask the page
+(its script waits while the dialog is open): it is checked against what the browser reported, the
+dialog's own tab and the address it reported the dialog with. The end of
+a press, key or touch begun under the hold that finds the place changed is never sent (a drag is
+cancelled instead), so no mouseup, click, keyup or drop lands on the page the tab moved to; the
+step fails with `place_changed`. A test lists every way a command leaves for a page and fails if
+one skips the hold. Only the tools ace holds take `expect`; a test fails if a tool takes it and
+drops it before it runs.
 
 An answer to a request Spade asked for a reason of its own (`ask`) is never stored as an Always
 allow. On the outside card, Always for this bot sets the bot's `commands` to `outside` and runs
@@ -190,10 +307,26 @@ everywhere else, and recipes that don't expand are checked as written.
 **Precedence.** Everything a command reaches is read before deciding: a credential read found
 anywhere (the command, a nested command, a script it runs) is refused before any other finding
 (`sudo sh keys.sh` is refused even when allowed always). Of the rest, the first named kind is the reason,
-over "unclear" or "unseen script". The approval is bound to the SHA-256 of what was shown
-(`call_reviewed.bound`): if any file differs when the call is about to start, it isn't run and
-the bot gets `Not run: A file it runs changed after it was reviewed.` Paths are resolved against
-the terminal's current folder.
+over "unclear" or "unseen script". An "unclear" or "unseen script" finding also marks the
+reading incomplete: a command that would run outside the sandbox with one is refused, never
+asked about or reviewed (ADR 0171, amendment 4). The approval is bound to the SHA-256 of what
+was shown (`call_reviewed.bound`): if any file differs when the call is about to start, it isn't
+run and the bot gets `Not run: A file it runs changed after it was reviewed.` The run checks it
+once more after everything it waits on (in a terminal, under the terminal's lock, from the
+folder and variables it starts with): `Not run: A file it runs changed while it waited to start,
+after it was allowed.` Paths are resolved against the terminal's current folder. Every stored
+verdict (an answer, a review, an Always allow) holds only for the launch it was given for or a
+narrower one; one that records none, and a grant, holds for a contained launch only. Every bot command that starts where nothing holds it passes one check at the spawn
+(`workspace::outside::admit`, ADR 0171, amendment 5): what it runs, read again from the folder
+and environment it starts with, is complete and is what its verdict was given on, and the launch
+is within that verdict's limit. Bare program names are found on its `PATH`: one not found, or a
+command that sets its own `PATH`, is incomplete; so is git, a Node package manager, cargo or
+ripgrep where its configuration names a program to run. A program outside the operating system's
+protected folders (judged by its real path) is bound by the SHA-256 of its content, read whole up
+to 512 MiB; one that can't be read whole is incomplete. On Windows a program is resolved only when
+cmd.exe can't choose otherwise: a same-named file in the starting folder refuses the command
+(ADR 0171, amendment 6). The binding is defence in depth, not race-free; see that amendment's
+"what the binding can't promise".
 
 **Each command is a fresh `sh -c`.** A bot's commands carry only the folder and exported
 variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a
@@ -216,13 +349,49 @@ and a connector's or plugin's tool. For each it does one of three things:
 | low-risk (`read`, or `write_local` in the bot's folder), above its threshold, for a command it may settle   | runs                                                                         |
 | anything else                                                                                               | the reviewer, as without it                                                  |
 
-It may settle only a command the shell classifier found nothing in, that runs no file the
-reviewer would be shown, with nothing untrusted in view, no standing work and no concern named.
-It never settles a command that points outside the bot's folders (the home folder, an absolute
-path, `..`, a variable, another machine, a URL that isn't a web page), that hides what it runs
-(decoded text run as code, `eval`, a program from a variable, an alias or function defined in the
-command, escapes, look-alike or invisible letters, text that can't be read), or that has a
-program, subcommand or flag never seen in a low-risk training command.
+It may settle only a command the shell classifier found nothing in, that starts in the bot's
+folder, runs no file the reviewer would be shown, sets up no standing work and has no concern
+named. With nothing untrusted in view it may settle a read or a write in the folder; with
+untrusted content in view (a command's own output is untrusted, so this is most of a session) only
+a read, above a read threshold of its own, that can reach no other machine (no program that can,
+no URL, host or address in it), so nothing it was shown can be sent anywhere or change anything
+(ADR 0172, amendment 1). It never settles a command that points outside the bot's folders (the
+home folder, an absolute path outside it, `..`, a variable, another machine, a URL that isn't a
+web page), that hides what it runs (decoded text run as code, `eval`, a program from a variable,
+an alias or function defined in the command, an option that runs another program such as
+`rg --pre` or `tar --to-command`, a wrapper that injects the person's secrets such as
+`doppler run`, a variable that makes a program load code such as `PATH` or `PYTHONPATH`, a
+credential written into it, escapes, look-alike or invisible letters, text that can't be read), or
+that has a program, subcommand or flag never seen in a low-risk training command. A command that
+runs git, a Node package manager, cargo or ripgrep settles only when the gate inspected that
+tool's configuration around the folder (the repository's and its worktree's config and what they
+include, the config of `HOME`, which is the bot's folder, hooks, rc files, the variables the
+command runs with) and found no program in it, such as an fsmonitor, a pager, a diff or filter
+driver or a runner (ADR 0172, amendment 2). It settles only reads, in a hard form: Spade runs the
+command with overrides that make git, ripgrep and grep ignore any such configuration whatever the
+files say at launch, and with a clean, fixed environment built by Spade, never the daemon's or a
+terminal's carried variables (amendments 3 and 4). Only the programs in the audited list above
+settle (git's reads that run no diff, filter or merge driver; never `git status`, `git diff`,
+writes, builds, installs, interpreters or script languages). The gate records the form with the
+verdict, and the launch checks it, applies it and runs the command in the clean environment.
+
+A settled command runs inside a read-only OS sandbox confined to the bot's folder (ADR 0172,
+amendment 7; ADR 0167's Landlock, Seatbelt or AppContainer). The profile is strict, minimal and
+offline: it may read the folder and a narrow allowlist of the program and library trees a command
+needs to start (`/usr/bin`, `/bin`, `/usr/lib*`, `/lib*`, the loader's cache; the dyld shared cache
+on macOS), and nothing else — not `/etc`, `/opt`, `/var/lib`, `/sys` or `/Library`. It creates no
+socket of any kind, so it reaches no network, binds no port and opens no Unix socket; its one device
+is `/dev/null`. A symlink, a recursive walk or a `.git` `gitdir:` file that resolves outside the
+folder is refused by the kernel, not by a path check, so a read can't follow a link out and there is
+no decision-to-launch race to lose. The sandbox is a second wall behind the gate's refusals, never a
+substitute for them. It is enforced fully or not at all: a command settles only where the whole
+boundary holds (the file ABI that contains truncation, the loaded syscall filter, process and IPC
+isolation), checked both when the gate admits the settle and again at launch; where it doesn't, the
+command goes to the reviewer. Before settling, Spade resolves each program the command runs on the
+clean PATH outside the sandbox and grants the read-only sandbox exactly the extra read roots they
+need (a Homebrew or Cargo install prefix; on macOS the active developer dir behind the `/usr/bin/git`
+shim, and the links the `/bin/sh` trampoline reads); a program that can't be resolved means the
+command doesn't settle. Windows has no read-only profile yet and reviews these commands.
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older
@@ -231,6 +400,44 @@ low-risk and person-only probabilities and the decision, never the call's argume
 setting `classifier` (`PUT /v1/oversight`) turns it off; everything then goes to the reviewer.
 Its measures, data and thresholds are in `spade/crates/spade-classify/model/REPORT.md`; it is
 retrained with `spade/tools/classify-train`.
+
+#### Programs a settled command may run
+
+A command the classifier settles only reads: it writes nowhere real, sets no variable, and runs
+only the programs below, each kept because its own manual page shows that Spade's overrides and
+refusals cover every configuration file, variable and option that could make it run, pipe to or
+load something the command doesn't name (`spade_classify::hardening`, ADR 0172, amendments 3 and
+4). A command that writes a file (a write-capable program, or a redirect to anything but
+`/dev/null` and its kin), runs a program from a script (`awk`, `sed`), handles archives (`tar`),
+pages (`less`, `more`), sets any variable, or builds text at run time is not settled, however
+plain it looks. The settled set is deliberately small, so each entry is simple to prove.
+
+| Program                                                                                                                                                                                                                                                                                                                                                                                                   | What its documentation says it reads                                       | Kept, and how                                                                                                                                                                                                                                                                        | Source                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Shell builtins: `echo`, `printf`, `test`, `[`, `true`, `false`, `pwd`, `type`, `cd`, `pushd`, `popd`, `exit`, `return`, `shift`, `wait`                                                                                                                                                                                                                                                                   | no configuration; `cd` reads `CDPATH`                                      | kept; `printf -v` (a write to a variable) refused; `CDPATH` is never carried into a settled command's clean environment                                                                                                                                                              | bash(1), SHELL BUILTIN COMMANDS                           |
+| GNU coreutils that write only standard output: `cat`, `head`, `tail`, `wc`, `ls`, `sleep`, `date`, `basename`, `dirname`, `realpath`, `readlink`, `stat`, `du`, `df`, `sort`, `uniq`, `cut`, `tr`, `comm`, `join`, `paste`, `nl`, `fold`, `fmt`, `expand`, `unexpand`, `tac`, `od`, the `*sum` programs, `seq`, `id`, `whoami`, `uname`, `nproc`, `printenv`, `base32`, `numfmt`, `factor`, `expr`, `yes` | locale and format variables only (`LS_COLORS`, `TIME_STYLE`, `BLOCK_SIZE`) | kept; `sort -o`/`--compress-program`, `uniq`'s output operand and `date -s` refused                                                                                                                                                                                                  | each program's manual page, DESCRIPTION and options       |
+| GNU diffutils `diff`, `cmp`; GNU `which`; binutils `strings`                                                                                                                                                                                                                                                                                                                                              | no configuration                                                           | kept                                                                                                                                                                                                                                                                                 | diff(1), cmp(1), which(1), strings(1)                     |
+| util-linux `rev`, `column`, `hexdump`                                                                                                                                                                                                                                                                                                                                                                     | colour schemes in `terminal-colors.d`                                      | kept                                                                                                                                                                                                                                                                                 | column(1), hexdump(1), COLORS                             |
+| procps `uptime`, `free`                                                                                                                                                                                                                                                                                                                                                                                   | no configuration                                                           | kept                                                                                                                                                                                                                                                                                 | uptime(1), free(1)                                        |
+| findutils `find`                                                                                                                                                                                                                                                                                                                                                                                          | actions that run a command, write or delete                                | kept; `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint*`, `-fls` refused                                                                                                                                                                                                    | find(1), ACTIONS                                          |
+| `fd`                                                                                                                                                                                                                                                                                                                                                                                                      | ignore files (filter results only); options that run a command             | kept; `-x`/`--exec`, `-X`/`--exec-batch` refused                                                                                                                                                                                                                                     | fd(1)                                                     |
+| `jq`                                                                                                                                                                                                                                                                                                                                                                                                      | `~/.jq`, sourced as jq code; module search path                            | kept: jq code can neither write a file nor run a program                                                                                                                                                                                                                             | jq(1), MODULES                                            |
+| `file`                                                                                                                                                                                                                                                                                                                                                                                                    | magic files (classification only); options that run decompressors or write | kept; `-z`, `-Z`, `-C` refused                                                                                                                                                                                                                                                       | file(1)                                                   |
+| git (the reads listed in `harden.rs`)                                                                                                                                                                                                                                                                                                                                                                     | every config scope, includes, hooks, pagers, drivers                       | kept for reads that run no diff, filter or merge driver and write nothing, with `GIT_CONFIG_COUNT` overrides, which outrank every file, `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_PAGER=cat`; `-c`, `-C`, `--git-dir`, `--work-tree` and content options refused | git-config(1), FILES and ENVIRONMENT; git(1), ENVIRONMENT |
+| `rg`                                                                                                                                                                                                                                                                                                                                                                                                      | `RIPGREP_CONFIG_PATH`; options that run a program                          | kept with the variable blanked; `--pre`, `--hostname-bin`, `-z` refused                                                                                                                                                                                                              | rg(1), CONFIGURATION FILES                                |
+| `grep`, `egrep`, `fgrep`                                                                                                                                                                                                                                                                                                                                                                                  | colour and locale variables                                                | kept; `GREP_OPTIONS` blanked                                                                                                                                                                                                                                                         | grep(1), ENVIRONMENT                                      |
+
+Removed from settling: every write-capable program (`cp`, `mv`, `mkdir`, `touch`, `rm`, `rmdir`,
+`ln`, `chmod`, `tee`, `truncate`, `split`, `csplit`), the script languages `awk`/`gawk`/`mawk` and
+`sed` (a program given on the command line can `system`, redirect or read another file from places
+the parser can't fully follow), `tar` (compressors, remote archives and format-string actions from
+too many places), the pagers `less` and `more`; and, from the earlier audit, `cloc` (an options
+file in the home folder, and a `--vcs` file-list command), `tree`, `xxd`, `getconf` (no manual on
+the audit machine), `ps`, `pgrep` (other processes' command lines and environments), `shasum` (a
+Perl script), `env` and the builtins that set variables or command paths (`export`, `declare`,
+`typeset`, `readonly`, `local`, `set`, `unset`, `read`, `hash`), `hyprctl`, `wl-paste` (they can
+start programs), `ip`, `ss`, `netstat`, `lsof`, `lsblk`, `lscpu`, `dmesg`, the compressors,
+`tokei`, `zip`, `unzip` and `journalctl`.
 
 ### The reviewer
 

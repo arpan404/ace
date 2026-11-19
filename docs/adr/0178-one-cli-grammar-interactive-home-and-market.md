@@ -755,6 +755,75 @@ follow:
   mistakes; the fresh sign-in and the app are the boundary. A request or setting that matters
   more than the host token goes behind them.
 
+#### 12.8 Content-only installs and skills for bots (amended 2026-11-18)
+
+Who has the person's standing is ADR 0190's rule: only a socket that proved it (the app signed in
+as the person, a device paired from the person's link). Neither the host token nor someone having
+signed in lately counts. On top of that, the owner decided which installs may run without it.
+
+- **No standing needed: installing or updating a Suit or a Spade skill that runs nothing**, from
+  the app, the CLI or any host-token socket. This is the `without-person` path
+  (`hostMarketStanding`, `marketplace/fresh-sign-in.ts`).
+  - A Suit's scenes run sandboxed in the page, and the person still chooses which Suit to wear. A
+    skill runs nothing outside Spade's own gate.
+  - The daemon decides this from the review it built from the bytes it fetched and checked
+    (`marketplace/content-only.ts`), never from a field the client sends. The review's type and
+    its body's type must both be `suit` or `spade-skill`, and it must carry nothing runnable: no
+    executable file, no plugin executions, no entries it brings along.
+  - **Provenance.** A name never installed here qualifies. So does an update from the same source,
+    and when the installed one was signed, signed by the same publisher. Anything else replaces
+    what the person chose with bytes from elsewhere, so it needs the person: another catalog with
+    the same name, unsigned bytes over signed ones, another publisher, or a record from before
+    provenance was kept. Installed records carry `source`, `signed` and the publisher's id.
+  - **Removal doesn't make a name new.** A removal keeps where the bytes came from
+    (`removed_installs`), and a later install of that type and name is judged against it. A
+    rollback of a failed first install leaves nothing behind.
+  - **Judged twice.** The gate judges provenance when the request arrives, and the install judges
+    it again inside the serialized install step, after recovery. Of two installs of one name at
+    once, the second is judged against what the first landed. An install whose id or hash doesn't
+    name an open review gets no exemption.
+- **A skill installed without the person reaches no bot until the person turns it on.**
+  - An install on the `without-person` path records no approval. One with the person's standing
+    approves its own hash: a proven socket, their answer to an agent's request, or a bot they
+    install that brings the skill.
+  - The daemon gives Spade only market skills whose installed hash is approved (`spadeSkills`,
+    `spadeSkillFiles`). Spade drops a copy the daemon stops listing, so such a skill is in no
+    bot's index, standing instructions, search or `skill_load`.
+  - An update to a new hash is unapproved again, and the earlier copy leaves the bots. Reinstalling
+    the very bytes keeps the approval they had. A removed skill loses its approval.
+  - Records from before this change, which a person installed, count as approved.
+  - The app shows a waiting skill as "Installed · Turn on for your bots", with a text button.
+- **`turnOnForBots {name, hash}` is person-only.** It approves exactly that version. It sits in
+  the shared table's daemon-local list (`personOnlyOperations`, `packages/marketplace/src/
+person-only.ts`) beside `install`; it calls no market route, so it isn't in `personOnlyActions`.
+  An agent asking for it in its thread gets the person-only request there, which only a proven
+  socket answers.
+- **Everything else person-only is unchanged:** installing or updating a bot or a plugin (they
+  run commands or MCP servers), withdraw, transfers and answering one, handle changes, deleting an
+  entry, verification, answering a person-only market request, and "Ask me before agents publish".
+- **Agents are unchanged.** `install` and `turnOnForBots` aren't on the agent allowlist
+  (`agent-gate.ts`), so an agent's request for either becomes the person-only request in its
+  thread.
+
+Out of scope here, and tracked in #2322: the personal skill library and plugin acceptance put
+bot-visible skills there by scope alone.
+
+Tests: `marketplace-content-install.process.test.ts` runs a real daemon signed in through ace's
+account backend, a host-token socket, and the app's page proven as the person. It covers:
+
+- content installs, and installs that need the person;
+- the bot hold across an install and a `prepareUpdate`, with direct `turnOnForBots` from the token
+  (refused) and from the page;
+- same-source updates, a mismatched id or hash, and replacement from another catalog;
+- removal then reinstall from elsewhere, two installs of one name at once, and a same-hash
+  reinstall;
+- the threaded case, on the full daemon: an agent's `turnOnForBots` in its thread, which the host
+  token can't answer and the proven page can.
+
+Unit tests: `content-only.test.ts` (runnable parts and provenance) and `fresh-sign-in.test.ts` (the
+gate's three outcomes). Spade's `market_skills.rs` covers a held-back skill and update.
+`market-bots-approval.test.tsx` covers the app's row.
+
 ### 13. ADR 0092 still holds
 
 - `cli.ts` keeps routing before the command table loads. The rescue-safe set grows to `triage`,

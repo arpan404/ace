@@ -43,10 +43,10 @@ struct FleetRulesView: View {
                     .accessibilityHidden(true)
                 }
             } footer: {
-                Text(connected.count > 1 ? "Set on \(connected.count) connected machines. A machine's own settings can set it apart." : "Set on every connected machine.")
+                Text("Applies to connected machines. Change individual machines in their settings.")
             }
             .insetRowBackground()
-            if let problem { Section { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }.insetRowBackground() }
+            if let problem { ProblemRow(problem, id: "fleetRules.problem") { Task { await read() } } }
         }
         .insetGroupedList()
         .smoothChange(loaded)

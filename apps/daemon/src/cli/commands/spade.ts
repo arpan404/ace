@@ -72,6 +72,32 @@ export const spadeCommands: readonly CommandSpec[] = [
     output: "spade.bot.show",
   },
   {
+    id: "spade.move",
+    words: ["spade", "move"],
+    summary: "Move a bot to another of your machines, with everything it knows",
+    description:
+      "The bot keeps its id, history, notes, files and routines (they arrive paused). Endpoint keys, webhook secrets and what you allowed it (grants, Full access, apps, plugins) stay on each machine: give them again there. The machine it goes to takes it only with your say there, so --target-remote names how to reach it. Spade's main bot can move too; the machine it moves to becomes where Spade lives.",
+    group: "spade-market",
+    mutates: true,
+    args: [botArg],
+    flags: [
+      { name: "to", value: "MACHINE", summary: "The machine: its name or host id" },
+      {
+        name: "target-remote",
+        value: "PROFILE",
+        summary: "How to reach that machine for your say there: a remote profile, or here",
+      },
+    ],
+    output: "spade.move",
+    exits: [{ code: 3, when: "the move hadn't ended within --timeout (it carries on)" }],
+    examples: [
+      {
+        command: "ace spade move research --to studio --target-remote studio",
+        summary: "Move Research to the studio, saying so there through its remote profile",
+      },
+    ],
+  },
+  {
     id: "spade.chat",
     words: ["spade", "chat"],
     summary: "Talk with a bot (Spade's main bot by default)",

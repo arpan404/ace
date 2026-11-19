@@ -1,7 +1,7 @@
 import { spadeNoteMax, type SpadeNote } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { SettingAddRow, SettingList, SettingListItem } from "@/components/setting-row.tsx";
+import { SettingList, SettingListItem } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -16,7 +16,7 @@ import {
   type SpadeNotesScope,
 } from "./spade-notes-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileEmpty, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 
 /** Every notes read; one scope's under `[...notesKey, machine key, scope]`. */
 export const notesKey = ["spade", "notes"] as const;
@@ -33,7 +33,7 @@ type Saved =
 /**
  * What a bot remembers, or what every bot knows about the person (ADR 0128), as a section of its
  * profile's Library, edited in place: a note's text opens it (↵ saves, Esc puts it back), Delete
- * removes it, Add a note adds one. Notes suggested from untrusted content wait first, with
+ * removes it, Add a note (on the heading) adds one. None: one quiet line. Notes suggested from untrusted content wait first, with
  * Dismiss and Keep.
  */
 export function SpadeNotes(props: {
@@ -54,6 +54,7 @@ export function SpadeNotes(props: {
     queryFn: ({ signal }) => readNotes(client, props.scope, { signal }),
   });
   const [editing, setEditing] = useState<string | undefined>();
+  const [adding, setAdding] = useState(false);
   // A note being opened: the field shows once the notes are read again, so it never starts
   // from cached text the bot has since changed.
   const [opening, setOpening] = useState<string>();
@@ -96,8 +97,20 @@ export function SpadeNotes(props: {
       return { kind: "changed", note: current };
     }
   };
-  const section = (children: React.ReactNode) => (
-    <ProfileSection label={props.heading}>{children}</ProfileSection>
+  const section = (children: React.ReactNode, bare = false) => (
+    <ProfileSection
+      label={props.heading}
+      bare={bare}
+      actions={
+        !adding && (
+          <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAdding(true)}>
+            Add a note
+          </Button>
+        )
+      }
+    >
+      {children}
+    </ProfileSection>
   );
   if (notes.isPending) return section(<ListSkeleton label="notes" shape="row" rows={2} />);
   // A failed read says so inline; with notes already read, the list and any open editor (and
@@ -108,6 +121,8 @@ export function SpadeNotes(props: {
   if (notes.data === undefined) return section(failed);
   const suggested = notes.data.filter((note) => note.suggested);
   const kept = notes.data.filter((note) => !note.suggested);
+  if (!failed && !adding && notes.data.length === 0)
+    return section(<ProfileNone>No notes yet.</ProfileNone>, true);
   return section(
     <>
       {failed}
@@ -141,11 +156,15 @@ export function SpadeNotes(props: {
           )}
         </SettingList>
       )}
-      {kept.length === 0 && suggested.length === 0 && <ProfileEmpty>No notes yet.</ProfileEmpty>}
-      <AddNote
-        placeholder={props.placeholder}
-        onAdd={(text) => change("Couldn't add the note", () => addNote(client, props.scope, text))}
-      />
+      {adding && (
+        <AddNote
+          placeholder={props.placeholder}
+          onAdd={(text) =>
+            change("Couldn't add the note", () => addNote(client, props.scope, text))
+          }
+          onClose={() => setAdding(false)}
+        />
+      )}
     </>,
   );
 }
@@ -255,10 +274,12 @@ function NoteEditor(props: {
   );
 }
 
-function AddNote(props: { placeholder: string; onAdd(text: string): Promise<boolean> }) {
+function AddNote(props: {
+  placeholder: string;
+  onAdd(text: string): Promise<boolean>;
+  onClose(): void;
+}) {
   const [text, setText] = useState("");
-  const [open, setOpen] = useState(false);
-  if (!open) return <SettingAddRow onClick={() => setOpen(true)}>Add a note</SettingAddRow>;
   return (
     <div data-setting-slot="" className="flex min-h-(--setting-row-height) items-center gap-2">
       <NoteField
@@ -267,10 +288,7 @@ function AddNote(props: { placeholder: string; onAdd(text: string): Promise<bool
         label={props.placeholder}
         placeholder={props.placeholder}
         action="Add"
-        onDone={() => {
-          setText("");
-          setOpen(false);
-        }}
+        onDone={props.onClose}
         onSubmit={async (value) => {
           const added = await props.onAdd(value);
           // Added: the field stays open, empty, for the next one.

@@ -8,8 +8,49 @@ export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
 /** The most one `read` returns: big enough for most source files, small enough to share a link. */
 export const FILE_READ_PART = 256 * 1024;
+/** The most matches one content search reports; a search that finds more ends `truncated`. */
+export const FILE_SEARCH_MAX_MATCHES = 5000;
+const glob = z.string().min(1).max(512);
 export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list"), path, limit: z.number().int().min(1).max(1000).default(1000) }),
+  /**
+   * One folder's entries, a page at a time, for a tree that lists a folder only when it is
+   * opened. `path` is the folder ("": the checkout's root) and `cursor` is the previous page's
+   * `nextCursor`. A cursor for a folder that changed since it was read is `INVALID_CURSOR`: list
+   * the folder again from the start. `limit` 1..=5000, 500 by default.
+   */
+  z.object({
+    op: z.literal("list.folder"),
+    path,
+    limit: z.number().int().min(1).max(5000).default(500),
+    cursor: z.string().max(512).optional(),
+  }),
+  /**
+   * Search the checkout's file contents. Matches stream as `files.search.matches` messages
+   * carrying this request's id as `searchId`, then the request ends with a `files.result` whose
+   * value is a `FileSearchSummary`, or a `files.error` (`FILES_RESTARTING` is worth a retry,
+   * `CANCELLED` follows a `files.abort` or a newer search of the same checkout on the same
+   * connection). `case` "smart" is sensitive only when the pattern has a capital letter;
+   * `include` and `exclude` are gitignore-style globs; ignored files are skipped unless
+   * `includeIgnored`. Files over `maxFileBytes` are skipped.
+   */
+  z.object({
+    op: z.literal("search"),
+    pattern: z.string().min(1).max(1000),
+    regex: z.boolean().default(false),
+    case: z.enum(["sensitive", "insensitive", "smart"]).default("smart"),
+    wholeWord: z.boolean().default(false),
+    include: z.array(glob).max(64).default([]),
+    exclude: z.array(glob).max(64).default([]),
+    includeIgnored: z.boolean().default(false),
+    maxMatches: z.number().int().min(1).max(FILE_SEARCH_MAX_MATCHES).default(2000),
+    maxFileBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(64 * 1024 * 1024)
+      .default(4 * 1024 * 1024),
+  }),
   z.object({ op: z.literal("stat"), path }),
   /**
    * A file's details and up to `length` of its bytes from `offset`, in one reply, so a viewer
@@ -130,6 +171,61 @@ export const FileReadResult = z.object({
     .optional(),
 });
 export type FileReadResult = z.infer<typeof FileReadResult>;
+/**
+ * One entry of a folder listing. `kind` is what the entry is on disk; a `symlink` also names the
+ * kind it points to in `target`, left out when the link leaves the checkout. `ignored` marks an
+ * entry that the checkout's gitignore rules exclude; clients show it dimmed rather than hide it.
+ */
+export const FolderEntry = z.object({
+  name: z.string().min(1).max(1024),
+  /** Relative to the checkout's root, `/` separated, never ending in `/`. */
+  path,
+  kind: z.enum(["file", "directory", "symlink", "other"]),
+  target: z.enum(["file", "directory", "other"]).optional(),
+  size: offset,
+  mtimeMs: z.number().int(),
+  ignored: z.boolean(),
+});
+export type FolderEntry = z.infer<typeof FolderEntry>;
+/**
+ * One page of a folder. `nextCursor` is null on the folder's last page, and its value is the
+ * next request's `cursor`. `total` counts every entry in the folder.
+ */
+export const FolderPage = z.object({
+  entries: z.array(FolderEntry).max(5000),
+  nextCursor: z.string().max(512).nullable(),
+  total: offset,
+});
+export type FolderPage = z.infer<typeof FolderPage>;
+/**
+ * One matching line of a content search. `line` is 1-based. `preview` is at most 400 bytes of
+ * the line around its first match; `column` counts the line's UTF-16 code units before the
+ * preview (0 unless a long line was cut). `ranges` are UTF-16 `[start, end)` offsets inside
+ * `preview`, so a match starts in the line at `column + start`.
+ */
+export const FileSearchLine = z.object({
+  line: z.number().int().positive(),
+  column: offset,
+  preview: z.string().max(1024),
+  ranges: z.array(z.tuple([offset, offset])).max(256),
+});
+export type FileSearchLine = z.infer<typeof FileSearchLine>;
+/** Matching lines of one file; a file with many matches may arrive over several messages. */
+export const FileSearchFile = z.object({
+  path,
+  lines: z.array(FileSearchLine).min(1).max(FILE_SEARCH_MAX_MATCHES),
+});
+export type FileSearchFile = z.infer<typeof FileSearchFile>;
+/**
+ * The `files.result` value that ends a content search: files with a match, matches counted, and
+ * whether the search stopped at `maxMatches` with more left unreported.
+ */
+export const FileSearchSummary = z.object({
+  files: offset,
+  matches: offset,
+  truncated: z.boolean(),
+});
+export type FileSearchSummary = z.infer<typeof FileSearchSummary>;
 export const FilesClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.abort"), sourceRequestId: id }),
   z.object({
@@ -159,6 +255,16 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
     workspaceId: WorkspaceId.optional(),
     scope: z.literal("support").optional(),
     operation: FileOperation,
+  }),
+  /**
+   * The folders a client's tree has open in a thread. Each call replaces that client's set for
+   * the thread, and `[]` stops watching it. The daemon answers with `files.folders_changed`,
+   * naming only folders in this set, so the client re-lists just those. At most 512 folders.
+   */
+  z.object({
+    type: z.literal("files.watch"),
+    threadId: ThreadId,
+    folders: z.array(path).max(512),
   }),
   z.object({
     type: z.literal("files.credit"),
@@ -199,6 +305,8 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
     code: z.string(),
     message: z.string(),
     current: FileVersion.nullable().optional(),
+    /** Where an entry that could not be put back is preserved, for the client to show. */
+    recovery: path.optional(),
   }),
   z.object({
     type: z.literal("files.ready"),
@@ -224,6 +332,26 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
     size: offset,
   }),
   z.object({ type: z.literal("files.changed"), change: WorkspaceFileChange }),
+  /**
+   * A batch of content search matches for the `files.request` whose id is `searchId`: sent at
+   * most every 50 ms or 200 lines, in the order ace-files found them.
+   */
+  z.object({
+    type: z.literal("files.search.matches"),
+    searchId: id,
+    files: z.array(FileSearchFile).min(1).max(FILE_SEARCH_MAX_MATCHES),
+  }),
+  /**
+   * Folders of a watched thread that changed, coalesced to at most one message per 100 ms per
+   * client. `rescan` says the watcher fell behind and every watched folder should be listed
+   * again; otherwise `folders` names the watched folders a change was found in.
+   */
+  z.object({
+    type: z.literal("files.folders_changed"),
+    threadId: ThreadId,
+    folders: z.array(path).max(512),
+    rescan: z.boolean(),
+  }),
 ]);
 export type FilesServerMessage = z.infer<typeof FilesServerMessage>;
 

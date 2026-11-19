@@ -34,7 +34,7 @@ struct VisualizationScreen: View {
                     .accessibilityLabel(shownTitle)
             } else if failed {
                 EmptyState(icon: .chartBarHorizontal, title: "Couldn't load this visualization", failed: true) {
-                    Button("Try again") { failed = false; attempt += 1 }.buttonStyle(.textAction())
+                    Button("Try again") { failed = false; attempt += 1 }
                 }
                 .frame(maxHeight: .infinity)
             } else {

@@ -179,24 +179,34 @@
   },
   "suits": {
     "drop-zone": {
-      "version": 2,
-      "hash": "8a761258c0fd0ee3a7c719df67c4577933f9b2e04776d3b75071d8c4a07358aa",
-      "previous": ["9d72ef21d77fa7f11039047d6826ff147ab52783daa010ddec451982d1344375"]
+      "version": 3,
+      "hash": "1bea7d4a85071094d2fca2de34e2c78ac81d9dd842ec3331d2ef80d805cb63da",
+      "previous": [
+        "8a761258c0fd0ee3a7c719df67c4577933f9b2e04776d3b75071d8c4a07358aa",
+        "9d72ef21d77fa7f11039047d6826ff147ab52783daa010ddec451982d1344375"
+      ]
     },
     "ion": {
-      "version": 2,
-      "hash": "b12f8714a5e3d6697a65c23d842f63682eff9cad1e678243d1667ff15e4f781a",
-      "previous": ["1d78521e8048c71e0746e6386bf1f03ecd08fb73341b55ef259c9fe5d0eb3440"]
+      "version": 3,
+      "hash": "4663a696e016155ab6145e17a538987952a2513fe69652f6638d0fd5667afe1f",
+      "previous": [
+        "b12f8714a5e3d6697a65c23d842f63682eff9cad1e678243d1667ff15e4f781a",
+        "1d78521e8048c71e0746e6386bf1f03ecd08fb73341b55ef259c9fe5d0eb3440"
+      ]
     },
     "loam": {
-      "version": 2,
-      "hash": "ffa1e29c1e80aa0d4d674381cf3cd4fe623463e2b9b5a306aff28dab447affd7",
-      "previous": ["f70a9fb2c3b5b529064155764e70dcd0341727f9c57aedf64fef2606b5f342e0"]
+      "version": 3,
+      "hash": "fd73dfb02ed6fa9e3f8c4d29b9a3cb53d939d6939b60f76186e0ca4b766c6f0a",
+      "previous": [
+        "ffa1e29c1e80aa0d4d674381cf3cd4fe623463e2b9b5a306aff28dab447affd7",
+        "f70a9fb2c3b5b529064155764e70dcd0341727f9c57aedf64fef2606b5f342e0"
+      ]
     },
     "mizzle": {
-      "version": 10,
-      "hash": "80a94607cff7eb948d90af7a2f729d764a6c9cb4b2498328fd936aa0e8066b4a",
+      "version": 11,
+      "hash": "3c9f017cefb13f5306014d22871733841dd6706a03f5583346381804b207dc80",
       "previous": [
+        "80a94607cff7eb948d90af7a2f729d764a6c9cb4b2498328fd936aa0e8066b4a",
         "cb4c86cd89861144ed1d773a1594b68d08079deb10d8b18a12ea2096da9b84dc",
         "052700b960a2cd7f1b73e7e543f279da0f48612861cfcb26384c42e1fea3fd2b",
         "2f114fa37fcfe835e35bb93d26b2f72246e3ea1fd8a7aa9236b9a3eee9561481",
@@ -209,14 +219,18 @@
       ]
     },
     "palm-haze": {
-      "version": 2,
-      "hash": "68a614eab1e7d90389749596e56af551a7e8b42a93b57796e095a5cbc96e7cd7",
-      "previous": ["a976bb52f0afdbcc448f029325b38490a6fde134ce1b498832d89788e568d633"]
+      "version": 3,
+      "hash": "41cf169dc59bb79cad2348b05035997df084d6d613723ffcfc31e2389f857d90",
+      "previous": [
+        "68a614eab1e7d90389749596e56af551a7e8b42a93b57796e095a5cbc96e7cd7",
+        "a976bb52f0afdbcc448f029325b38490a6fde134ce1b498832d89788e568d633"
+      ]
     },
     "tarn": {
-      "version": 7,
-      "hash": "12ebce80e830b29732c923f35fcc125145e2fe843948f3455be468b9eeb706b8",
+      "version": 8,
+      "hash": "5d667853ddb44904c04246eec61cc976c0756d65f9a8d8bb5c28c581da09e2ca",
       "previous": [
+        "12ebce80e830b29732c923f35fcc125145e2fe843948f3455be468b9eeb706b8",
         "c8defc20f848e5012778120fda09e94a7be07ce79155003a3295a4593ef32bab",
         "05872b47773f8a00bf12a9408919ddb9b4fa30b13b1edea7c2a00a2d7f73b918",
         "d43eea8a0e4a927acbd9b7d1658445207d1bcab197ea84740abf708a6b5f33bf",

@@ -4,9 +4,16 @@ import { browserDeviceSocket } from "@ace/client/devices";
 import { adoptedOutbox } from "@ace/client-worker/adopted-outbox";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { accountOrigin, hostedRelayUrl, windowAccountSession } from "./account-config.ts";
+import {
+  accountFetch,
+  accountOrigin,
+  hostedRelayUrl,
+  webClient,
+  windowAccountSession,
+} from "./account-config.ts";
 import { createBrowserClient } from "./client.ts";
-import { grantCache } from "./grant-cache.ts";
+import { proveFromWindow } from "./window-prover.ts";
+import { grantCache, type GrantCache } from "./grant-cache.ts";
 import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { browserChecksDirect, checkedSocketTransport, httpsProbe } from "./machine-routes.ts";
@@ -105,23 +112,25 @@ export function accountMachineClient(
     route.paired && owner !== undefined ? pairedMachineOutbox(route.paired) : undefined;
   const pairing =
     route.paired && pairedOutbox ? { entry: route.paired, outbox: pairedOutbox } : undefined;
-  return createBrowserClient({
-    deviceId: route.deviceId,
-    transport: route.transport,
-    credential: async () => {
-      owned();
-      return route.credential();
-    },
-    // A grant refresh is never sent under another account either.
-    grant: async () => {
-      owned();
-      return route.grant();
-    },
-    grantRefused: (grant) => route.grantRefused?.(grant) ?? false,
-    expectedHostId: route.expectedHostId,
-    ...(pairing ? { deviceAliases: [pairing.entry.deviceId] } : {}),
-    storage: pairing ? adoptedOutbox(own, pairing.outbox, pairing.entry.hostId) : own,
-  });
+  return proveFromWindow(
+    createBrowserClient({
+      deviceId: route.deviceId,
+      transport: route.transport,
+      credential: async () => {
+        owned();
+        return route.credential();
+      },
+      // A grant refresh is never sent under another account either.
+      grant: async () => {
+        owned();
+        return route.grant();
+      },
+      grantRefused: (grant) => route.grantRefused?.(grant) ?? false,
+      expectedHostId: route.expectedHostId,
+      ...(pairing ? { deviceAliases: [pairing.entry.deviceId] } : {}),
+      storage: pairing ? adoptedOutbox(own, pairing.outbox, pairing.entry.hostId) : own,
+    }),
+  );
 }
 
 /**
@@ -140,36 +149,52 @@ export function accountMachineOptions(options: {
   if (!origin || !relayUrl) return undefined;
   const account = aceAccountClient({
     origin,
-    fetch: async (input, init) => {
-      await authorizeDaemonUrl(`${origin}/`);
-      return fetch(input, init);
-    },
+    fetch: accountFetch(origin),
   });
   // The account knows this install by its install id, the id every machine knows it by too.
   const deviceId = browserInstallId(options.storage);
-  // One grant serves every path of a race and the reconnects of its life; the clock is the
-  // browser's, read here at the boundary.
-  const grants = grantCache(
-    (token) =>
-      account.grant(token, { kind: "device", subject: deviceId }, AbortSignal.timeout(15_000)),
-    { wall: () => Date.now(), elapsed: () => performance.now() },
-  );
+  // One grant per machine serves every path of a race and the reconnects of its life: a machine's
+  // format 2 grant names the daemon it is for (ADR 0190). The clock is the browser's, read here
+  // at the boundary.
+  const caches = new Map<string, GrantCache>();
+  const cacheFor = (machine = "") => {
+    let cache = caches.get(machine);
+    if (!cache) {
+      const host = /^[A-Z2-7]{52}$/.test(machine) ? machine : undefined;
+      cache = grantCache(
+        (token) =>
+          account.grant(
+            token,
+            {
+              kind: "device",
+              subject: deviceId,
+              ...(host ? { host } : {}),
+            },
+            AbortSignal.timeout(15_000),
+          ),
+        { wall: () => Date.now(), elapsed: () => performance.now() },
+      );
+      caches.set(machine, cache);
+    }
+    return cache;
+  };
   return {
     relayUrl,
+    aceClient: webClient(),
     deviceId,
     async grant(machine) {
       const session = windowAccountSession(options.session, origin);
       if (!session) {
         // Signed out: no grant of the last session stays in memory.
-        grants.clear();
+        for (const cache of caches.values()) cache.clear();
         throw new ClientError("auth", "Sign in to your ace account again.");
       }
       // The desktop app admits only addresses the person chose; the relay is one of them.
       await authorizeDaemonUrl(relayUrl);
-      return grants.grant(session.token, machine);
+      return cacheFor(machine).grant(session.token, machine);
     },
-    grantRefused: (grant, machine) => grants.refused(grant, machine),
-    grantSettled: (machine) => grants.settled(machine),
+    grantRefused: (grant, machine) => cacheFor(machine).refused(grant, machine),
+    grantSettled: (machine) => caches.get(machine ?? "")?.settled(machine),
     socket: browserDeviceSocket,
     // The network changed: a better path may be back, or the active one gone.
     watchNetwork: (changed) => {

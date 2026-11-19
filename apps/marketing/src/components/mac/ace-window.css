@@ -336,6 +336,20 @@ html[data-theme="light"] .ace {
   line-height: 18px;
 }
 
+/* A project's mark: its glyph in the project's tint, or its own icon, in the app's 20 × 16 tile. */
+.ace .chip.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+}
+
+.ace .chip .ace-logo {
+  background: var(--a-fg);
+  color: var(--a-frame);
+}
+
 .ace .project {
   color: var(--a-muted);
   font-size: 13px;
@@ -580,6 +594,10 @@ html[data-theme="light"] .ace {
 
 .ace[data-cold="done"] p.after-done {
   display: block;
+}
+
+.ace:not([data-cold="done"]) .step.after-done {
+  display: none;
 }
 
 .ace .you {
@@ -926,6 +944,7 @@ html[data-theme="light"] .ace {
   align-items: center;
   gap: 7px;
   color: var(--a-fg-2);
+  white-space: nowrap;
 }
 
 .ace .model {
@@ -934,6 +953,21 @@ html[data-theme="light"] .ace {
 
 .ace .model span {
   color: var(--a-muted);
+}
+
+/* The composer names the open thread's agent: Codex on the soak test, Claude elsewhere. */
+.ace .model .name {
+  color: inherit;
+}
+
+.ace .model .as-claude,
+.ace .model .as-codex {
+  display: contents;
+}
+
+.ace[data-thread="soak"] .model .as-claude,
+.ace:not([data-thread="soak"]) .model .as-codex {
+  display: none;
 }
 
 .ace .send {

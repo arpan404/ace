@@ -67,6 +67,8 @@ export interface UpdatePorts {
   quit(): void;
   report(status: UpdateStatus): void;
   log(level: "info" | "warn", message: string): void;
+  /** The clock for how long each step of a restart took, in the log. */
+  now(): number;
 }
 
 export type CheckOrigin = "person" | "background";
@@ -198,8 +200,16 @@ export class UpdateController {
 
   /** The person's confirmed Restart: stop running agents now and restart into the update. */
   async install(): Promise<UpdateStatus> {
+    this.ports.log("info", "Restart to update: asked");
     // A pending check must finish before the restart can change the update's state.
-    if (this.checking) await this.checking;
+    if (this.checking) {
+      const waited = this.ports.now();
+      await this.checking;
+      this.ports.log(
+        "info",
+        `Restart to update: waited ${this.ports.now() - waited} ms for a check in flight`,
+      );
+    }
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;
     const allowed = this.stillAllowed();
@@ -234,13 +244,23 @@ export class UpdateController {
     return this.restart("idle");
   }
 
-  /** Stops the browser backend and the daemon (its shutdown interrupts turns), then installs. */
+  /**
+   * Stops the browser backend and the daemon (its shutdown interrupts turns), then installs.
+   * From here the app only closes and reopens: the page says so instead of any reconnecting.
+   */
   private async restart(spadeMode: "idle" | "now"): Promise<UpdateStatus> {
+    this.set({ ...this.status, restarting: true });
+    const stopping = this.ports.now();
+    this.ports.log("info", "Restart to update: stopping the browser backend and the daemon");
     try {
       await this.ports.prepareQuit(spadeMode);
     } catch (error) {
       this.ports.log("warn", `Stopping before the update failed: ${message(error)}`);
     }
+    this.ports.log(
+      "info",
+      `Restart to update: stopped in ${this.ports.now() - stopping} ms; starting the installer`,
+    );
     try {
       this.ports.engine.install();
     } catch (error) {

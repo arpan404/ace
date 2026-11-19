@@ -1,0 +1,12 @@
+{
+  "json": {
+    "id": 12,
+    "result": {
+      "subscription": 2,
+      "type": "subscription"
+    },
+    "type": "response"
+  },
+  "text": "{\"type\":\"response\",\"id\":12,\"result\":{\"type\":\"subscription\",\"subscription\":2}}",
+  "frame": "4e000000017b2274797065223a22726573706f6e7365222c226964223a31322c22726573756c74223a7b2274797065223a22737562736372697074696f6e222c22737562736372697074696f6e223a327d7d"
+}

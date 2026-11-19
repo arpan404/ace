@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/ParcelName.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "dataset.csv"
+  ],
+  "maxLength": 128,
+  "minLength": 1,
+  "type": "string",
+  "x-ace-constraint": "One path segment: not . or .., no / or \\, no control characters."
+}

@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { ReleaseVersion } from "@ace/protocol";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
@@ -44,7 +45,7 @@ const firstScreens = [
 const build = Date.now().toString(36);
 
 // The router plugin must precede the React plugin so route files are generated and split first.
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode, command }) => ({
   plugins: [
     tanstackRouter({ target: "react", autoCodeSplitting: true, quoteStyle: "double" }),
     ...reactPlugins(),
@@ -75,6 +76,16 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build),
+    // The app's `ace-client` version (ADR 0189): the release's, or development under the dev
+    // server. A build without a semver ACE_VERSION names none (it may be "development" from a
+    // running daemon's environment, which isn't this build's).
+    "import.meta.env.VITE_ACE_VERSION": JSON.stringify(
+      ReleaseVersion.safeParse(process.env.ACE_VERSION).success
+        ? process.env.ACE_VERSION
+        : command === "serve"
+          ? "development"
+          : "",
+    ),
     // The fake app pushes to its moving sample PR this often (ms); off when unset.
     "import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS": JSON.stringify(
       process.env.ACE_FAKE_PR_PUSH_EVERY_MS ?? "",

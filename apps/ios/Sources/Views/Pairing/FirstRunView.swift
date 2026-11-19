@@ -75,16 +75,8 @@ struct FirstRunView: View {
 
     var body: some View {
         List {
-            header
             if let page {
-                Section {
-                    LabeledContent("Ready", value: page.progress)
-                        .accessibilityIdentifier("setup.progress")
-                    Button(checking ? "Checking…" : "Check again") { Task { await checkAgain() } }
-                        .disabled(checking || model.connection != "ready" || !model.canOperate)
-                        .accessibilityIdentifier("setup.check")
-                }
-                .insetRowBackground()
+                header(page)
                 if !page.installed.isEmpty {
                     Section { ForEach(page.installed) { row($0) } } header: { InsetHeader("On this computer") }
                         .insetRowBackground()
@@ -95,32 +87,39 @@ struct FirstRunView: View {
                     }
                     .insetRowBackground()
                 }
-            } else if problem == nil {
-                Section { ForEach(0..<3, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
-                    .insetRowBackground()
-                    .redacted(reason: .placeholder)
-                    .accessibilityLabel("Checking this computer's agents")
+            } else {
+                Section { intro }.listRowBackground(Color.clear)
+                if problem == nil {
+                    Section { ForEach(0..<3, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
+                        .insetRowBackground()
+                        .redacted(reason: .placeholder)
+                        .accessibilityLabel("Checking this computer's agents")
+                }
             }
             if let dismissProblem {
                 Section {
                     ServiceProblem(message: dismissProblem)
-                    Button("Try again") { Task { await finish() } }.buttonStyle(.textAction()).disabled(leaving)
-                        .accessibilityIdentifier("setup.dismiss.retry")
-                    Button("Leave without saving") { leave() }.buttonStyle(.textAction()).disabled(leaving)
-                        .accessibilityIdentifier("setup.dismiss.leave")
+                    HStack(spacing: AceDesign.Space.related) {
+                        Button("Try again") { Task { await finish() } }.pairingSecondaryButton(.regular)
+                            .accessibilityIdentifier("setup.dismiss.retry")
+                        Button("Leave without saving") { leave() }.pairingSecondaryButton(.regular)
+                            .accessibilityIdentifier("setup.dismiss.leave")
+                    }
+                    .disabled(leaving)
                 } footer: { Text("This page opens again the next time you pair this computer.") }
                 .insetRowBackground()
             }
             if let problem {
                 Section {
                     ServiceProblem(message: problem)
-                    Button("Retry") { Task { await read() } }.buttonStyle(.textAction())
+                    Button("Try again") { Task { await read() } }.pairingSecondaryButton(.regular)
+                        .accessibilityIdentifier("setup.retry")
                 }
                 .insetRowBackground()
             }
         }
         .insetGroupedList()
-        .navigationTitle("Set up").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Connect your agents").navigationBarTitleDisplayMode(.inline)
         // Back from here would offer the pairing already made.
         .navigationBarBackButtonHidden(afterPairing)
         .toolbar {
@@ -143,17 +142,35 @@ struct FirstRunView: View {
         .onChange(of: model.providers) { _, _ in Task { await read() } }
     }
 
-    private var header: some View {
+    private var intro: some View {
+        Text("ace runs the coding agents already on your computer. Connect one to start your first thread.")
+            .font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.muted)
+    }
+
+    /// What the page is for, how many agents are ready, and Check again beside that count.
+    private func header(_ page: FirstRunData) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                AceIcon(.terminal, size: AceDesign.Size.emptyIcon, relativeTo: .title2)
-                    .foregroundStyle(AceDesign.Ink.muted).accessibilityHidden(true)
-                Text("Connect your agents").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
-                    .foregroundStyle(AceDesign.Ink.primary)
-                Text("ace runs the coding agents already on your computer. Connect one to start your first thread.")
-                    .font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.muted)
+            VStack(alignment: .leading, spacing: AceDesign.Space.row) {
+                intro
+                HStack(spacing: AceDesign.Space.related) {
+                    Text(page.progress).font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong))
+                        .foregroundStyle(AceDesign.Ink.primary)
+                        .contentTransition(.numericText())
+                        .accessibilityIdentifier("setup.progress")
+                    Spacer(minLength: AceDesign.Space.related)
+                    Button { Task { await checkAgain() } } label: {
+                        HStack(spacing: AceDesign.Space.tight) {
+                            if checking { ProgressView().controlSize(.small) }
+                            Text(checking ? "Checking…" : "Check again")
+                        }
+                    }
+                    .pairingSecondaryButton(.regular)
+                    .disabled(checking || model.connection != "ready" || !model.canOperate)
+                    .accessibilityIdentifier("setup.check")
+                }
             }
-            .accessibilityElement(children: .combine)
+            .listRowInsets(EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin,
+                                      bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin))
         }
         .listRowBackground(Color.clear)
     }

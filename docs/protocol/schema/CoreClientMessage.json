@@ -11,7 +11,8 @@
             "browser",
             "screen",
             "provider_auth",
-            "media"
+            "media",
+            "machine"
           ],
           "type": "string"
         },
@@ -66,6 +67,11 @@
         "protocolVersion": {
           "const": 1,
           "type": "number"
+        },
+        "standing": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
         },
         "ticket": {
           "type": "string"

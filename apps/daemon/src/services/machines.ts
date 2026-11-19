@@ -33,9 +33,12 @@ import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
+import { withRelayFallback } from "../machines/relay-fallback.ts";
+import { answersDirectly, redeemPairingThroughRelay } from "../machines/relay-pairing.ts";
 import { MachineConnections } from "../machines/connections.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
+import { routedTransfers } from "../transfers/routes.ts";
 import { findHostThread } from "../spade/host-thread.ts";
 import { SpadeRemote } from "../spade/remote.ts";
 import { readLocalToken } from "../local-token.ts";
@@ -86,6 +89,7 @@ export function startMachines(context: ServiceContext): void {
     storageFull: () => maintenance?.held("storage") ?? false,
   });
   resources.own(() => threads.close());
+  services.machineThreads = threads;
   // Children held while admission was closed start as soon as it reopens.
   // Queued tasks first, then the messages held behind them, in the order they came.
   const reopened = () => {
@@ -227,6 +231,8 @@ export function startMachines(context: ServiceContext): void {
       commands,
     },
     log: record("info"),
+    parcels: () => services.parcels?.target,
+    paths: () => services.servedPaths?.() ?? [],
   });
 
   // Bound once the children exist below: a machine answering again ends their wait on it.
@@ -237,9 +243,14 @@ export function startMachines(context: ServiceContext): void {
   resources.own(() => saved.close());
   const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());
-  const transferBase = options.transfers?.transport ?? transferTransport;
-  const probes: TransferTransport = (profile, route, callOptions) =>
-    transferBase(profile, route, { ...callOptions, connections });
+  // A transfer probe goes by every route a transfer may (ADR 0192).
+  const probes: TransferTransport = routedTransfers({
+    direct: options.transfers?.transport ?? transferTransport,
+    connections,
+    links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
+    now,
+  });
   const directory = new MachineDirectory({
     connections,
     now,
@@ -251,32 +262,44 @@ export function startMachines(context: ServiceContext): void {
       if (!list) throw new Error("The saved pairings can't be read just now");
       return list;
     },
-    transport: options.machines?.transport ?? machineRequest,
+    // A machine its direct address doesn't reach is called through its relay (ADR 0182).
+    transport: withRelayFallback(
+      options.machines?.transport ?? machineRequest,
+      () => services.parcels?.relayCalls,
+      now,
+    ),
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
+    described: (profile, description) => services.parcels?.described(profile, description),
     // Sim tools are offered here while a linked machine lends its devices, even with ours off.
     served: () => services.mcp?.toolsChanged(),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
   const fleet = new FleetLinks({
     profiles: () => new Profiles(config.dataDir),
-    describe: async (profile) =>
-      MachineDescription.parse(
-        await directory.call(
-          profile,
-          {
-            hostId: HostId.parse(hostId),
-            hostName: ((await hostName()) || "ace").slice(0, 256),
-            threadId: ThreadId.parse("settings"),
-            threadTitle: "Settings",
-            ceiling: "operate",
-          },
-          { op: "describe" },
-          { timeoutMs: 4000 },
-        ),
-      ),
+    describe: async (profile) => {
+      const sent = await directory.callAs(
+        profile,
+        {
+          hostId: HostId.parse(hostId),
+          hostName: ((await hostName()) || "ace").slice(0, 256),
+          threadId: ThreadId.parse("settings"),
+          threadTitle: "Settings",
+          ceiling: "operate",
+        },
+        { op: "describe" },
+        { timeoutMs: 4000 },
+      );
+      const description = MachineDescription.parse(sent.answer);
+      // Kept for the pairing the describe went as; never looked up again by name (ADR 0192).
+      services.parcels?.described(sent.profile, description);
+      return description;
+    },
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
     redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
+    // A machine reached only through a relay is linked through it (ADR 0182).
+    redeemRelay: (url, name) => redeemPairingThroughRelay(url, name, hostId),
+    answersDirectly,
     hostName,
     transfers: (profile) => new TransferClient(probes, profile).probe(),
   });

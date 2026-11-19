@@ -7,6 +7,12 @@ import { ProviderKind } from "./provider-data.ts";
 import { AccessMode } from "./permissions.ts";
 import { BrowserProfileScope } from "./browser-backend.ts";
 import { ProjectNote, ProjectNoteEdit, maxProjectNotes } from "./project-notes.ts";
+import {
+  ProjectIdentity,
+  ProjectIdentityCommands,
+  ProjectMarker,
+  ProjectRemoteKey,
+} from "./project-identity.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -138,6 +144,19 @@ export const Project = z.object({
   badge: ProjectBadgeStyle.optional(),
   defaults: ProjectDefaults.optional(),
   notes: z.array(ProjectNote).max(maxProjectNotes).optional(),
+  /**
+   * The logical project this registration belongs to (`project-identity.ts`). Absent: a
+   * registration of its own, which clients key as `hostId/workspaceId`, or an older daemon.
+   */
+  identity: ProjectIdentity.optional(),
+  /**
+   * Its remotes and folder inside the repository, once its daemon has read them (ADR 0189):
+   * clients group registrations with the same key. Absent: not read yet, not a checkout with
+   * a remote, unlinked by the person, or an older daemon.
+   */
+  remoteKey: ProjectRemoteKey.optional(),
+  /** When work last started here or it was last added (ms); a machine's default checkout. */
+  openedAt: z.number().nonnegative().optional(),
 });
 export type Project = z.infer<typeof Project>;
 export const ProjectInspection = z.object({
@@ -147,6 +166,8 @@ export const ProjectInspection = z.object({
   /** Registration can succeed while uncertain Git cleanup still fences execution. */
   gitUnavailable: z.literal("git_quarantined").optional(),
   suggestedRepoRoot: path.optional(),
+  /** The folder's project marker (ADR 0181): a hint to confirm, never a link on its own. */
+  marker: ProjectMarker.optional(),
 });
 export const ProjectCommands = [
   z.object({
@@ -215,6 +236,7 @@ export const ProjectCommands = [
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
   ProjectRepositoriesSetCommand,
+  ...ProjectIdentityCommands,
   /**
    * "Clear stale lock" from New thread, after the person confirms: retire Git mutation leases
    * fencing the project's repository whose owning daemon is definitively gone, then retry the

@@ -1,6 +1,7 @@
 ---
 import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
 import { product } from "../content/product.ts";
+import { cardFor } from "../seo/cards.ts";
 import "../styles/global.css";
 
 interface Props {
@@ -14,6 +15,8 @@ interface Props {
   ogType?: "website" | "article";
   /** This page's Markdown version, for AI agents (seo/markdown.ts). */
   markdown?: string;
+  /** The social card shared links show (seo/cards.ts); the home card when not given. */
+  ogImage?: { image: string; alt: string };
 }
 
 const {
@@ -23,11 +26,12 @@ const {
   structuredData,
   ogType = "website",
   markdown,
+  ogImage: card = cardFor("/"),
 } = Astro.props;
 const site = Astro.site;
 const canonical = site ? new URL(Astro.url.pathname, site).href : undefined;
-const ogImage = site ? new URL("/og.png", site).href : "/og.png";
-const ogAlt = `${product.name}: ${product.headline}`;
+const ogImage = site ? new URL(card.image, site).href : card.image;
+const ogAlt = card.alt;
 // JSON in a script tag must not be able to close the tag early.
 const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "\\u003c") : "";
 ---
@@ -38,6 +42,7 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
+    <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
     <meta name="description" content={description} />
     <meta
       name="robots"
@@ -67,8 +72,8 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <meta name="application-name" content={product.name} />
     <meta name="apple-mobile-web-app-title" content={product.name} />
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#11100f" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f5f1" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-64.png" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -78,15 +83,14 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
     <!--
-      Before paint: the theme (the visitor's saved choice, else their system setting, followed
-      live until they choose), whether to animate, and their desktop OS so the matching download
+      Before paint: the theme (the visitor's saved choice, else the light one the site is
+      drawn for), whether to animate, and their desktop OS so the matching download
       button shows.
     -->
     <script is:inline>
       (() => {
         const root = document.documentElement;
         const key = "ace-theme";
-        const system = matchMedia("(prefers-color-scheme: light)");
         const saved = () => {
           try {
             return localStorage.getItem(key);
@@ -95,12 +99,9 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
           }
         };
         const apply = () => {
-          root.dataset.theme = saved() ?? (system.matches ? "light" : "dark");
+          root.dataset.theme = saved() ?? "light";
         };
         apply();
-        system.addEventListener("change", () => {
-          if (!saved()) apply();
-        });
       })();
       (() => {
         // Motion: on unless reduced motion is asked for. If the motion script hasn't started
@@ -119,7 +120,6 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
         else if (/Linux|X11|CrOS/.test(ua)) document.documentElement.dataset.os = "linux";
       })();
     </script>
-    <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
     {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
   </head>
   <body>

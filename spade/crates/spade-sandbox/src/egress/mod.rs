@@ -8,4 +8,7 @@ pub mod proxy;
 
 pub use hosts::{DEFAULTS, Mode, NetworkPolicy, Verdict};
 pub use log::{EgressLog, Entry};
-pub use proxy::{Clock, Limits, Proxy, Resolve, SystemResolver, Ticket, Usage};
+pub use proxy::{
+    Clock, Limits, MOST_HOSTS, Proxy, RefusedHost, Resolve, Seen, SystemResolver, Ticket, Usage,
+    Watch,
+};

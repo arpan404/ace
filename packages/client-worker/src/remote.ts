@@ -11,6 +11,7 @@ import {
   type AttachmentInput,
   type FileDownloadInput,
   type FileUploadInput,
+  type StandingChallenge,
 } from "@ace/client";
 import {
   ClientError,
@@ -178,6 +179,8 @@ export class RemoteClient implements ClientApi {
   private current: ConnectionState = "connecting";
   private path: MachinePathKind | undefined;
   private generation: number | undefined;
+  /** What the worker's socket asks a proof of the person's standing to name (ADR 0190). */
+  private standing: StandingChallenge | undefined;
   private failure: ClientError | undefined;
   private intents: IntentCache;
   private sends: SendCache;
@@ -247,6 +250,11 @@ export class RemoteClient implements ClientApi {
   connectionGeneration(): Selection<number | undefined> {
     return this.notifications.select(["connection"], () =>
       this.current === "ready" ? this.generation : undefined,
+    );
+  }
+  standingChallenge(): Selection<StandingChallenge | undefined> {
+    return this.notifications.select(["connection"], () =>
+      this.current === "ready" ? this.standing : undefined,
     );
   }
   activePath(): Selection<MachinePathKind | undefined> {
@@ -379,6 +387,9 @@ export class RemoteClient implements ClientApi {
   }
   reconnectNow(): void {
     void this.call("reconnectNow", []).catch(() => {});
+  }
+  wake(): void {
+    void this.call("wake", []).catch(() => {});
   }
   networkOnline(online: boolean): void {
     this.online = online;
@@ -996,6 +1007,12 @@ export class RemoteClient implements ClientApi {
           message.generation ??
           (message.state === "ready" ? (this.generation ?? 0) + 1 : this.generation);
         this.failure = message.error && toError(message.error);
+        this.standing = message.standing && {
+          host: message.standing.host,
+          nonce: message.standing.nonce,
+          binding: message.standing.binding,
+          device: message.standing.device,
+        };
         this.notifications.emit(["connection"]);
         return;
       case "pendingSends": {

@@ -42,25 +42,41 @@ struct LicencesView: View {
     }
     var body: some View {
         List {
-            ForEach(entries) { entry in
-                Section {
-                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                        Text(entry.name).font(AceDesign.Typeface.body)
-                        Text(entry.licence).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-                        Text(entry.notice).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-                    }
-                    .padding(.vertical, AceDesign.Space.related)
-                    .accessibilityElement(children: .combine)
-                }
-                .insetRowBackground()
-            }
             Section {
-                NavigationLink("markit's third-party licences") { MarkitNoticesView() }
+                ForEach(entries) { entry in
+                    NavigationLink { LicenceNoticeView(name: entry.name, licence: entry.licence, notice: entry.notice) } label: {
+                        InsetRow(entry.name, systemImage: nil, value: entry.licence)
+                    }
+                    .accessibilityIdentifier("licences.entry.\(entry.name)")
+                }
+            } footer: { Text("The interface uses Apple's system fonts.") }
+            .insetRowBackground()
+            Section {
+                NavigationLink { MarkitNoticesView() } label: { InsetRow("markit's third-party licences", systemImage: nil) }
                     .accessibilityIdentifier("licences.markit")
             }
             .insetRowBackground()
         }
         .insetGroupedList()
         .navigationTitle("Licences").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// One component's notice in full, selectable so it can be copied.
+private struct LicenceNoticeView: View {
+    let name: String
+    let licence: String
+    let notice: String
+    var body: some View {
+        List {
+            Section {
+                Text(notice).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.primary)
+                    .textSelection(.enabled)
+                    .padding(.vertical, AceDesign.Space.tight)
+            } header: { InsetHeader(licence) }
+            .insetRowBackground()
+        }
+        .insetGroupedList()
+        .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
     }
 }

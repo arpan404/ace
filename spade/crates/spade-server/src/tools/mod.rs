@@ -75,10 +75,40 @@ pub struct ToolOutput {
     pub files: Box<[String]>,
     /// What the tool showed the person, already stored (ADR 0134). Recorded as a `shared` event
     /// beside the result; the model is not shown it.
-    pub shared: Shared,
+    /// Boxed: few results carry any, and it keeps every result small.
+    pub shared: Box<Shared>,
     /// The call failed for a while (the network, a rate limit, a `5xx`), so trying it again later
     /// may work: a background job that ends so is parked and run again (ADR 0160).
     pub transient: bool,
+    /// Where a command ran and how it went, stored as `command_ran` beside the result for the
+    /// reply's steps; the model is not shown it. Set only by the tools that run commands.
+    pub command: Option<Box<CommandRun>>,
+}
+
+/// Where a command ran and how it went (`command_ran`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommandRun {
+    /// The sandbox held it.
+    pub contained: bool,
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+    pub reached: Vec<String>,
+    pub refused: Vec<spade_core::event::RefusedHost>,
+}
+
+impl CommandRun {
+    /// The stored event for call `call_id` of reply `reply`.
+    pub fn event(self, reply: &str, call_id: &str) -> spade_core::Event {
+        spade_core::Event::Known(spade_core::event::Known::CommandRan {
+            reply: reply.to_owned(),
+            call_id: call_id.to_owned(),
+            contained: self.contained,
+            exit_code: self.exit_code,
+            timed_out: self.timed_out,
+            reached: self.reached,
+            refused: self.refused,
+        })
+    }
 }
 
 /// Images and documents a tool showed the person, by reference.
@@ -103,8 +133,9 @@ impl ToolOutput {
             images: Vec::new(),
             untrusted: false,
             files: Box::default(),
-            shared: Shared::default(),
+            shared: Box::default(),
             transient: false,
+            command: None,
         }
     }
 
@@ -130,8 +161,9 @@ impl ToolOutput {
             images: Vec::new(),
             untrusted: false,
             files: Box::default(),
-            shared: Shared::default(),
+            shared: Box::default(),
             transient: false,
+            command: None,
         }
     }
 
@@ -184,6 +216,12 @@ pub trait Tool: Send + Sync {
     /// Spade's and ace's own tools, which the classifier isn't asked about.
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
         None
+    }
+    /// For a connector's or plugin's tool: its server runs in the sandbox with no network and no
+    /// credentials of its own, so nothing it does reaches anyone as the person. A sandbox that
+    /// holds files alone doesn't make it so (ADR 0163, amendment 2).
+    fn sealed(&self) -> bool {
+        false
     }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never

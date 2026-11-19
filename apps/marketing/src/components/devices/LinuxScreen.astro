@@ -1,0 +1,158 @@
+---
+/*
+ * Omarchy, 640 × 400, with ace open on it: Hyprland's Waybar across the top (workspaces, the
+ * clock, the tray), and ace's window tiled under it with an even gap and a thin border, drawn
+ * at half size from the same drawing the Mac shows. The story script opens a thread in it
+ * (scripts/stage-scenes.ts `show`).
+ */
+import AceWindow from "../mac/AceWindow.astro";
+---
+
+<div class="linux">
+  <div class="waybar">
+    <span class="workspaces">
+      <i class="current">1</i><i>2</i><i>3</i><i>4</i>
+    </span>
+    <b>Tue 09:41</b>
+    <span class="tray">
+      <i class="wifi"></i>
+      <i class="volume"></i>
+      <span class="battery"><i></i></span>
+      <span>87%</span>
+    </span>
+  </div>
+  <div class="app">
+    <div class="half"><AceWindow /></div>
+  </div>
+</div>
+
+<style>
+  /* Omarchy's own themes come dark and light; the desktop follows the page's. */
+  .linux {
+    --desk: #0a0a0b;
+    --bar-ink: #c9cbcf;
+    --bar-strong: #f2f3f5;
+    --bar-dim: #6e7076;
+    --tile-border: #8a8c92;
+
+    position: absolute;
+    inset: 0;
+    background: var(--desk);
+    color: var(--bar-ink);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9.5px;
+  }
+
+  :global(html[data-theme="light"]) .linux {
+    --desk: #e4e5e8;
+    --bar-ink: #3a3c41;
+    --bar-strong: #0c0d0f;
+    --bar-dim: #8b8d92;
+    --tile-border: #6e7076;
+  }
+
+  .waybar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    height: 20px;
+    padding: 0 10px 0 6px;
+  }
+
+  .waybar b {
+    font-weight: 500;
+    color: var(--bar-strong);
+  }
+
+  .workspaces {
+    display: flex;
+    gap: 1px;
+  }
+
+  .workspaces i {
+    min-width: 14px;
+    font-style: normal;
+    text-align: center;
+    color: var(--bar-dim);
+  }
+
+  .workspaces .current {
+    color: var(--bar-strong);
+    box-shadow: inset 0 -1.5px 0 var(--bar-ink);
+  }
+
+  .tray {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .tray i {
+    display: block;
+  }
+
+  /* A quarter-circle fan for the network, a speaker block, and a battery outline. */
+  .wifi {
+    width: 9px;
+    height: 9px;
+    border-radius: 9px 0 0;
+    box-shadow:
+      inset 1.5px 1.5px 0 var(--bar-ink),
+      inset 4px 4px 0 var(--desk),
+      inset 5.5px 5.5px 0 var(--bar-ink);
+    rotate: 45deg;
+    translate: 0 2px;
+  }
+
+  .volume {
+    width: 5px;
+    height: 6px;
+    border-radius: 1px;
+    background: var(--bar-ink);
+    box-shadow: 3px 0 0 -1px var(--bar-ink);
+  }
+
+  .battery {
+    position: relative;
+    display: block;
+    width: 14px;
+    height: 7px;
+    border-radius: 1.5px;
+    box-shadow: inset 0 0 0 1px var(--bar-ink);
+  }
+
+  .battery i {
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 8px;
+    height: 3px;
+    background: var(--bar-ink);
+  }
+
+  /* One tiled window: the gap Hyprland leaves round it, and its 1px border. */
+  .app {
+    position: absolute;
+    inset: 22px 6px 6px;
+    overflow: hidden;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px var(--tile-border);
+  }
+
+  /* ace's window at its own size, shown at half. */
+  .half {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 200%;
+    height: 200%;
+    transform: scale(0.5);
+    transform-origin: 0 0;
+  }
+
+  /* No traffic lights here, so the top bar's buttons start at the edge. */
+  .half :global(.ace .nav) {
+    padding-left: 18px;
+  }
+</style>

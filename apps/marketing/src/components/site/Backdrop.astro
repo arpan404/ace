@@ -1,0 +1,299 @@
+---
+/*
+ * What stands behind every page: ace's mark, set in the letters of its own name
+ * (scripts/ascii-mark.ts) and printed so faintly it reads as the ground's grain rather than a
+ * picture. It prints itself row by row the first time a visitor sees it, then stays put while
+ * the page scrolls over it. Here and there a letter quietly changes to another letter of the
+ * name and back; every so often a ring of light spreads through the letters from the diamond
+ * at the mark's heart; and the letters near the pointer come up a little, as if a lamp were
+ * held to them.
+ *
+ * The letters are printed once. The lamp and the ring are not brighter copies laid over them
+ * (copies drift out of line with each other where a browser places their letters differently):
+ * they are light in the one print's own colouring, which is a background clipped to the text.
+ *
+ * Decoration only: it is hidden from assistive technology and takes no clicks, and with reduced
+ * motion it is a still print.
+ */
+import { aceMarkBox, aceWing } from "../../brand/mark.ts";
+import { markRows } from "../../scripts/ascii-mark.ts";
+
+/* Geist Mono's letters are 0.6em wide; the rows are set 1.15em apart. */
+const advance = 0.6;
+const leading = 1.15;
+/* Two settings of the same mark: fewer, larger letters for a narrow screen, where finer ones
+   would blur into a texture, and more for a wide one. */
+const word = "ace";
+const settings = [
+  { name: "coarse", columns: 96 },
+  { name: "fine", columns: 150 },
+].map(({ name, columns }) => ({
+  name,
+  width: columns * advance,
+  rows: markRows({
+    wing: aceWing,
+    box: aceMarkBox,
+    columns,
+    cell: advance / leading,
+    word,
+  }),
+}));
+---
+
+<div class="backdrop" aria-hidden="true" data-backdrop data-word={word}>
+  <div class="print">
+    {
+      settings.map((setting) => (
+        <pre class={setting.name} style={`--columns:${setting.width}`}>{setting.rows.map((row) => <span>{row || " "}</span>)}</pre>
+      ))
+    }
+  </div>
+</div>
+<script is:inline>
+  /* The mark prints itself once per visit, not on every page: later pages open with it there. */
+  try {
+    if (sessionStorage.getItem("ace-backdrop")) document.currentScript.previousElementSibling.dataset.seen = "";
+    else sessionStorage.setItem("ace-backdrop", "1");
+  } catch {}
+</script>
+
+<style>
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    /* The mark's width; each setting sizes its type so its columns fill it. */
+    --mark: min(150vw, 128vh);
+    /* Where the mark's heart is. It stands to the right, running off the page's edge, and from
+       tablet width up far enough over to leave the text column clear. */
+    --cx: 60vw;
+    --cy: 56vh;
+    /* How strong the print, the ring and the lamp are, as shares of the text colour. */
+    --print: 5.5%;
+    --ring: 15%;
+    --lamp: 18%;
+    /* It fades toward the side the words are read from, and is at full strength only near the
+       far edge, so even a headline that runs the page's width has little printed under it. */
+    mask-image: linear-gradient(to right, transparent 34%, #000 92%);
+  }
+
+  :global(html[data-theme="light"]) .backdrop {
+    --ring: 10%;
+    --lamp: 12%;
+  }
+
+  .print {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Printing: the rows appear from the top down, a few at a time, as a line printer lays them. */
+  :global(html.motion) .backdrop:not([data-seen]) .print {
+    animation: print 1.5s steps(36) 0.25s both;
+  }
+
+  @keyframes print {
+    from {
+      clip-path: inset(0 0 100% 0);
+    }
+
+    to {
+      clip-path: inset(0);
+    }
+  }
+
+  /*
+   * One setting of the mark. Its letters take their colour from its background, three lights
+   * one over another: the lamp, a round patch at the pointer (`--mx`, `--my`, in the screen's
+   * own pixels, turned into this box's by taking away where its middle stands); the ring, sharp
+   * at its leading edge and trailing off behind, at `--at` of the way from the mark's heart to
+   * its corner; and the print's own even tone under both.
+   */
+  pre {
+    --at: 0%;
+    --ring-on: 0;
+    --lamp-on: 0;
+    position: absolute;
+    top: var(--cy);
+    left: var(--cx);
+    margin: 0;
+    translate: -50% -50%;
+    color: color-mix(in srgb, var(--foreground) var(--print), transparent);
+    font-family: var(--font-mono);
+    font-size: calc(var(--mark) / var(--columns));
+    font-weight: 500;
+    line-height: 1.15;
+    transition: --lamp-on 0.6s var(--ease-out);
+  }
+
+  @supports (background-clip: text) {
+    pre {
+      background-image:
+        radial-gradient(
+          circle 240px at calc(var(--mx, 0px) - var(--cx) + 50%) calc(var(--my, 0px) - var(--cy) + 50%),
+          color-mix(in srgb, var(--foreground) calc(var(--lamp) * var(--lamp-on)), transparent),
+          transparent
+        ),
+        radial-gradient(
+          circle farthest-corner at 50% 50%,
+          transparent calc(var(--at) - 24%),
+          color-mix(in srgb, var(--foreground) calc(var(--ring) * var(--ring-on)), transparent)
+            var(--at),
+          transparent calc(var(--at) + 3%)
+        ),
+        linear-gradient(
+          color-mix(in srgb, var(--foreground) var(--print), transparent),
+          color-mix(in srgb, var(--foreground) var(--print), transparent)
+        );
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  .backdrop[data-lit] pre {
+    --lamp-on: 1;
+  }
+
+  /*
+   * The ring grows from the mark's heart until it has left the mark, then rests. It moves in
+   * steps, a dozen a second, which suits letters and costs little to draw.
+   */
+  :global(html.motion) pre {
+    animation: ring 10s steps(120) 2.2s infinite;
+  }
+
+  @property --at {
+    syntax: "<percentage>";
+    inherits: false;
+    initial-value: 0%;
+  }
+
+  @property --ring-on {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 0;
+  }
+
+  @property --lamp-on {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 0;
+  }
+
+  @keyframes ring {
+    0% {
+      --at: 0%;
+      --ring-on: 0;
+    }
+
+    6% {
+      --ring-on: 1;
+    }
+
+    40% {
+      --ring-on: 0.7;
+    }
+
+    62%,
+    100% {
+      --at: 128%;
+      --ring-on: 0;
+    }
+  }
+
+  /* A row to an element, so a letter that changes redraws its own row and nothing else. */
+  pre span {
+    display: block;
+    height: 1.15em;
+  }
+
+  .fine {
+    display: none;
+  }
+
+  @media (min-width: 760px) {
+    .backdrop {
+      --cx: 82vw;
+      --cy: 52vh;
+    }
+
+    .coarse {
+      display: none;
+    }
+
+    .fine {
+      display: block;
+    }
+  }
+</style>
+
+<script>
+  import { pickCell } from "../../scripts/ascii-mark.ts";
+
+  /*
+   * What the script adds to the print. Where motion is on: the flips, a few letters at a time
+   * that each change to another letter of the name, hold, and change back, in cells chosen at
+   * random. On devices with a pointer: where the lamp is.
+   */
+  const flipsAtOnce = 10;
+
+  /** Prints one letter over another in a row of a setting. */
+  function write(pre: HTMLElement, row: number, column: number, letter: string) {
+    const text = pre.children[row]?.firstChild;
+    if (text instanceof Text) text.replaceData(column, 1, letter);
+  }
+  const backdrop = document.querySelector<HTMLElement>("[data-backdrop]");
+
+  if (backdrop) {
+    if (document.documentElement.classList.contains("motion")) {
+      const word = backdrop.dataset.word ?? "";
+      const settings = [...backdrop.querySelectorAll("pre")].map((pre) => ({
+        pre,
+        rows: [...pre.children].map((row) => row.textContent ?? ""),
+      }));
+      /** One flip, over and over: a cell changes, holds, changes back, and another is chosen. */
+      const keepFlipping = () => {
+        // Only the setting on show flips; the other is not displayed at this width.
+        const shown = settings.find((setting) => setting.pre.offsetParent);
+        const cell = shown && pickCell(shown.rows, word, Math.random);
+        if (!shown || !cell) return void setTimeout(keepFlipping, 4000);
+        write(shown.pre, cell.row, cell.column, cell.other);
+        setTimeout(
+          () => {
+            write(shown.pre, cell.row, cell.column, cell.letter);
+            setTimeout(keepFlipping, 300 + Math.random() * 2400);
+          },
+          900 + Math.random() * 1500,
+        );
+      };
+      for (let at = 0; at < flipsAtOnce; at++) setTimeout(keepFlipping, 2400 + at * 350);
+    }
+
+    if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      let x = 0;
+      let y = 0;
+      let waiting = false;
+      const light = () => {
+        waiting = false;
+        backdrop.style.setProperty("--mx", `${x}px`);
+        backdrop.style.setProperty("--my", `${y}px`);
+        backdrop.dataset.lit = "";
+      };
+      addEventListener(
+        "pointermove",
+        (event) => {
+          x = event.clientX;
+          y = event.clientY;
+          if (waiting) return;
+          waiting = true;
+          requestAnimationFrame(light);
+        },
+        { passive: true },
+      );
+      document.documentElement.addEventListener("pointerleave", () => delete backdrop.dataset.lit);
+    }
+  }
+</script>

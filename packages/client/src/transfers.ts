@@ -105,14 +105,12 @@ export function transferCancellable(transfer: Pick<Transfer, "phase">): boolean 
   return cancellablePhases.has(transfer.phase);
 }
 
-const settledStates = new Set<ThreadStatus["state"]>(["new", "done", "failed"]);
-
 /**
- * Whether a thread in this state is too busy to continue on another machine: anything but new,
- * done or failed, as the daemon's thread.move checks refuse (ADR 0101).
+ * Whether a thread in this state can't be continued on another machine. A working thread moves
+ * while it works (ADR 0191); only one whose work already moved can't go again from here.
  */
 export function continueBlocked(state: ThreadStatus["state"]): boolean {
-  return !settledStates.has(state);
+  return state === "moved";
 }
 
 /**

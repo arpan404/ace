@@ -1,13 +1,17 @@
 ---
 /*
  * Under the open thread: what waits on you (an approval card, or a strip for a device request
- * or a usage limit), the thread's status strip, and the composer.
+ * or a usage limit), the thread's status strip, and the composer, set to the open thread's
+ * agent (Codex on the soak test, Claude elsewhere).
  */
 import { providerIcon } from "@ace/ui-core/provider-icons";
 import BrandMark from "../BrandMark.astro";
 import AppIcon from "./AppIcon.astro";
+import { machines } from "../../content/stage.ts";
 
 const claude = providerIcon({ provider: "claude" }).brand;
+const codex = providerIcon({ provider: "codex" }).brand;
+const linux = machines.find((machine) => machine.id === "build-server")?.name;
 ---
 
 <div class="dock">
@@ -23,17 +27,21 @@ const claude = providerIcon({ provider: "claude" }).brand;
   </div>
   <div class="strip before-done" data-for="cold-start">
     <span
-      ><b>Waiting for 2 agents</b> · 1 on build-server · <span data-seconds="248">4m 8s</span
+      ><b>Waiting for 2 agents</b> · 1 on {linux} · <span data-seconds="248">4m 8s</span
       ></span
     >
     <b>Stop</b>
   </div>
+  <div class="strip before-done" data-for="soak" hidden>
+    <span><b>Working</b> · <span data-seconds="248">4m 8s</span></span>
+    <b>Stop</b>
+  </div>
   <div class="strip ask device-ask" data-for="sign-in" hidden>
-    <span><b>Claude on build-server wants to use iPhone 17 Pro</b> · Simulator on this Mac</span>
+    <span><b>Claude on {linux} wants to use iPhone 17 Pro</b> · Simulator on this Mac</span>
     <span class="strip-actions"><span class="allow" data-target="allow-device">Allow</span><b>Deny</b></span>
   </div>
   <div class="strip device-using" data-for="sign-in" hidden>
-    <span><b>Claude on build-server is using iPhone 17 Pro</b> · <span data-seconds="96">1m 36s</span></span>
+    <span><b>Claude on {linux} is using iPhone 17 Pro</b> · <span data-seconds="96">1m 36s</span></span>
     <span class="strip-actions"><b>Take over</b><b>Stop</b></span>
   </div>
   <div class="strip" data-for="staging" hidden>
@@ -57,8 +65,11 @@ const claude = providerIcon({ provider: "claude" }).brand;
       <span class="access"><AppIcon name="shield-check" size={16} />Auto review</span>
       <span class="model">
         <span class="provider"
-          >{claude && <BrandMark brand={claude} size={15} />}<i data-account>P</i></span
-        >Opus 5.5 <span>· Medium</span>
+          ><span class="as-claude">{claude && <BrandMark brand={claude} size={15} />}</span><span
+            class="as-codex">{codex && <BrandMark brand={codex} size={15} />}</span
+          ><i data-account>P</i></span
+        ><span class="name as-claude">Opus 5.5</span><span class="name as-codex">GPT-6.2 Sol</span>
+        <span>· Medium</span>
         <AppIcon name="caret-down" size={12} />
       </span>
       <span class="send"><AppIcon name="arrow-up" size={16} /></span>

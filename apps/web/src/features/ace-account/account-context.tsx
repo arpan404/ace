@@ -1,4 +1,5 @@
 import { aceAccountClient } from "@ace/client/ace-account";
+import { windowSessionStorage } from "@/boot/window-session.ts";
 import {
   createContext,
   use,
@@ -9,10 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { accountSecret } from "@/boot/account-secret.ts";
-import { accountOrigin, signInReturnTo } from "@/boot/account-config.ts";
+import { accountFetch, accountOrigin, signInReturnTo } from "@/boot/account-config.ts";
 import { hasDesktopBridge } from "@/boot/desktop.ts";
-import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
-import { webStorage } from "@/boot/web-storage.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { followAccountLeaving } from "./account-switch.ts";
@@ -39,12 +38,10 @@ function deployedBackend(): AceAccountBackend | undefined {
     origin,
     client: aceAccountClient({
       origin,
-      fetch: async (input, init) => {
-        await authorizeDaemonUrl(`${origin}/`);
-        return fetch(input, init);
-      },
+      fetch: accountFetch(origin),
     }),
-    storage: webStorage(() => sessionStorage),
+    // In this window's memory only, shared with the machine routes (ADR 0190).
+    storage: windowSessionStorage(),
     secure: accountSecret(),
     returnTo: signInReturnTo({ desktop: hasDesktopBridge(), origin: location.origin }),
   };

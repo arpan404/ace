@@ -24,8 +24,8 @@ import {
  * Every icon is ace's own, from `@ace/icons` (ADR 0156), the set the web draws. Each name is
  * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`). A name is the `@ace/icons`
  * glyph of the same name, else the glyph `drawnAs` gives it. The tab bar's glyphs (`tabIcons`) are
- * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`), and the navigation
- * bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
+ * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`; Spade's face is
+ * drawn by the app, `SpadeMark`), and the navigation bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
  * `extra`, or a row to `fromSymbols` when it replaces an SF Symbol. Every curated project glyph and machine mark (`@ace/ui-core`) is included, so
  * the bridge can name them. The outputs are committed.
  */

@@ -17,6 +17,11 @@ tracing.workspace = true
 uuid.workspace = true
 spade-sandbox-windows = { path = "../spade-sandbox-windows" }
 
+[target."cfg(unix)".dependencies]
+# Marks the file descriptors a launch inherits close-on-exec, so an offline or read-only run starts
+# with stdio alone (ADR 0171, amendment 4). Its `fcntl` takes a raw descriptor without `unsafe`.
+nix = { version = "0.28", default-features = false, features = ["fs"] }
+
 [target."cfg(target_os = \"linux\")".dependencies]
 # Linux's sandbox (ADR 0167 decision 1): a Landlock ruleset the launcher applies to its sandbox
 # thread, which starts the command.

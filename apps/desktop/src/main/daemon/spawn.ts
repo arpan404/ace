@@ -1,8 +1,16 @@
 import { lockedUseEnvironment } from "../../packaging/locked-use.ts";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { delimiter, dirname } from "node:path";
+import { closeSync, existsSync } from "node:fs";
+import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
+import { openLaunchLog } from "@ace/service/launch-log";
+import { dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
+import {
+  encodeLoginPathLine,
+  loginPathPending,
+  prefixedPath,
+  type PendingLoginPath,
+} from "@ace/service/login-path";
 import type { Launch } from "./launch-priority.ts";
 import { requestStop } from "./stop-request.ts";
 import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
@@ -47,10 +55,18 @@ export interface SpawnOptions {
   resources: DaemonResources;
   /** The login-shell PATH, so provider CLIs and git resolve as in a terminal. */
   path: string;
+  /**
+   * Set when `path` is last session's saved PATH: the login shell's, which the daemon gets on
+   * its stdin and waits for before it reads provider CLIs (`spawn-path.ts`).
+   */
+  loginPath?: Promise<string> | undefined;
   version: string;
   env: NodeJS.ProcessEnv;
-  /** One line of the daemon's output, without its newline. */
-  onOutput(line: string, stream: "stdout" | "stderr"): void;
+  /**
+   * What this app has to say about the process itself (it could not be spawned, a stop request
+   * failed). The daemon's own output goes to its home's launch log, never through this app.
+   */
+  report(line: string): void;
   /** The launch to spawn for the plain one (`daemonLaunchPolicy`); unset spawns it as is. */
   prioritize?: ((launch: Launch) => Launch) | undefined;
   /** The OS the daemon runs on; `process.platform` unless a test says otherwise. */
@@ -65,22 +81,31 @@ function daemonVersion(appVersion: string): string {
   return DaemonHealth.shape.version.safeParse(appVersion).success ? appVersion : "development";
 }
 
+/** The daemon's PATH: the bundled tools' folder first, then `path`. */
+export function daemonPath(resources: DaemonResources, path: string): string {
+  return prefixedPath(resources.binDirectory, path);
+}
+
 /** Environment for the daemon child, run by `program`. */
 export function daemonEnvironment(
-  options: Omit<SpawnOptions, "onOutput">,
+  options: Omit<SpawnOptions, "report">,
   program: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const { resources } = options;
-  const path = resources.binDirectory
-    ? [resources.binDirectory, options.path].join(delimiter)
-    : options.path;
   const env: NodeJS.ProcessEnv = {
     ...options.env,
     ...program,
     ACE_HOME: options.home,
     ACE_VERSION: daemonVersion(options.version),
-    PATH: path,
+    PATH: daemonPath(resources, options.path),
   };
+  // The daemon reads the login shell itself, as below, if this app never sends its PATH.
+  if (options.loginPath)
+    env[loginPathPending] = JSON.stringify({
+      prefix: resources.binDirectory,
+      inherited: options.env.PATH ?? "",
+    } satisfies PendingLoginPath);
+  else delete env[loginPathPending];
   // Electron-only switches must not leak into the Node child.
   if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
@@ -104,38 +129,36 @@ export function daemonEnvironment(
   return env;
 }
 
+/**
+ * Starts the bundled daemon so that it outlives this app (ADR 0186): detached, in its own process
+ * group and session (on Windows, outside the job that would end it with the app), with its
+ * stdout and stderr in its home's launch log (`@ace/service/launch-log`), so no pipe to this app
+ * is left to break under it when the app quits. Its records go to its own `logs/ace.jsonl`.
+ */
 export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   const program = daemonProgram(options.resources, process.execPath);
   const plain = { command: program.command, args: [options.resources.entry, "start"] };
   const launch = options.prioritize ? options.prioritize(plain) : plain;
-  const child = spawn(launch.command, launch.args, {
-    cwd: dirname(options.resources.entry),
-    env: daemonEnvironment(options, program.env),
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  for (const [name, stream] of [
-    ["stdout", child.stdout],
-    ["stderr", child.stderr],
-  ] as const) {
-    let pending = "";
-    stream.setEncoding("utf8");
-    stream.on("data", (chunk: string) => {
-      const lines = (pending + chunk).split(/\r?\n/);
-      pending = lines.pop() ?? "";
-      for (const line of lines) options.onOutput(line, name);
-      // A line that never ends must not grow without bound.
-      if (pending.length > 65_536) {
-        options.onOutput(pending, name);
-        pending = "";
-      }
-    });
-    // The last line before exit (a fatal error's) often has no newline.
-    stream.on("end", () => {
-      if (pending) options.onOutput(pending, name);
-      pending = "";
-    });
+  const output = openLaunchLog(options.home, DEFAULT_LOG_MAX_BYTES);
+  let child: ReturnType<typeof spawnDetached>;
+  try {
+    child = spawnDetached(launch, options, program.env, output);
+  } finally {
+    // The daemon has its own copy now.
+    closeSync(output);
   }
+  // Nothing of this app keeps it alive, or waits on it at exit.
+  child.unref();
+  // A daemon that exited first closed its end; nothing is left to tell it.
+  child.stdin.on("error", () => {});
+  // Ending without a line lets the daemon go on with the PATH it started on. When this app quits
+  // first, stdin ends the same way and the daemon asks the login shell itself.
+  if (!options.loginPath) child.stdin.end();
+  else
+    void options.loginPath.then(
+      (path) => child.stdin.end(encodeLoginPathLine(daemonPath(options.resources, path))),
+      () => child.stdin.end(),
+    );
   // A process that never started emits `error` and `close`, but no `exit`.
   type Exit = [code: number | null, signal: NodeJS.Signals | null, error?: string];
   let result: Exit | undefined;
@@ -148,13 +171,14 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   };
   child.once("exit", (code, signal) => finish(code, signal));
   child.on("error", (error) => {
-    options.onOutput(`spawn failed: ${error.message}`, "stderr");
+    options.report(`spawn failed: ${error.message}`);
     if (child.pid === undefined) finish(null, null, error.message);
   });
   // Windows: SIGTERM would be TerminateProcess, so a graceful stop asks the daemon to shut down
   // and ends the process only if it refuses; SIGKILL ends it, and its job takes the children.
   if ((options.platform ?? process.platform) === "win32")
     return {
+      pid: child.pid,
       kill: (signal) => {
         const running = () => child.exitCode === null && child.signalCode === null;
         if (!running()) return;
@@ -166,9 +190,7 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
           .then((accepted) => {
             if (!accepted && running()) child.kill(signal);
           })
-          .catch((error: unknown) =>
-            options.onOutput(`stop request failed: ${String(error)}`, "stderr"),
-          );
+          .catch((error: unknown) => options.report(`stop request failed: ${String(error)}`));
       },
       onExit: (listener) => {
         if (result) listener(...result);
@@ -176,6 +198,7 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
       },
     };
   return {
+    pid: child.pid,
     kill: (signal) => {
       if (child.exitCode === null && child.signalCode === null) child.kill(signal);
     },
@@ -186,9 +209,28 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   };
 }
 
+function spawnDetached(
+  launch: Launch,
+  options: SpawnOptions,
+  program: NodeJS.ProcessEnv,
+  output: number,
+) {
+  const child = spawn(launch.command, launch.args, {
+    cwd: dirname(options.resources.entry),
+    env: daemonEnvironment(options, program),
+    stdio: ["pipe", output, output],
+    detached: true,
+    windowsHide: true,
+  });
+  // Node always opens a piped stdin; its typings for a mixed stdio list only lose track of it.
+  const { stdin } = child;
+  if (!stdin) throw new Error("The daemon's stdin did not open");
+  return Object.assign(child, { stdin });
+}
+
 /** Runs a one-shot daemon CLI command (`doctor --json`) with the same environment. */
 export function runDaemonCommand(
-  options: Omit<SpawnOptions, "onOutput">,
+  options: Omit<SpawnOptions, "report">,
   args: string[],
   timeoutMs = 60_000,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {

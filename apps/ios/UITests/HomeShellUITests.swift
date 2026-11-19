@@ -10,14 +10,18 @@ import XCTest
 
     func testTheTabBarHoldsProjectsChatsSpadeAndSearch() {
         let app = launch()
-        let bar = app.tabBars.firstMatch
-        XCTAssertTrue(bar.buttons["Projects"].waitForExistence(timeout: 30))
-        XCTAssertTrue(bar.buttons["Chats"].exists)
-        XCTAssertTrue(app.buttons["Search"].exists)
-        // The fixture's machine shows Spade: its tab follows Chats.
-        let spade = bar.buttons["Spade"]
+        let projects = app.homeTab("threads")
+        XCTAssertTrue(projects.waitForExistence(timeout: 30))
+        XCTAssertTrue(projects.isSelected)
+        // The fixture's machine shows Spade: its tab follows Chats, then Search, then New thread
+        // on its own at the bar's end, all along the foot of the screen.
+        let spade = app.homeTab("spade")
         XCTAssertTrue(spade.waitForExistence(timeout: 15))
-        XCTAssertGreaterThan(spade.frame.minX, bar.buttons["Chats"].frame.minX)
+        let order = [projects, app.homeTab("chats"), spade, app.homeTab("search"), app.homeTab("compose")]
+        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade", "Search", "New thread"])
+        let xs = order.map(\.frame.midX)
+        XCTAssertEqual(xs, xs.sorted())
+        XCTAssertTrue(order.allSatisfy { $0.frame.minY > app.frame.height * 0.8 })
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'coming soon'")).firstMatch.exists)
         // Inbox, Snoozed and Settled under the title; Chats is its own tab, not one of them.
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)
@@ -34,14 +38,14 @@ import XCTest
         select.tap()
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
         // Picking hides the tab bar for the selection's own bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
+        XCTAssertFalse(app.homeTab("threads").isHittable)
     }
 
     func testComposeOnChatsStartsAChatAndOnThreadsAThread() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 30))
         XCTAssertEqual(app.newThreadButton.label, "New thread")
-        app.tabBars.firstMatch.buttons["Chats"].tap()
+        app.homeTab("chats").tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'")).firstMatch.exists)
         capture("chats")
@@ -79,17 +83,23 @@ import XCTest
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(field.isHittable, "Search's field is hidden until the list is pulled down")
         capture("search-field")
-        // Where Search is a plain tab (iOS 27, compose detached), the first tap shows Search and
-        // tapping it again focuses the field. On iOS 26 the system's own search tab turns into
-        // the field, which takes the tap.
-        let tab = app.tabBars.firstMatch.buttons["Search"]
-        if tab.exists && tab.isHittable {
-            XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
-            tab.tap()
-        } else {
-            field.tap()
-        }
+        // The first tap shows Search without the keyboard; tapping its tab again focuses the field.
+        let tab = app.homeTab("search")
+        XCTAssertTrue(tab.isHittable, "Search's tab stays in the bar while Search shows")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+        tab.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
+    }
+
+    func testTappingProjectsAgainOnAScrolledListGoesBackToTheTop() {
+        let app = launch()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        for _ in 0..<4 where app.inboxReady.reachable { app.swipeUp() }
+        XCTAssertFalse(app.inboxReady.reachable, "the list never scrolled away from its top")
+        let projects = app.homeTab("threads")
+        XCTAssertTrue(projects.isSelected)
+        projects.tap()
+        XCTAssertTrue(app.inboxReady.waitForHittable(timeout: 5), "a second tap on Projects goes back to the list's top")
     }
 
     func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
@@ -189,7 +199,7 @@ import XCTest
 
     func testChatsFilterNarrowsTheListAndClearingBringsItBack() {
         let app = launch()
-        app.tabBars.firstMatch.buttons["Chats"].tap()
+        app.homeTab("chats").tap()
         let chat = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10))
         let identifier = chat.identifier
@@ -222,6 +232,46 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
     }
 
+    /// The query stays put while the machine goes and comes back: what it found goes with it,
+    /// this phone's pages are still found, and the machine's answer returns when it reconnects.
+    func testWithTheMachineOfflineSearchStillFindsSettingsPages() throws {
+        let app = launch()
+        defer { try? control(online: true); app.terminate() }
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        app.openSearch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("composer toolbar")
+        let pull = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.pull.")).firstMatch
+        XCTAssertTrue(pull.waitForExistence(timeout: 15))
+
+        try control(online: false)
+        // Nothing found here is left from the machine, so the search says it's offline.
+        XCTAssertTrue(app.staticTexts["Search is offline"].waitForExistence(timeout: 20))
+        XCTAssertFalse(pull.exists)
+
+        try control(online: true)
+        XCTAssertTrue(pull.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["Search is offline"].exists)
+
+        try control(online: false)
+        XCTAssertTrue(app.staticTexts["Search is offline"].waitForExistence(timeout: 20))
+        let clear = field.buttons["Clear text"]
+        if clear.exists { clear.tap() }
+        field.tap()
+        field.typeText("appearance")
+        let appearance = app.buttons["search.command.settings:appearance"]
+        XCTAssertTrue(appearance.waitForExistence(timeout: 10))
+        XCTAssertTrue(appearance.label.contains("Settings"))
+        // The note covers only what waits for a machine.
+        XCTAssertTrue(app.staticTexts["search.offline"].exists)
+        XCTAssertFalse(pull.exists)
+        capture("search-offline")
+        appearance.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
+    }
+
     func testAThreadOpenedFromSearchShowsOnThreads() {
         let app = launch()
         app.openSearch()
@@ -230,14 +280,14 @@ import XCTest
         latest.tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         // A thread page hides the tab bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
+        XCTAssertFalse(app.homeTab("threads").isHittable)
     }
 
     func testTheInboxLinkClosesTheOpenThreadAndShowsThreadsInbox() {
         let app = launch()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         app.tapThreadsTab(app.buttons["threads.tab.snoozed"])
-        app.tabBars.firstMatch.buttons["Chats"].tap()
+        app.homeTab("chats").tap()
         let chat = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10))
         chat.tap()
@@ -246,30 +296,55 @@ import XCTest
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["threads.tab.inbox"].isSelected)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
-        XCTAssertTrue(app.tabBars.firstMatch.buttons["Projects"].isSelected)
+        XCTAssertTrue(app.homeTab("threads").isSelected)
     }
 
-    func testTheIPadSidebarFootCarriesThePlacesInTheWebRailsOrder() throws {
+    func testTheIPadSidebarFootCarriesTheFourPlacesThenMoreAndSettings() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = launch()
         let row = app.buttons["thread.ios-form"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        let places = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.review", "sidebar.place.automations",
-                      "sidebar.place.skills", "sidebar.place.settings"].map { app.buttons[$0] }
+        let ids = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.more", "sidebar.place.settings"]
+        let places = ids.map { app.buttons[$0] }
         XCTAssertTrue(places[0].waitForExistence(timeout: 10))
-        // Left to right in the rail's order, Spade after Chats while the machine shows it, and
-        // no tab bar beside the list.
+        // The foot holds exactly these six, left to right in the rail's order: Spade after Chats
+        // while the machine shows it, then More and Settings. No tab bar beside the list.
+        let foot = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.")).allElementsBoundByIndex
+        XCTAssertEqual(Set(foot.map(\.identifier)), Set(ids))
+        XCTAssertEqual(foot.count, ids.count)
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
+        XCTAssertFalse(app.homeTab("threads").isHittable)
         capture("ipad-sidebar")
-        // Code review is a place of its own: pull requests and issues, the list beside them kept.
-        app.buttons["sidebar.review"].tap()
+        // Automations and Skills open from More.
+        places[4].tap()
+        // A system menu's items may keep only their words, not the identifiers set on them.
+        func item(_ place: String, _ words: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "sidebar.place.\(place)", words)).firstMatch
+        }
+        let automations = item("automations", "Automations")
+        XCTAssertTrue(automations.waitForExistence(timeout: 10))
+        XCTAssertTrue(item("skills", "Skills").exists)
+        capture("ipad-sidebar-more")
+        automations.tap()
+        let close = app.buttons["settings.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+        // Code review opens from the Projects list's top bar, beside the scope button, as a place
+        // of its own: pull requests and issues, the list beside them kept.
+        let review = app.buttons["inbox.review"]
+        XCTAssertTrue(review.waitForHittable(timeout: 10))
+        XCTAssertLessThan(review.frame.midX, app.buttons["inbox.projects"].frame.midX)
+        review.tap()
         XCTAssertTrue(app.buttons["forge.kind.issues"].waitForExistence(timeout: 10))
         capture("ipad-code-review")
-        app.buttons["sidebar.place.settings"].tap()
+        // Projects in the foot goes back to the list.
+        places[0].tap()
+        XCTAssertTrue(review.waitForHittable(timeout: 10))
+        places[5].tap()
         XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
     }
 
@@ -293,31 +368,77 @@ import XCTest
         capture("ipad-search-focused")
     }
 
-    func testCodeReviewIsAHomeTabForPullRequestsAndIssues() {
+    func testCodeReviewOpensFromTheProjectsTopBarNotTheTabBar() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
         let app = launch()
-        let review = app.tabBars.firstMatch.buttons["Code review"]
-        XCTAssertTrue(review.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.homeTab("threads").exists)
+        XCTAssertTrue(app.homeTab("chats").exists)
+        XCTAssertFalse(app.homeTab("review").exists)
+        let review = app.buttons["inbox.review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 10))
+        XCTAssertEqual(review.label, "Code review")
+        // Beside the scope button, to its left.
+        XCTAssertLessThan(review.frame.midX, app.buttons["inbox.projects"].frame.midX)
+        capture("projects-top-bar")
         review.tap()
-        XCTAssertTrue(review.isSelected)
         let issues = app.buttons["forge.kind.issues"]
         XCTAssertTrue(issues.waitForExistence(timeout: 20))
         capture("code-review-pulls")
         issues.tap()
         XCTAssertTrue(issues.isSelected)
         capture("code-review-issues")
-        app.tabBars.firstMatch.buttons["Projects"].tap()
+        // Closed and opened again, it keeps the list the person chose.
+        app.buttons["review.close"].tap()
         XCTAssertTrue(app.buttons["threads.tab.inbox"].waitForExistence(timeout: 10))
+        app.buttons["inbox.review"].tap()
+        XCTAssertTrue(app.buttons["forge.kind.issues"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["forge.kind.issues"].isSelected)
+    }
+
+    func testCodeReviewClosedAndOpenedAgainKeepsItsSearchAndOpenPullRequest() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
+        let app = launch()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        app.buttons["inbox.review"].tap()
+        let row = app.buttons["forge.pull.245"]
+        XCTAssertTrue(row.waitForExistence(timeout: 25))
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("settings")
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        let header = app.descendants(matching: .any)["forge.pull.header"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 20))
+        // A pushed page shows Back, not Close: the sheet is dragged down from its top.
+        let bar = app.navigationBars.firstMatch
+        let top = bar.exists ? bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            : app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+        top.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
+        // Opened again on the pull request the person had open, with the search behind it.
+        app.buttons["inbox.review"].tap()
+        XCTAssertTrue(header.waitForExistence(timeout: 20))
+        app.tapBack()
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertEqual(app.searchFields.firstMatch.value as? String, "settings")
+        capture("code-review-reopened")
     }
 
     func testCodeReviewWithNoComputerPairedOffersPairing() {
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        // Code review opens from the Projects top bar on both; the iPad's is a place of its own.
+        if !phone { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = XCUIApplication()
         // A fresh install: no computer paired, no fixture connected.
         app.launchArguments = ["--spike", "--spike-unpaired"]
         app.launchWithArguments()
         defer { app.terminate() }
-        let review = app.tabBars.firstMatch.buttons["Code review"]
+        let review = app.buttons["inbox.review"]
         XCTAssertTrue(review.waitForExistence(timeout: 30))
         review.tap()
+        if phone { XCTAssertTrue(app.buttons["review.close"].waitForExistence(timeout: 10)) }
         // Never skeletons forever: the way to pair a computer.
         XCTAssertTrue(app.buttons["inbox.empty.pair"].waitForExistence(timeout: 20))
         capture("code-review-unpaired")
@@ -330,6 +451,16 @@ import XCTest
         app.launchWithArguments()
         allowNotifications()
         return app
+    }
+    /// Takes the fixture's machine offline (its sockets close and it refuses new ones) or back.
+    private func control(online: Bool) throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/control")))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"online":\#(online)}"#.utf8)
+        let done = expectation(description: "control")
+        URLSession.shared.dataTask(with: request) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
     }
     /// The first launch asks to send notifications; the fixture's tests take Allow.
     private func allowNotifications() {

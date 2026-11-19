@@ -48,6 +48,57 @@ impl<'de> Deserialize<'de> for Access {
     }
 }
 
+/// How a bot decides on the calls the gate would hold (ADR 0163, amendment 2). The auto-review is
+/// every bot's default. Full access is the person's opt-in for one bot (or the machine's default):
+/// nothing goes to the reviewer and ordinary work doesn't ask, but the hard stops (a secret is
+/// refused; a payment, a send in the person's name, an access change and a step in a place where
+/// those happen ask the person) are decided first and hold the same. A setting, not a level:
+/// stored `access` words never become it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    AutoReview,
+    FullAccess,
+}
+
+impl Mode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::AutoReview => "auto_review",
+            Self::FullAccess => "full_access",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Self> {
+        match word.trim() {
+            "auto_review" => Some(Self::AutoReview),
+            "full_access" => Some(Self::FullAccess),
+            _ => None,
+        }
+    }
+
+    /// The mode of a bot that works under `above` (a worker under its parent): never freer than
+    /// the bot above it.
+    pub fn under(self, above: Self) -> Self {
+        if above == Self::AutoReview {
+            Self::AutoReview
+        } else {
+            self
+        }
+    }
+}
+
+/// A stored mode read leniently: a word this build doesn't know is the auto-review, never an
+/// error that would drop the rest of a bot's settings.
+pub fn lenient_mode<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Mode>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.map(|value| match value {
+        Value::String(word) => Mode::parse(&word).unwrap_or_default(),
+        _ => Mode::AutoReview,
+    }))
+}
+
 /// Calls Spade singles out. A payment and a message as the person always go to the person
 /// ([`Sensitive::persons`]); the reviewer is told to weigh the rest with care, the rule that
 /// singled each out going into its prompt (ADR 0163).
@@ -152,6 +203,89 @@ pub struct Classed {
     pub shown: Vec<shell::Shown>,
     /// What it runs (a script, a package script) reads sign-ins or credentials.
     pub credentials: bool,
+    /// The bot's folder, for a command with no sandbox that starts inside it: Spade's classifier
+    /// places the command's paths against it (ADR 0172). `None` when it starts elsewhere or the
+    /// folder is unknown, and then the classifier never settles it.
+    pub workspace: Option<String>,
+    /// The tools whose configuration around the folder the command starts in was inspected and
+    /// names no program they would run (ADR 0172, amendment 2). The classifier never settles a
+    /// command that runs a tool not in it.
+    pub config_clean: ConfigTools,
+    /// Whether this machine can hold the command in a read-only sandbox confined to the bot's
+    /// folder (ADR 0172, amendment 7); the classifier settles a read only when it can.
+    pub sandboxable: bool,
+    /// Something it runs couldn't be read whole (`shell::Assessment::incomplete`): nothing that
+    /// binds to what was read (an approval to run it outside the sandbox) can be made from it.
+    pub incomplete: bool,
+    /// Programs it runs from outside the system's protected folders and the bot's (the person's
+    /// toolchain, Homebrew's), by real path with the SHA-256 of their content: the call is bound
+    /// to them as well as to `shown`.
+    pub programs: Vec<(std::path::PathBuf, String)>,
+    /// The tools it runs whose configuration could run a program it never names, by the real
+    /// folder each runs in: outside the sandbox, the configuration there must name none, or the
+    /// reading is incomplete.
+    pub config_used: Vec<(std::path::PathBuf, ConfigTools)>,
+}
+
+/// Tools that read configuration from the project or its surroundings that can make them run a
+/// program the command never names: git (an fsmonitor, a pager, diff and filter drivers, hooks,
+/// aliases), the Node package managers (`.npmrc`'s `node-options` or `script-shell`, a
+/// `.pnpmfile.cjs`, `yarnPath`, `bunfig.toml`'s `preload`), cargo (`.cargo/config.toml` runners and
+/// wrappers, a toolchain `path`) and ripgrep (a config file's `--pre`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ConfigTools {
+    pub git: bool,
+    pub node: bool,
+    pub cargo: bool,
+    pub ripgrep: bool,
+}
+
+impl ConfigTools {
+    pub const ALL: Self = Self {
+        git: true,
+        node: true,
+        cargo: true,
+        ripgrep: true,
+    };
+
+    /// Whether every tool in `self` is also in `other`.
+    pub fn within(self, other: Self) -> bool {
+        (!self.git || other.git)
+            && (!self.node || other.node)
+            && (!self.cargo || other.cargo)
+            && (!self.ripgrep || other.ripgrep)
+    }
+
+    pub fn any(self) -> bool {
+        self.git || self.node || self.cargo || self.ripgrep
+    }
+
+    /// The tools among these that `program` is, whose configuration could run another program.
+    pub fn of(program: &str) -> Self {
+        let mut tools = Self::default();
+        match program {
+            "git" | "gh" | "glab" | "hub" | "tig" | "lazygit" | "git-lfs" => tools.git = true,
+            "npm" | "npx" | "pnpm" | "pnpx" | "yarn" | "yarnpkg" | "bun" | "bunx" | "corepack" => {
+                tools.node = true;
+            }
+            "cargo" | "rustc" | "rustdoc" | "rustfmt" | "rustup" | "clippy-driver" => {
+                tools.cargo = true;
+            }
+            "rg" => tools.ripgrep = true,
+            _ => {}
+        }
+        tools
+    }
+
+    /// Every tool in either.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            git: self.git || other.git,
+            node: self.node || other.node,
+            cargo: self.cargo || other.cargo,
+            ripgrep: self.ripgrep || other.ripgrep,
+        }
+    }
 }
 
 impl Classed {
@@ -186,7 +320,10 @@ impl From<Class> for Classed {
 /// folder it starts in).
 pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
     let Some(command) = arguments.get("command").and_then(Value::as_str) else {
-        return Class::Sensitive(Sensitive::Unclear).into();
+        return Classed {
+            incomplete: true,
+            ..Class::Sensitive(Sensitive::Unclear).into()
+        };
     };
     let assessed = shell::assess(command, place);
     let (class, credentials) = match assessed.finding {
@@ -201,6 +338,12 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         class,
         shown: assessed.shown,
         credentials,
+        workspace: None,
+        config_clean: ConfigTools::default(),
+        sandboxable: false,
+        incomplete: assessed.incomplete,
+        programs: assessed.programs,
+        config_used: assessed.config,
     }
 }
 

@@ -85,6 +85,7 @@ const starts: Record<ServiceName, ServiceDefinition["start"]> = {
   agentControl: loadOnStart(() => import("./agent-control.ts"), "startAgentControl"),
   machines: loadOnStart(() => import("./machines.ts"), "startMachines"),
   transfers: loadOnStart(() => import("../transfers/service.ts"), "startTransfers"),
+  parcels: loadOnStart(() => import("../parcels/service.ts"), "startParcels"),
   externalMcp: loadOnStart(() => import("./external-mcp.ts"), "startExternalMcp"),
   spade: loadOnStart(() => import("./spade.ts"), "startSpade"),
   previewClient: startPreviewClient,

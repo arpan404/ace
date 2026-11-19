@@ -4,6 +4,7 @@ import { parseSpadeGoalProgress, spadeGoalLine } from "./goal.ts";
 import { spadeGroupLine, type SpadeGroup } from "./groups.ts";
 import { spadeForLaterWords } from "./questions.ts";
 import { spadeProblemStep } from "./request-words.ts";
+import { spadeMoveLine } from "./moves.ts";
 
 /*
  * What Spade's list says about each conversation (docs/design/spade.md §2): its state, which
@@ -67,6 +68,11 @@ function lastLine(bot: SpadeRowBot): string {
  */
 export function spadeBotRow(bot: SpadeRowBot, notYet?: string): SpadeRow {
   if (bot.away || bot.unavailable) return { state: "off", line: spadeOffLine(bot) };
+  // Moving to another machine (ADR 0187): where to, in the profile's words; a failed move says
+  // only that it stayed, the profile says why.
+  if (bot.move?.state === "failed")
+    return { state: "rest", line: `Couldn't move to ${bot.move.to.name}; still here` };
+  if (bot.move) return { state: "rest", line: spadeMoveLine(bot.move, bot.name) };
   if (bot.state === "waiting")
     return {
       state: "needs-you",

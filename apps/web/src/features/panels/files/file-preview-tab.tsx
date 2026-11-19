@@ -1,5 +1,5 @@
 import { DownloadSimpleIcon, FileIcon, WarningCircleIcon } from "@ace/icons";
-import { checkoutViewLimit, fileLanguage, isMarkdownPath } from "@ace/ui-core";
+import { checkoutViewLimit, isMarkdownPath } from "@ace/ui-core";
 import { useMemo, useState } from "react";
 import { wholeBudget, tooLargeToLoad } from "@/components/attachment-content.ts";
 import type { FileSource, PreviewFile } from "@/components/attachment-format.ts";
@@ -19,12 +19,12 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
+import { CodeEditor } from "@/features/editor";
 import {
   filePreviewTabData,
   type FilePreviewTabData,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
-import { SourceView } from "./source-view.tsx";
 
 /*
  * A file outside the checkout, in the side panel: a PDF in the browser's viewer, video and audio
@@ -176,10 +176,10 @@ function TextBody(props: { file: PreviewFile; source: FileSource }) {
             <Prose text={value.text} />
           </article>
         ) : (
-          <SourceView
+          <CodeEditor
             text={value.text}
-            lang={fileLanguage(file.name)}
-            wrap={false}
+            path={file.name}
+            readOnly
             label={`Contents of ${file.name}`}
           />
         )}

@@ -13,6 +13,8 @@ export interface RelayAccess {
   onRegistration?: (registered: boolean) => void;
   /** Aborted when the relays close: a registration still waiting on the relay is given up. */
   signal?: AbortSignal;
+  /** This daemon's `ace-client` name (ADR 0189), given to ace's own relay only. */
+  aceClient?: string;
 }
 
 /** A running relay registration: resolved once the relay confirmed it, until `close`. */
@@ -63,6 +65,10 @@ export function remoteRelays(deps: {
   serialize: (work: () => Promise<void>) => Promise<void>;
   /** A pairing link through the person's own relay stops working. */
   clearPending: () => void;
+  /** Reads the clock, for how long each start took. */
+  now?: () => number;
+  /** One relay's start ended (on, waiting or failed) after `durationMs`; not when given up. */
+  onSettled?: (relay: RelayView, durationMs: number) => void;
 }) {
   const { options } = deps;
   const entries = new Map<string, Entry>();
@@ -87,7 +93,17 @@ export function remoteRelays(deps: {
     if (withdrawLinks && !entry.plan.hosted) deps.clearPending();
     await handle.close();
   };
+  const view = (entry: Entry): RelayView =>
+    entry.error
+      ? { plan: entry.plan, state: entry.state, error: entry.error }
+      : { plan: entry.plan, state: entry.state };
   const start = async (entry: Entry) => {
+    const began = deps.now?.();
+    await attempt(entry);
+    if (began === undefined || shutdown.signal.aborted) return;
+    deps.onSettled?.(view(entry), (deps.now?.() ?? began) - began);
+  };
+  const attempt = async (entry: Entry) => {
     const { plan } = entry;
     if (plan.hosted && plan.accountId === undefined) {
       // Waiting on the person, not a failure: shown, never logged.
@@ -106,10 +122,12 @@ export function remoteRelays(deps: {
             platform: options.platform ?? process.platform,
           })
         : undefined;
+      const aceClient = plan.hosted ? options.remoteConfig?.aceClient : undefined;
       started = await deps.connect(
         { url: plan.url, keys: relayKeys },
         {
           ...(access ? { account: access.account } : {}),
+          ...(aceClient ? { aceClient } : {}),
           onRefused: () => {
             const error = plan.hosted ? relayRefusedMachine : "The relay refused this machine.";
             void deps
@@ -191,11 +209,7 @@ export function remoteRelays(deps: {
       }
     },
     view(): RelayView[] {
-      return [...entries.values()].map((entry) =>
-        entry.error
-          ? { plan: entry.plan, state: entry.state, error: entry.error }
-          : { plan: entry.plan, state: entry.state },
-      );
+      return [...entries.values()].map(view);
     },
     /** A relay that failed to start and a timer may try again. */
     retryable: () => [...entries.values()].some((entry) => !entry.handle && entry.retryable),

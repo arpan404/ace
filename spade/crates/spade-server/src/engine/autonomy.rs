@@ -81,6 +81,7 @@ pub(super) fn record_rule(
     verdict: Verdict,
     reason: &str,
     bound: Option<String>,
+    launch: spade_core::event::Authorized,
 ) -> Result<bool, spade_store::StoreError> {
     let event = Event::Known(Known::CallReviewed {
         reply: reply.to_owned(),
@@ -91,6 +92,8 @@ pub(super) fn record_rule(
         model: String::new(),
         cost_micros: 0,
         bound,
+        acts_in: None,
+        launch: Some(launch),
     });
     engine.record_unless_stopped(id, reply, &event)
 }
@@ -103,23 +106,17 @@ pub(super) struct Under<'a> {
     pub def: &'a ToolDef,
     /// Files the call runs, shown to the reviewer; an approval is bound to them.
     pub shown: &'a [spade_core::autonomy::shell::Shown],
+    /// What the call runs as the reviewer is shown it, stored with the verdict
+    /// (`workspace::outside::binding`).
+    pub bound: Option<String>,
     /// Why the rules singled the call out, told to the reviewer.
     pub concern: Option<&'a str>,
-}
-
-/// The hash a call's shown files are bound by; `None` when it runs none.
-pub(super) fn binding(shown: &[spade_core::autonomy::shell::Shown]) -> Option<String> {
-    if shown.is_empty() {
-        return None;
-    }
-    let mut text = Vec::new();
-    for file in shown {
-        text.extend_from_slice(file.path.as_bytes());
-        text.push(0);
-        text.extend_from_slice(file.content.as_bytes());
-        text.push(0);
-    }
-    Some(crate::workspace::trust::hash(&text))
+    /// For a driving step, where it acts as the gate just found: the verdict is stored with it
+    /// and reused only there.
+    pub acts_in: Option<&'a spade_core::effect::drive::Place>,
+    /// How far it would launch: the verdict is stored with it and reused only for that launch
+    /// or a narrower one.
+    pub launch: spade_core::event::Authorized,
 }
 
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
@@ -136,7 +133,10 @@ pub(super) async fn review(
     under: Under<'_>,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
-    if let Some((verdict, reason)) = review::stored(events, &under.call.id) {
+    // Stored before a restart: reused only where it was given (ADR 0171, amendment 3).
+    if let Some((verdict, reason)) =
+        review::stored_at(events, &under.call.id, under.acts_in, under.launch)
+    {
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
@@ -199,7 +199,9 @@ pub(super) async fn review(
         reason: reason.clone(),
         model,
         cost_micros: cost,
-        bound: binding(under.shown),
+        bound: under.bound.clone(),
+        acts_in: under.acts_in.cloned().map(Box::new),
+        launch: Some(under.launch),
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict, reason),

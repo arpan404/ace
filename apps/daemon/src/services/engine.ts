@@ -1,4 +1,5 @@
 import { agentAnswerRefusal } from "../answer-gate.ts";
+import { ThreadOwnership } from "../transfers/live/ownership.ts";
 import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
@@ -162,11 +163,19 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   // Provider CLIs, the Cursor SDK and ace's skill folder are read after the engine is up
   // (ADR 0175): a CLI that never answers, or a slow disk, leaves the engine "starting" and
   // commands waiting for their provider instead of failing the daemon's start.
+  const activationBegan = context.now();
   const activation = activateProviders({
     signal: context.signal,
     captureSkillRoots: () => builtinSkillRecovery(config.dataDir),
     discover: async () => {
       if (engineOptions.registry) return;
+      // A daemon the app started on last session's PATH reads CLIs only on the login shell's:
+      // a stale PATH could miss a CLI or pick another installation of one.
+      const changed = await options.loginPath?.final;
+      // A stopping daemon's PATH is settled unchanged, never confirmed: read nothing on it.
+      context.signal.throwIfAborted();
+      if (changed === true)
+        log.log("info", "Providers are read on the login shell's PATH, which changed");
       await discoverAdapters(
         stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
         (cli) => daemonClaudeAdapter(context, cli),
@@ -436,6 +445,29 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     .catch(reportCleanup);
   const readEngine = engineReadiness(activation, engine.ready());
   context.readiness?.(readEngine);
+  // One line once providers are read and recovery has run: what kept the engine starting.
+  const settledAt = (step: Promise<void>) =>
+    step.then(
+      () => context.now() - activationBegan,
+      () => context.now() - activationBegan,
+    );
+  void Promise.all([settledAt(activation.settled), settledAt(engine.ready())]).then(
+    ([providersMs, recoveryMs]) => {
+      if (context.signal.aborted) return;
+      const state = readEngine();
+      log.log(
+        state.state === "degraded" ? "warn" : "info",
+        "Engine ready",
+        logFields([
+          ["state", state.state],
+          ["providersMs", Math.round(providersMs)],
+          ["recoveryMs", Math.round(recoveryMs)],
+          ...(state.state === "degraded" ? [["error", state.error] as const] : []),
+        ]),
+      );
+    },
+    (error: unknown) => log.log("warn", "Engine readiness line failed", logError(error)),
+  );
   // The reader changes on its own as providers and recovery settle: say so each time.
   for (const step of [activation.settled, engine.ready()])
     void step.then(
@@ -451,6 +483,16 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       services.marketAgent?.requests.resolve(command),
   );
   services.engine = engine;
+  // A thread moving or moved to another machine refuses new turns from the first command
+  // (ADR 0191), before transfers start.
+  // One record holds the whole tree: a subagent is held by its root's.
+  const owners = new ThreadOwnership(store);
+  engine.bindOwnershipFence((threadId) => {
+    const own = owners.refusal(threadId);
+    if (own) return own;
+    const root = services.agentControl?.delegations.journal.rootOf(threadId) ?? threadId;
+    return root === threadId ? undefined : owners.refusal(root);
+  });
   if (accountRegistry)
     resources.own(
       recoverOnFreshReadings({

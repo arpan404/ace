@@ -32,6 +32,7 @@ import {
   type ShownMember,
 } from "./use-spade-groups.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
+import { panelReveal } from "@/components/ui/rules.ts";
 
 /** A window too narrow for the profile beside a readable chat: the profile covers the chat. */
 const coverQuery = "(max-width: 59.99rem)";
@@ -64,7 +65,7 @@ export function SpadeGroupScreen(props: {
             <ConversationSkeleton />
           ) : (
             <p className="text-ui text-muted-foreground">
-              This group isn't here any more.{" "}
+              This club isn't here any more.{" "}
               <Link to="/spade" className="text-foreground underline underline-offset-3">
                 Open Spade
               </Link>
@@ -264,6 +265,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
             aria-label={`${group.name}'s profile`}
             className={cn(
               "bg-panel",
+              panelReveal,
               covering ? "absolute inset-0 z-20" : "relative w-96 shrink-0 border-l border-border",
             )}
           >
@@ -297,7 +299,7 @@ function GroupStart(props: { members: readonly ShownMember[]; onAdd(): void }) {
         ))}
       </div>
       <p className="text-md text-foreground">
-        {`${list} ${names.length > 1 ? "are" : "is"} in this group.`}
+        {`${list} ${names.length > 1 ? "are" : "is"} in this club.`}
       </p>
       <Button size="sm" variant="ghost" onClick={props.onAdd}>
         Add a member

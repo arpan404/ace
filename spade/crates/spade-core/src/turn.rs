@@ -357,7 +357,10 @@ mod tests {
             reviewer_reason: None,
             ask: None,
             tool_key: None,
+            app: None,
+            acts_in: None,
             helper: None,
+            launch: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -368,7 +371,10 @@ mod tests {
             reviewer_reason: None,
             ask: None,
             tool_key: None,
+            app: None,
+            acts_in: None,
             helper: None,
+            launch: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandId, HostId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { ProjectIdentityId } from "./project-identity.ts";
 
 /**
  * Carrying a project, or a thread with its project, to another of the person's machines
@@ -80,6 +81,22 @@ export const TransferIgnoredFiles = z.object({
 });
 export type TransferIgnoredFiles = z.infer<typeof TransferIgnoredFiles>;
 
+/**
+ * Where a live switch-over stands (ADR 0191): the bulk uploading while the agent works, stopping
+ * at a safe point, handed over and waiting for the other machine's answer, moved there, or back
+ * to running here because the move didn't happen.
+ */
+export const TransferLiveStage = z.enum(["readying", "stopping", "handing", "moved", "resumed"]);
+export type TransferLiveStage = z.infer<typeof TransferLiveStage>;
+
+/** How a moved agent's history went: its provider's own session, or the handoff summary. */
+export const TransferSessionOutcome = z.object({
+  kind: z.enum(["native", "summary"]),
+  /** Why the summary was used, in words a person reads. */
+  reason: z.string().max(256).optional(),
+});
+export type TransferSessionOutcome = z.infer<typeof TransferSessionOutcome>;
+
 /** One transfer as the sending machine sees it. */
 export const Transfer = z.object({
   transferId: id,
@@ -139,10 +156,23 @@ export const Transfer = z.object({
       keptFiles: z.number().int().nonnegative().optional(),
       /** The work landed only on `branch`, not in the project's checkout; see above. */
       branchOnly: z.boolean().optional(),
+      /**
+       * The project there already belongs to another logical project (ADR 0180): its identity
+       * is kept, never overwritten, and the person may link the two.
+       */
+      identityConflict: z.object({ identityId: ProjectIdentityId }).optional(),
     })
     .optional(),
   /** Set once failed, in words a person acts on. */
   error: z.object({ code: z.string().min(1).max(64), message: z.string().max(512) }).optional(),
+  /** A thread moved while it was working (ADR 0191): where the switch-over stands. */
+  live: z
+    .object({
+      stage: TransferLiveStage,
+      /** How the agent's history went: its provider's own session, or the handoff summary. */
+      session: TransferSessionOutcome.optional(),
+    })
+    .optional(),
   startedAt: Timestamp,
   updatedAt: Timestamp,
 });

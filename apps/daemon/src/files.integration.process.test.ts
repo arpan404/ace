@@ -12,7 +12,6 @@ import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { AgentId, DeviceId, ClientMessage, ServerMessage, FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame } from "@ace/files";
-import { workspaceRuntime } from "@ace/workspace";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { startDaemon, createDevThread, stubHandler, type DaemonOptions } from "./index.ts";
 import { startServer } from "./server.ts";
@@ -86,6 +85,8 @@ async function setup(relayUrl?: string, files?: DaemonOptions["files"]) {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const connect = async (paired?: { device: { id: string }; token: string }) => {
     const client = new Client(daemon.url);
     cleanup.push(() => client.close());
@@ -321,23 +322,10 @@ it("exports a redacted diagnostics support bundle for a read-only remote client"
 });
 
 it("legacy and scoped routes share upload recovery, trash and artifact catalogs for a canonical workspace", async () => {
-  const runtime = workspaceRuntime();
-  const filesystem = runtime.filesystem;
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let hold = false;
-  runtime.filesystem = {
-    ...filesystem,
-    async lstat(path) {
-      if (hold && path.endsWith("/cas")) {
-        hold = false;
-        entered.resolve();
-        await release.promise;
-      }
-      return filesystem.lstat(path);
-    },
-  };
-  const f = await setup(undefined, { workspaceRuntime: runtime });
+  const f = await setup();
   // Always unblock I/O before daemon cleanup, including assertion failures.
   cleanup.push(async () => {
     release.resolve();
@@ -400,6 +388,18 @@ it("legacy and scoped routes share upload recovery, trash and artifact catalogs 
   const before = z
     .object({ version: z.string() })
     .parse(await files.request("owner", { op: "stat", path: "cas" }));
+  // The checkout's I/O is ace-files'; hold its next request to keep the scoped write at I/O.
+  const native = f.daemon.filesNative;
+  if (!native) throw new Error("ace-files missing");
+  const run = native.tool.run.bind(native.tool);
+  native.tool.run = async (path, task) => {
+    if (hold) {
+      hold = false;
+      entered.resolve();
+      await release.promise;
+    }
+    return run(path, task);
+  };
   hold = true;
   client.send({
     type: "files.request",
@@ -444,11 +444,22 @@ async function fileReply(client: Client): Promise<import("@ace/protocol").FilesS
   }
 }
 
+/**
+ * Pushes every welcomed reader can get at any moment, between a request and its reply: catalog
+ * and quota changes (a provider's first limits reading lands shortly after startup) and file
+ * changes. The socket fixture's `Client` drops the same ones unless a test asks for them.
+ */
+const pushes: ReadonlySet<string> = new Set([
+  "models.changed",
+  "providers.changed",
+  "usage.limits_changed",
+  "files.changed",
+]);
+
 async function relayFileReply(client: Awaited<ReturnType<typeof connectClientViaRelay>>) {
   for (;;) {
     const reply = await client.receive();
-    const parsed = ServerMessage.parse(reply);
-    if (parsed.type !== "models.changed" && parsed.type !== "files.changed") return reply;
+    if (!pushes.has(ServerMessage.parse(reply).type)) return reply;
   }
 }
 
@@ -456,8 +467,7 @@ async function relayFileFrame(client: Awaited<ReturnType<typeof connectClientVia
   for (;;) {
     const frame = await client.receiveFrame();
     if (frame instanceof Uint8Array) return frame;
-    const parsed = ServerMessage.parse(frame);
-    if (parsed.type !== "models.changed" && parsed.type !== "files.changed")
+    if (!pushes.has(ServerMessage.parse(frame).type))
       throw new Error("Expected a binary file frame");
   }
 }

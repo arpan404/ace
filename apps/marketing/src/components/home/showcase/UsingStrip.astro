@@ -1,0 +1,59 @@
+---
+/*
+ * The strip along a window's foot that says which agent is using it, with Take over and Stop.
+ * It sits on the window's bottom edge; a window that runs past the tile lifts it with
+ * `:global(.using) { bottom: … }`.
+ */
+interface Props {
+  who: string;
+  what: string;
+}
+
+const { who, what } = Astro.props;
+---
+
+<div class="using">
+  <b>{who} is using {what}</b>
+  <span class="acts">
+    <b>Take over</b>
+    <b>Stop</b>
+  </span>
+</div>
+
+<style>
+  .using {
+    position: absolute;
+    inset: auto 0 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  /* In a narrow window the sentence wraps; the two actions stay on one line. */
+  b {
+    font-weight: 600;
+  }
+
+  .acts {
+    display: flex;
+    flex: none;
+    gap: 16px;
+    white-space: nowrap;
+  }
+
+  /* A narrow window (every .win is a size container) keeps the strip to one line. */
+  @container (max-width: 340px) {
+    .using {
+      gap: 10px;
+      padding: 9px 12px;
+      font-size: 12px;
+    }
+
+    .acts {
+      gap: 12px;
+    }
+  }
+</style>

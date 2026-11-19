@@ -88,8 +88,10 @@ pub(crate) fn last_message_at<'a>(
 
 fn last_of<'a>(len: usize, at: impl Fn(usize) -> (&'a Event, i64, i64)) -> Option<LastMessage> {
     // A routine's message is its label, not something the person said; a heartbeat and its quiet
-    // answer are shown as nothing (ADR 0129).
+    // answer are shown as nothing (ADR 0129). A group's message and the answer to it live in the
+    // group (ADR 0132): the bot's own row and unseen mark never show them.
     let silent = spade_core::routine::silent_replies((0..len).map(|i| at(i).0));
+    let grouped = spade_core::group::answering_replies((0..len).map(|i| at(i).0));
     (0..len).rev().find_map(|i| {
         let (event, seq, at_ms) = at(i);
         let Event::Known(known) = event else {
@@ -99,8 +101,20 @@ fn last_of<'a>(len: usize, at: impl Fn(usize) -> (&'a Event, i64, i64)) -> Optio
             Known::UserMessage {
                 from_routine: Some(_),
                 ..
+            }
+            | Known::UserMessage {
+                from_group: Some(_),
+                ..
             } => return None,
             Known::ReplyFinished { reply, .. } if silent.contains(reply) => return None,
+            Known::ReplyFinished { reply, .. }
+            | Known::ReplyStopped { reply, .. }
+            | Known::ReplyFailed { reply, .. }
+            | Known::ReplyInterrupted { reply, .. }
+                if grouped.contains(reply) =>
+            {
+                return None;
+            }
             Known::UserMessage {
                 text,
                 images,
@@ -252,6 +266,8 @@ pub fn tool_status(tool: &str, bot: Option<&str>) -> String {
 }
 
 pub const THINKING: &str = "Thinking";
+/// While the open step's words stream: the bot writes, it no longer thinks.
+pub const WRITING: &str = "Writing";
 /// A model step failed before anything streamed and is being sent again.
 pub const RETRYING: &str = "Retrying";
 pub const WAITING_FOR_YOU: &str = "Waiting for you";

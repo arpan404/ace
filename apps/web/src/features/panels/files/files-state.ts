@@ -20,11 +20,16 @@ export const FileTabData = z.object({
   source: z.optional(z.boolean()),
   /** Scroll to this line once shown (from quick open's `path:line`). */
   line: z.optional(z.number()),
+  /** With `line`, the 0-based column to reveal (a content search match's). */
+  column: z.optional(z.number().check(z.gte(0))),
+  /** What the side shows: the file tree (unset) or the content search. */
+  side: z.optional(z.enum(["files", "search"])),
   /** The tree shown or hidden by hand in this tab; unset, it follows the room there is. */
   tree: z.optional(z.boolean()),
   query: z.optional(z.string()),
   find: z.optional(z.object({ query: z.string(), index: z.number() })),
-  collapsed: z.optional(z.array(z.string())),
+  /** The folders the person opened in the tree; unset, only the current file's parents. */
+  expanded: z.optional(z.array(z.string())),
   treeScroll: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
 });
 export type FileTabData = z.infer<typeof FileTabData>;
@@ -37,6 +42,7 @@ export function fileTabData(tab: WorkspaceTab): FileTabData {
 
 const Prefs = z.object({
   treeWidth: z.catch(z.number(), 240),
+  /** Long lines wrap at the editor's width; VS Code's own default is off, and so is this one. */
   wrap: z.catch(z.boolean(), false),
 });
 export type FilePrefs = z.infer<typeof Prefs>;

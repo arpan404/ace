@@ -89,8 +89,8 @@ struct ProjectPickerView: View {
     @ViewBuilder private var projects: some View {
         switch compose.projectsState {
         case "failed":
-            QuietProblemRow(title: "Couldn't read projects.", detail: "Your computer didn't answer.",
-                            action: "Try again", identifier: "projects.retry", run: reload)
+            ProblemRow("Couldn't read projects.", detail: "Your computer didn't answer.",
+                            retryId: "projects.retry", retry: reload)
         case "ready":
             let recent = matches.filter(\.recent)
             let rest = matches.filter { !$0.recent }
@@ -160,6 +160,11 @@ struct AddProjectView: View {
     @State private var failure: String?
     /// The folder refused for being outside the machine's project folders, to allow and add.
     @State private var allowable: ComposeFolder?
+    /// Allowing the folder that failed, when the person may change this machine.
+    private var allowRetry: (() -> Void)? {
+        guard let allowable, client.canOperate else { return nil }
+        return { Task { await allow(allowable) } }
+    }
     private var folders: (query: String, state: String, folders: [ComposeFolder])? { client.compose.folders }
     var body: some View {
         ScrollView {
@@ -183,11 +188,8 @@ struct AddProjectView: View {
                     }
                 }
                 if let failure {
-                    QuietProblemRow(title: failure,
-                                    action: allowable != nil && client.canOperate ? "Allow this folder" : nil,
-                                    identifier: "folder.allow", disabled: adding != nil) {
-                        if let allowable { Task { await allow(allowable) } }
-                    }
+                    ProblemRow(failure, retryId: "folder.allow", retryLabel: "Allow this folder", disabled: adding != nil,
+                               retry: allowRetry)
                     .transition(.opacity)
                 }
                 folderList
@@ -243,8 +245,8 @@ struct AddProjectView: View {
             .padding(.horizontal, AceDesign.Space.margin)
             .frame(maxWidth: .infinity, alignment: .leading)
         case "failed":
-            QuietProblemRow(title: "Couldn't search folders.", detail: "Check the connection and try again.",
-                            action: "Try again", identifier: "folders.retry") {
+            ProblemRow("Couldn't search folders.", detail: "Check the connection and try again.",
+                            retryId: "folders.retry") {
                 client.composeAction(["kind": "folders", "query": query])
             }
         default:

@@ -76,8 +76,21 @@ export interface Services {
   };
   /** Agent calls from other paired machines, answered here (ADR 0078). */
   machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** Threads paired machines' agents started here (ADR 0078), for who owns what. */
+  machineThreads?: import("../machines/target-threads.ts").TargetThreads;
+  /** Data between agents across machines (ADR 0182). */
+  parcels?: import("../parcels/service.ts").DaemonParcels;
+  /** The paths this machine serves now (ADR 0114), set by the server once it knows them. */
+  servedPaths?: (() => import("@ace/protocol").MachinePath[]) | undefined;
+  /**
+   * A device grant on this machine's ace account for one of its paired devices elsewhere, set by
+   * the server; undefined while it isn't signed in (ADR 0182).
+   */
+  relayDeviceGrant?:
+    | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
+    | undefined;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("../transfers/http.ts").TransferTarget;
+  transferTarget?: import("../transfers/serve.ts").TransferTarget;
   /** This machine's links to the person's other machines, made from Settings. */
   fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
@@ -133,6 +146,8 @@ export interface Services {
   files?: FilesService;
   supportFiles?: FilesService;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
+  /** The daemon's ace-files and its folder watches (ADR 0178); present without a binary too. */
+  filesNative?: import("../files-tool/wiring.ts").FilesNative;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   agentRegistry?: import("@ace/agent-registry").AgentRegistry;

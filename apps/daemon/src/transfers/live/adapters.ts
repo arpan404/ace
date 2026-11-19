@@ -1,0 +1,258 @@
+import type { CommandPayload, ProviderKind, ThreadId } from "@ace/protocol";
+import { CommandId as CommandIdSchema, ThreadId as ThreadIdSchema } from "@ace/protocol";
+import type { ServiceContext } from "../../services/types.ts";
+import type { TransferArchive, TransferGit } from "../ports.ts";
+import { TransferError } from "../ports.ts";
+import type { ThreadOwnership } from "./ownership.ts";
+import type { LiveResumes } from "./resumes.ts";
+import type { LiveSourcePorts } from "./source.ts";
+import type { LiveTargetPorts } from "./target.ts";
+import { LiveStarts } from "./target-rows.ts";
+
+/*
+ * ADR 0191's live move, bound to this daemon's engine, agent control, terminals and accounts.
+ * Thin: every decision is in source.ts, target.ts and the pure modules beside them.
+ */
+
+const id = (value: string): ThreadId => ThreadIdSchema.parse(value);
+
+function engineOf({ services }: ServiceContext) {
+  const engine = services.engine;
+  if (!engine) throw new TransferError("engine_unavailable", "Agents are starting here.");
+  return engine;
+}
+
+/** A command as ace's own agent control sends it, keyed so a repeat runs once. */
+function command(context: ServiceContext, key: string, payload: CommandPayload): void {
+  const delegations = context.services.agentControl?.delegations;
+  if (!delegations) throw new TransferError("not_ready", "Agent control is not ready");
+  const result = delegations.command(key, payload);
+  if (!result.ok) throw new TransferError("not_delivered", result.error ?? "refused");
+}
+
+function send(context: ServiceContext, threadId: string, key: string, text: string): void {
+  command(context, key, {
+    type: "thread.send",
+    threadId: id(threadId),
+    input: [{ type: "text", text }],
+    delivery: "queue",
+  });
+}
+
+/** The account a provider's threads use here, and its home. */
+function account(context: ServiceContext, provider: ProviderKind, instanceId?: string) {
+  const registry = context.services.accountRegistry;
+  const chosen = instanceId ?? registry?.selectedProvider(provider) ?? `${provider}-cli-default`;
+  const home = registry?.get(chosen)?.instance.homeDir;
+  return home ? { instanceId: chosen, home } : undefined;
+}
+
+const role = (row: Record<string, unknown>) => String(row["role"]).slice(0, 256);
+
+/** The thread and every delegated child it owns here, as settling reads it. */
+function tree(context: ServiceContext, threadId: string): ThreadId[] {
+  return context.services.engine?.cleanupThreads(id(threadId)) ?? [id(threadId)];
+}
+
+export function liveSourcePorts(
+  context: ServiceContext,
+  input: {
+    ownership: ThreadOwnership;
+    git: TransferGit;
+    archive: TransferArchive;
+    resumes: LiveResumes;
+    sleep(ms: number, signal: AbortSignal): Promise<void>;
+  },
+): LiveSourcePorts {
+  const { services, store, now } = context;
+  return {
+    ownership: input.ownership,
+    git: input.git,
+    archive: input.archive,
+    session(threadId) {
+      const thread = store.getThread(id(threadId));
+      if (!thread) return undefined;
+      let meta: ReturnType<ReturnType<typeof engineOf>["sessionMetadata"]>;
+      try {
+        meta = engineOf(context).sessionMetadata(id(threadId));
+      } catch {
+        return undefined;
+      }
+      const home = account(context, thread.provider, meta.instanceId)?.home;
+      return {
+        provider: thread.provider,
+        cwd: meta.cwd,
+        ...(meta.nativeSessionId ? { nativeSessionId: meta.nativeSessionId } : {}),
+        ...(home ? { home } : {}),
+      };
+    },
+    // ace's own Stop, as the person's Stop button sends it: the thread with every agent under it.
+    stop: (threadId, key) =>
+      command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: true }),
+    atRest: (threadId, task) => engineOf(context).liveMove.atRest(id(threadId), task),
+    shells: (threadId) =>
+      tree(context, threadId)
+        .flatMap((owner) => engineOf(context).liveMove.shells(owner))
+        .slice(0, 32),
+    terminals: (threadId) =>
+      tree(context, threadId).flatMap((owner) =>
+        (services.workspaceActions?.listTerminals(owner) ?? [])
+          .filter((terminal) => !terminal.exited)
+          .map((terminal) => terminal.name.slice(0, 256)),
+      ),
+    // The tree's terminals end as settling a thread ends them; their output stays readable.
+    stopTerminals: async (threadId) => {
+      for (const owner of tree(context, threadId).toReversed())
+        await services.workspaceActions?.stopThreadTerminals(owner);
+    },
+    children: (threadId) =>
+      (services.agentControl?.delegations.journal.descendants(id(threadId)) ?? [])
+        .filter((edge) => edge.phase !== "settled")
+        .map((edge) => store.getThread(edge.childId)?.title ?? edge.childId),
+    remoteChildren(threadId, since) {
+      const parents = tree(context, threadId).slice(0, 256);
+      let rows: Record<string, unknown>[];
+      try {
+        // Indexed by parent (machine_children_parent); bounded by the tree's size.
+        rows = store
+          .statement(
+            `SELECT role, settled, stopped_unconfirmed, lost_at FROM machine_children
+             WHERE parent_thread IN (${parents.map(() => "?").join(",")})
+               AND (settled=0 OR settled_at>=?) LIMIT 64`,
+          )
+          .all(...parents, since);
+      } catch {
+        // No machine children were ever delegated here.
+        return { running: [], unconfirmed: [] };
+      }
+      return {
+        running: rows.filter((row) => row["settled"] === 0).map(role),
+        // 1: every cancel went unanswered; 3: it can never answer. 2 is a late confirmation.
+        unconfirmed: rows
+          .filter(
+            (row) =>
+              row["settled"] !== 0 &&
+              (row["stopped_unconfirmed"] === 1 ||
+                row["stopped_unconfirmed"] === 3 ||
+                row["lost_at"] !== null),
+          )
+          .map(role),
+      };
+    },
+    queued: (threadId) => engineOf(context).queue(id(threadId)).messages.length,
+    hold(threadId, transferId, change) {
+      const thread = store.getThread(id(threadId));
+      if (!thread?.rootAgentId) return;
+      engineOf(context).externalHold(
+        id(threadId),
+        thread.rootAgentId,
+        `ace-transfer:${transferId}`,
+        "title" in change ? change : { status: "completed" },
+      );
+    },
+    moved: (threadId, to) =>
+      engineOf(context).liveMove.markMoved(id(threadId), {
+        hostId: to.hostId as never,
+        name: to.name.slice(0, 256),
+        threadId: id(to.threadId),
+      }),
+    released: (threadId) => engineOf(context).liveMove.released(id(threadId)),
+    resume: (threadId, transferId, text) => input.resumes.owe(threadId, transferId, text),
+    atomic: (run) => store.atomic(run),
+    now,
+    sleep: input.sleep,
+  };
+}
+
+export function liveTargetPorts(
+  context: ServiceContext,
+  input: {
+    ownership: ThreadOwnership;
+    git: TransferGit;
+    archive: TransferArchive;
+    log(message: string, fields: Record<string, unknown>): void;
+  },
+): LiveTargetPorts {
+  const { store, now } = context;
+  return {
+    starts: new LiveStarts(store),
+    ownership: input.ownership,
+    git: input.git,
+    archive: input.archive,
+    account: (provider) => account(context, provider),
+    threadCwd(threadId) {
+      try {
+        return store.executionWorkspace(id(threadId))?.path;
+      } catch {
+        return undefined;
+      }
+    },
+    threadStatus: (threadId) => store.getThread(id(threadId))?.status,
+    continueFate(threadId, commandId) {
+      const engine = engineOf(context);
+      const queue = engine.queue(id(threadId));
+      return {
+        fate: engine.inputFate(id(threadId), CommandIdSchema.parse(commandId)),
+        held: queue.paused && (queue.reason === "not_sent" || queue.reason === "model_unavailable"),
+      };
+    },
+    adoptSession: (threadId, session) =>
+      engineOf(context).liveMove.adoptSession(id(threadId), session),
+    dropSession: (threadId) => engineOf(context).liveMove.dropSession(id(threadId)),
+    adoptHandoff(threadId, handoff, machine) {
+      const thread = store.getThread(id(threadId));
+      if (!thread) return;
+      engineOf(context).adoptMachineHandoff(id(threadId), {
+        handoff,
+        commandId: `transfer-live:${threadId}`,
+        machine,
+        to: {
+          provider: thread.provider,
+          ...(thread.execution?.model ? { model: thread.execution.model } : {}),
+        },
+        at: now(),
+      });
+    },
+    send: (threadId, key, text) => send(context, threadId, key, text),
+    // The person's "Try again" for the held message: its queue resumes and it is sent again.
+    retryHeld: (threadId, key) => {
+      try {
+        command(context, key, {
+          type: "queue.resume",
+          threadId: id(threadId),
+          expectedRevision: engineOf(context).queue(id(threadId)).revision,
+        });
+      } catch {
+        // Nothing held any more, or already resumed by this key: the watch reads how it went.
+      }
+    },
+    atomic: (run) => store.atomic(run),
+    notice: (threadId, text) =>
+      engineOf(context).hostNotice(id(threadId), `transfer-live:${threadId}:start`, text, "error"),
+    now,
+    sleep: (ms) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        timer.unref();
+      }),
+    log: input.log,
+  };
+}
+
+/** The durable resume after a failed move, sending through agent control as the person would. */
+export function liveResumePorts(
+  context: ServiceContext,
+  input: {
+    sleep(ms: number, signal: AbortSignal): Promise<void>;
+    log(message: string, fields: Record<string, unknown>): void;
+  },
+): import("./resumes.ts").LiveResumePorts {
+  return {
+    store: context.store,
+    send: (threadId, key, text) => send(context, threadId, key, text),
+    status: (threadId) => context.store.getThread(id(threadId))?.status,
+    now: context.now,
+    sleep: input.sleep,
+    log: input.log,
+  };
+}

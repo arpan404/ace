@@ -101,6 +101,8 @@ export function statusWords(status: ThreadStatus): string {
       return "Done";
     case "new":
       return "New";
+    case "moved":
+      return `Moved to ${status.to.name}`;
   }
 }
 
@@ -123,6 +125,7 @@ function memberMark(status: ThreadStatus): {
     case "done":
       return { icon: "done", tone: "finished" };
     case "new":
+    case "moved":
       return { icon: "none", tone: "idle" };
   }
 }

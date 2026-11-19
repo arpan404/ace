@@ -27,6 +27,33 @@
     },
     {
       "properties": {
+        "cursor": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "limit": {
+          "default": 500,
+          "maximum": 5000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "list.folder",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "op": {
           "const": "stat",
           "type": "string"

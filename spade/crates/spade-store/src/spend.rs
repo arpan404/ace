@@ -30,7 +30,11 @@ impl Store {
         now_ms: i64,
     ) -> Result<()> {
         let cost = i64::try_from(cost_micros).unwrap_or(i64::MAX);
-        self.lock()?.execute(
+        let connection = self.lock()?;
+        if crate::gate::arriving(&connection, crate::gate::CONVERSATION, conversation)? {
+            return Err(crate::StoreError::NoConversation(conversation.to_owned()));
+        }
+        connection.execute(
             "INSERT INTO spend (conversation_id, model, role, cost_micros, at_ms)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![conversation, model, role, cost, now_ms],
@@ -45,10 +49,12 @@ impl Store {
         since_ms: i64,
     ) -> Result<BTreeMap<String, u64>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare(&format!(
             "SELECT role, COALESCE(SUM(cost_micros), 0) FROM spend
-             WHERE at_ms >= ?2 AND conversation_id = ?1 GROUP BY role",
-        )?;
+             WHERE at_ms >= ?2 AND conversation_id = ?1
+               AND conversation_id NOT IN {} GROUP BY role",
+            crate::gate::ARRIVING_CONVERSATIONS
+        ))?;
         let rows = statement.query_map(params![conversation, since_ms], |row| {
             let total: i64 = row.get(1)?;
             Ok((row.get::<_, String>(0)?, u64::try_from(total).unwrap_or(0)))

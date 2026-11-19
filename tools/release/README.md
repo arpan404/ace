@@ -13,7 +13,7 @@ bun run --filter @ace/release build 1.0.0 darwin-x64 /secure/ace-public.pem
 
 ## Linux (linux-x64, linux-arm64)
 
-Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 26.12.1 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 26.12.1, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
+Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 26.12.1 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 26.12.1, Bun 1.4.0 and Rust 1.91.1. The release pipeline runs the same steps on omarchy in rootless podman (`tools/release/linux/pipeline-build.sh`, arm64 under qemu emulation; [ADR 0188](../../docs/adr/0188-tag-driven-release-pipeline.md)).
 
 ```sh
 # Inside the debian:12 container on a host of the target architecture, from the checkout:
@@ -87,7 +87,7 @@ Windows installs through `install.ps1`, for the current user and without adminis
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon`, which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
+Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon` (`\ace-next-daemon-<hash>` for a home other than `%USERPROFILE%\.ace`, ADR 0185), which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
 
 ## Verification
 

@@ -2,12 +2,15 @@ import { useClient, useConnectionGeneration } from "@ace/client-react";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { daemonErrorCode, refusalMessage } from "@/lib/daemon-command.ts";
 import { rememberProject } from "@/lib/project-cache.ts";
 import { useProjectDirectory, useThreadProjects } from "@/lib/projects.ts";
 
 export { chatChoice } from "@/lib/chat-choice.ts";
 
 const unusedKey = "ace.newThread.chatProject";
+/** Failures of the connection, not refusals: the page says to check it and try again. */
+const connectionCodes = new Set(["offline", "timeout", "aborted", "not_dispatched", "unknown"]);
 
 /** The chat project made for New thread and not yet started in, if any. */
 function unused(storage: KeyValueStorage | undefined): string | undefined {
@@ -48,9 +51,15 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
   const [failed, setFailed] = useState<{ reason: string | undefined }>();
   const generation = useConnectionGeneration();
   const making = useRef(false);
-  const saved = made ?? unused(storage);
+  // The one just made is used as it is: a device that may start threads but not see the project
+  // list never hears of it there. One kept from an earlier visit is reused while the list still
+  // has it and nothing started in it.
+  const saved = unused(storage);
   const reusable =
-    saved !== undefined && directory.isChat(saved) && !started.includes(saved) ? saved : undefined;
+    made ??
+    (saved !== undefined && directory.isChat(saved) && !started.includes(saved)
+      ? saved
+      : undefined);
   const make = useCallback(() => {
     if (making.current) return;
     making.current = true;
@@ -64,7 +73,7 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
             reason:
               receipt.detail ??
               receipt.title ??
-              (receipt.error ? `The machine answered ${receipt.error}.` : undefined),
+              (receipt.error ? refusalMessage(receipt.error) : undefined),
           });
           return;
         }
@@ -78,7 +87,9 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
       },
       (error: unknown) => {
         making.current = false;
-        setFailed({ reason: error instanceof Error ? error.message : undefined });
+        // A refusal says why in words, never its raw code; a lost connection says to check it.
+        const code = daemonErrorCode(error);
+        setFailed({ reason: connectionCodes.has(code) ? undefined : refusalMessage(code) });
       },
     );
   }, [client, queries, storage]);

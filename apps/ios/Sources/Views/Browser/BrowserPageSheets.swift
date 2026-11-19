@@ -45,10 +45,10 @@ struct BrowserSourceSheet: View {
         NavigationStack {
             Group {
                 if let problem = model.browser.problem, problem.origin == "source" {
-                    VStack {
-                        Text(problem.message).foregroundStyle(AceTheme.StatusText.failed)
-                        Button("Retry") { model.browser.problem = nil; model.browserSource(open: true) }.buttonStyle(.textAction())
+                    EmptyState(icon: nil, title: "Couldn't read the source", line: problem.message, failed: true) {
+                        Button("Try again") { model.browser.problem = nil; model.browserSource(open: true) }
                     }
+                    .frame(maxHeight: .infinity)
                 } else if let source = model.browser.source {
                     SourceText(text: source.source, wrap: wrap)
                         .ignoresSafeArea(edges: .bottom)
@@ -80,7 +80,7 @@ struct BrowserSourceSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onAppear { model.browser.problem = nil; model.browserSource(open: true) }
         .onDisappear { model.browserSource(open: false) }
@@ -192,7 +192,7 @@ struct BrowserSizesSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: chosen)
         .onAppear { model.browser.sizes = nil }
@@ -256,11 +256,8 @@ struct BrowserExtensionsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     if let problem = model.browser.problem, problem.origin == "extensions" {
-                        QuietSectionRow {
-                            VStack(alignment: .leading) {
-                                Text(problem.message).foregroundStyle(AceTheme.StatusText.failed)
-                                Button("Retry") { model.browser.problem = nil; model.browserExtensions() }.buttonStyle(.textAction())
-                            }
+                        ProblemRow(problem.message, id: "browser.extensions.problem") {
+                            model.browser.problem = nil; model.browserExtensions()
                         }
                     }
                     QuietSection("Extensions") {
@@ -294,7 +291,7 @@ struct BrowserExtensionsSheet: View {
             .navigationTitle("Extensions").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: inBar)
         .onAppear { model.browser.problem = nil; model.browserExtensions() }

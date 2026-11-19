@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { Profiles, RemoteProfile } from "../cli/profiles.ts";
+import { Profiles, RemoteProfile, directOf } from "../cli/profiles.ts";
 import { connectionKey } from "./connections.ts";
 
 /** How long a look may wait for another writer's lock on the file: it blocks the event loop. */
@@ -59,6 +59,14 @@ export class SavedPairings {
   list(): RemoteProfile[] | undefined {
     return this.refresh() ? this.profiles : undefined;
   }
+  /** Whether this pairing (its device and token there) is saved now; unreadable reads as not. */
+  holds(profile: Pick<RemoteProfile, "deviceId" | "token">): boolean {
+    return (
+      this.list()?.some(
+        (entry) => entry.deviceId === profile.deviceId && entry.token === profile.token,
+      ) ?? false
+    );
+  }
   /** The connection keys (origin, pin and token) saved now, or undefined when unreadable. */
   keys(): ReadonlySet<string> | undefined {
     return this.refresh() ? this.known : undefined;
@@ -111,7 +119,12 @@ export class SavedPairings {
   }
   private set(profiles: RemoteProfile[]) {
     this.profiles = profiles;
-    this.known = new Set(profiles.map(connectionKey));
+    this.known = new Set(
+      profiles.flatMap((profile) => {
+        const direct = directOf(profile);
+        return direct ? [connectionKey(direct)] : [];
+      }),
+    );
   }
   private closeDb() {
     try {

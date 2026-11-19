@@ -7,7 +7,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use spade_server::workspace::shell::{Confine, Confinement, Job, Kind, Launch, Shell};
+use spade_core::event::Authorized;
+use spade_server::workspace::outside::{Bound, Warrant};
+use spade_server::workspace::shell::{By, Confine, Confinement, Job, Kind, Launch, Shell};
 
 /// A sandbox that can never contain a run — it always needs review.
 struct AlwaysNeedsReview;
@@ -22,17 +24,43 @@ impl Confine for AlwaysNeedsReview {
 }
 
 fn job<'a>(dir: &'a Path, script: &'a str, may_run_uncontained: bool) -> Job<'a> {
+    // Reviewed: the verdict's warrant, for a launch as the sandbox finds it.
+    let warrant = Warrant {
+        limit: Authorized::AsFound,
+        bound: Bound::Nothing,
+    };
+    job_by(
+        dir,
+        script,
+        may_run_uncontained,
+        false,
+        By::Bot(Some(warrant)),
+    )
+}
+
+fn job_by<'a>(
+    dir: &'a Path,
+    script: &'a str,
+    may_run_uncontained: bool,
+    outside: bool,
+    by: By,
+) -> Job<'a> {
     Job {
         dir,
         script,
+        asked: None,
         timeout: Duration::from_secs(10),
         env: &[],
         tee: None,
         cleanup: None,
         stdin: None,
         kind: Kind::Command,
-        outside: false,
+        outside,
         may_run_uncontained,
+        contained_only: false,
+        by,
+        clean: false,
+        read_only: false,
     }
 }
 
@@ -92,5 +120,70 @@ fn a_command_cleared_as_contained_never_launches_plainly_whatever_changed_since(
             .plan(holds)
             .unwrap_or_else(|e| panic!("{e}"));
         assert!(outside.outside && !outside.sandboxed && outside.may_run_uncontained);
+    }
+}
+
+/// Every way a bot's command can start with nothing holding it: no sandbox on the machine, one
+/// that can't contain this run after a review, and one the gate sent outside.
+fn plain_starts() -> Vec<(&'static str, Shell, bool)> {
+    vec![
+        ("no sandbox here", Shell::system(), false),
+        (
+            "the sandbox can't hold it",
+            Shell::system().confined(Arc::new(AlwaysNeedsReview)),
+            false,
+        ),
+        (
+            "sent outside",
+            Shell::system().confined(Arc::new(AlwaysNeedsReview)),
+            true,
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn a_bot_command_nothing_holds_never_starts_without_its_verdicts_warrant() {
+    for (how, shell, outside) in plain_starts() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let marker = dir.path().join("ran.txt");
+        let script = format!("echo x > {}", marker.display());
+        let refused = shell
+            .run_job(job_by(dir.path(), &script, true, outside, By::Bot(None)))
+            .await;
+        let said = refused.err().unwrap_or_default();
+        assert!(said.contains("Nothing allowed"), "{how}: {said}");
+        assert!(!marker.exists(), "{how}: it ran");
+        // A warrant for a narrower launch than this one doesn't let it start either.
+        let narrow = Warrant {
+            limit: Authorized::Contained,
+            bound: Bound::Nothing,
+        };
+        let refused = shell
+            .run_job(job_by(
+                dir.path(),
+                &script,
+                true,
+                outside,
+                By::Bot(Some(narrow)),
+            ))
+            .await;
+        assert!(refused.is_err(), "{how}");
+        assert!(!marker.exists(), "{how}: it ran on a narrower warrant");
+        // With the warrant of a verdict for this launch, it starts.
+        let warrant = Warrant {
+            limit: Authorized::Outside,
+            bound: Bound::Nothing,
+        };
+        let ran = shell
+            .run_job(job_by(
+                dir.path(),
+                &script,
+                true,
+                outside,
+                By::Bot(Some(warrant)),
+            ))
+            .await;
+        assert!(ran.is_ok_and(|r| r.code == Some(0)), "{how}");
+        assert!(marker.exists(), "{how}: it didn't run on its warrant");
     }
 }

@@ -26,7 +26,7 @@ fn softmax(logits: &mut [f32; C]) {
     let top = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mut total = 0.0;
     for l in logits.iter_mut() {
-        *l = (*l - top).exp();
+        *l = spade_classify::exp(*l - top);
         total += *l;
     }
     for l in logits.iter_mut() {

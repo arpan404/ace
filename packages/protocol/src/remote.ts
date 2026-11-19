@@ -69,6 +69,16 @@ export const PairingRedemption = z.object({
    * device record and id. Older apps send none; older daemons ignore it.
    */
   installId: InstallId.optional(),
+  /**
+   * The raw P-256 public key (base64url, 65 bytes) of a key the redeeming app keeps and never
+   * exports (ADR 0190). A device paired from a person's link proves the person's standing on a
+   * socket only by signing with it; its bearer token alone never does. Older apps send none, and
+   * their devices are paired without the person's standing.
+   */
+  standingKey: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{87}$/)
+    .optional(),
 });
 export const PairingResponse = z.object({
   url: z.url(),

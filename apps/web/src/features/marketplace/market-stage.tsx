@@ -12,8 +12,9 @@ import { AceWindow, useFitScale } from "./market-window.tsx";
 
 /*
  * Every entry has a stage: a Suit is the ace window in its palette, a bot its face over a floor
- * in its colour, a skill or plugin its name set in mono, an app its mark. A listing with pictures
- * of its own shows its first; without one, or before a look is known, its type's mark.
+ * in its colour, a skill or plugin its name set in mono (its type's mark when small), an app its
+ * mark. A listing with pictures of its own shows its first; without one, or before a look is
+ * known, its type's mark on the plain surface. A stage is a picture: the words beside it name it.
  */
 
 export type StageSize = "large" | "card" | "small";
@@ -35,6 +36,7 @@ export function Stage(props: {
         {...part("market-stage", undefined, "picture")}
         className={`mk-stage ${props.className ?? ""}`}
         data-type="picture"
+        aria-hidden
         style={props.style}
       >
         <img src={picture} alt="" className="mk-stage-picture" draggable={false} />
@@ -65,6 +67,7 @@ export function SuitPicture(props: {
       {...part("market-stage", undefined, "suit")}
       className={`mk-stage ${props.className ?? ""}`}
       data-type="suit"
+      aria-hidden
       style={props.style}
     >
       {props.suit ? (
@@ -105,7 +108,8 @@ export function BotPicture(props: {
     <div
       {...part("market-stage", undefined, "bot")}
       className={`mk-stage ${props.className ?? ""}`}
-      data-type="bot"
+      data-type={props.face ? "bot" : "mark"}
+      aria-hidden
       style={{ ...tint, ...props.style }}
     >
       {props.face ? (
@@ -127,11 +131,24 @@ function ToolStage(props: {
   style?: CSSProperties;
 }) {
   const plugin = props.entry.type !== "spade-skill";
+  if (props.size === "small")
+    return (
+      <div
+        {...part("market-stage", undefined, "tool")}
+        className={`mk-stage ${props.className ?? ""}`}
+        data-type="mark"
+        aria-hidden
+        style={props.style}
+      >
+        <TypeMark type={props.entry.type} />
+      </div>
+    );
   return (
     <div
       {...part("market-stage", undefined, "tool")}
       className={`mk-stage ${props.className ?? ""}`}
       data-type="tool"
+      aria-hidden
       style={props.style}
     >
       <span className="mk-tool-slug" style={props.size === "large" ? { fontSize: 18 } : undefined}>

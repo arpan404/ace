@@ -11,7 +11,11 @@ import { part } from "@/lib/suit-part.ts";
 export function SectionHeading(props: { id: string; title: string; children?: ReactNode }) {
   return (
     <div className="mt-8 mb-3 flex h-7 items-center gap-3">
-      <h2 id={props.id} className="text-ui font-semibold text-muted-foreground">
+      <h2
+        id={props.id}
+        {...part("section-title")}
+        className="text-ui font-semibold text-muted-foreground"
+      >
         {props.title}
       </h2>
       {props.children && (

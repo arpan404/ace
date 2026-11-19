@@ -45,10 +45,7 @@ struct AutomationRunView: View {
                     Button(expanded ? "Show less" : "Show all") { withAnimation { expanded.toggle() } }
                 }
             }
-            .buttonStyle(.borderless)
-            .font(AceDesign.Typeface.body)
-            .foregroundStyle(AceDesign.Ink.primary)
-            .frame(minHeight: AceDesign.Size.tap)
+            .buttonStyle(.textAction())
         }
         .padding(.top, AceDesign.Space.tight)
     }
@@ -71,7 +68,9 @@ struct AutomationRunNote: View {
             .insetGroupedList()
             .navigationTitle("Run with a note").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Run") { run(note.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss() }
                         .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

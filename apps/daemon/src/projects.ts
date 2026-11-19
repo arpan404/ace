@@ -38,7 +38,9 @@ import { makeFolders, planFolders, type MadeFolders } from "./project-folders.ts
 import { ProjectPaths, ProjectError, assertProjectPath } from "./project-policy.ts";
 import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectRoots } from "./project-roots.ts";
-import { ProjectStorage } from "./project-storage.ts";
+import { ProjectStorage, isSpadeProject } from "./project-storage.ts";
+import { RemoteKeyReader } from "./project-remote-key-reader.ts";
+import { readMarker, writeMarker } from "./project-marker.ts";
 import { browseProjects } from "./project-browse.ts";
 import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
@@ -47,6 +49,8 @@ import type { DeletionPolicy } from "./thread-gone.ts";
 export interface ProjectsOptions {
   /** Ids for project notes the person adds in Edit project. */
   noteId?: () => string;
+  /** Logical project ids (ADR 0180) for new registrations and unlinks. */
+  identityId?: () => string;
   sourceControl?: SourceControl;
   home?: string;
   /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
@@ -67,6 +71,8 @@ export interface ProjectsOptions {
   chatId?: () => string;
   /** "Clear stale lock" for a project's repository: how many it retired, and what still holds one. */
   clearLock?: (path: string) => Promise<Omit<CommandResult, "commandId">>;
+  /** How remote-key sweeps (ADR 0189) wait between batches; a timer unless a test injects one. */
+  remoteKeyWait?: (ms: number) => Promise<void>;
 }
 type CloneFlight = {
   committed: boolean;
@@ -97,6 +103,8 @@ export class Projects {
   private noteId: () => string;
   private chats: ChatProjects | undefined;
   private deleteThread: ((command: Command) => Promise<CommandResult>) | undefined;
+  /** Registrations' remote keys, read in idle batches once a client is here (ADR 0189). */
+  private remoteKeys: RemoteKeyReader;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
     this.now = now;
@@ -111,7 +119,7 @@ export class Projects {
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
     this.git = new GitService({ timeoutMs: 600_000, ...options.git });
     this.metadataGit = new GitService({ ...options.git, timeoutMs: 10_000 });
-    this.catalog = new ProjectStorage(store, now);
+    this.catalog = new ProjectStorage(store, now, options.identityId);
     this.picker = new ProjectPicker(
       this.paths,
       this.catalog,
@@ -126,6 +134,17 @@ export class Projects {
     this.chats = options.chatsRoot
       ? new ChatProjects(store, this.catalog, options.chatsRoot, now, options.chatId ?? randomUUID)
       : undefined;
+    this.remoteKeys = new RemoteKeyReader({
+      atomic: (work) => store.atomic(work),
+      read: (path) => this.metadataGit.transfer.checkoutFacts(path),
+      announce: (id) => this.catalog.announce(id),
+      now,
+      wait: options.remoteKeyWait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    });
+    // A project added here gets its key soon after, so other machines group it.
+    this.catalog.subscribe((change) => {
+      if (change.change === "added") void this.remoteKeys.poke();
+    });
     this.ready = Promise.all([
       this.restoreIcons().catch(() => undefined),
       this.deleteLeftoverThreads().catch(() => undefined),
@@ -193,6 +212,13 @@ export class Projects {
   subscribe(listener: (change: WorkspaceChanged) => void): () => void {
     return this.catalog.subscribe(listener);
   }
+  /**
+   * A client connected: read every registration's remote key that is unread or stale, in the
+   * background (ADR 0189). Resolves when that sweep ends.
+   */
+  readRemoteKeys(): Promise<void> {
+    return this.remoteKeys.poke();
+  }
   onProgress(listener: (device: string, progress: WorkspaceCloneProgress) => void): () => void {
     this.progressListeners.add(listener);
     return () => {
@@ -252,10 +278,13 @@ export class Projects {
         throw error;
     }
     const defaultIcon = await discoverProjectFavicon(directory.handle);
+    // A hint the person confirms (ADR 0181); anything odd about it reads as none.
+    const marker = await readMarker(directory.handle);
     directory.verify();
     return ProjectInspection.parse({
       path,
       ...(defaultIcon == null ? {} : { defaultIcon }),
+      ...(marker ? { marker } : {}),
       git,
       ...(gitUnavailable ? { gitUnavailable } : {}),
       ...(git && git.root !== path ? { suggestedRepoRoot: git.root } : {}),
@@ -303,6 +332,35 @@ export class Projects {
     } finally {
       if (reserved) this.destinations.delete(reserved);
       await made?.close();
+    }
+  }
+  /**
+   * "Share identity with clones" (ADR 0181): the project's marker, written through its held
+   * folder. Refused as `marker_conflict` when one names another id, unless `replace`.
+   */
+  private async shareIdentity(
+    p: Extract<ProjectCommand, { type: "workspace.identity.marker.write" }>,
+    allowed: () => boolean,
+  ) {
+    const project = this.catalog.get(p.workspaceId);
+    if (project.kind === "chat") throw new ProjectError("chat_project");
+    const directory = await ProjectDirectory.open(this.paths, project.path);
+    try {
+      assertProjectPath(directory.path, await this.paths.roots());
+      this.check(allowed);
+      directory.verify();
+      const id = this.catalog.ensureIdentity(p.workspaceId);
+      const written = await writeMarker(
+        directory.handle,
+        { version: 1, id, ...(project.name ? { name: project.name } : {}) },
+        p.replace === true,
+        (other) => this.catalog.sameIdentity(other, id),
+      );
+      if (written === "marker_conflict" || written === "marker_unreadable")
+        return { ok: false, error: written };
+      return { ok: true, workspace: this.catalog.get(p.workspaceId) };
+    } finally {
+      await directory.close();
     }
   }
   /**
@@ -451,6 +509,29 @@ export class Projects {
           await this.removeProject(input, p.workspaceId, p.stopRunning, allowed);
           return { ok: true };
         }
+        if (p.type === "workspace.identity.merge") {
+          this.check(allowed);
+          this.catalog.merge(p.from, p.into);
+          return { ok: true };
+        }
+        if (p.type === "workspace.identity.link" || p.type === "workspace.identity.unlink") {
+          // Authority first, so a refused device learns nothing of which projects exist.
+          this.check(allowed);
+          // Spade's hidden project is never a project anyone links (ADR 0121).
+          if (isSpadeProject(this.store, p.workspaceId))
+            throw new ProjectError("workspace_not_found");
+          const project = this.catalog.get(p.workspaceId);
+          if (project.kind === "chat") throw new ProjectError("chat_project");
+          return {
+            ok: true,
+            workspace:
+              p.type === "workspace.identity.link"
+                ? this.catalog.link(p.workspaceId, p.identityId, p.viaMarker ? "marker" : "linked")
+                : this.catalog.unlink(p.workspaceId),
+          };
+        }
+        if (p.type === "workspace.identity.marker.write")
+          return await this.shareIdentity(p, allowed);
         if (p.type === "workspace.publish") {
           if (!this.publications) throw new ProjectError("publication_unavailable");
           const project = this.catalog.get(p.workspaceId);
@@ -738,6 +819,7 @@ export class Projects {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.remoteKeys.close();
     this.publications?.close();
     this.stopRevocation();
     for (const clone of this.clones.values()) clone.controller.abort();

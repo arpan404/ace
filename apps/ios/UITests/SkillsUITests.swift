@@ -29,10 +29,11 @@ import XCTest
         app.buttons["skill.new.create"].tap()
 
         // The new skill's page opens once the machine has it.
-        let edit = app.buttons["skill.edit"]
-        XCTAssertTrue(edit.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["Write release notes from merged pull requests"].exists)
+        XCTAssertTrue(app.staticTexts["Write release notes from merged pull requests"].waitForExistence(timeout: 15))
         screenshot("page")
+        let edit = app.buttons["skill.edit"]
+        for _ in 0..<6 where !(edit.exists && edit.isHittable) { app.swipeUp() }
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
 
         edit.tap()
         let field = app.textFields["skill.edit.description"]
@@ -44,7 +45,9 @@ import XCTest
         app.buttons["skill.edit.save"].tap()
         XCTAssertTrue(app.staticTexts["Write release notes from merged pull requests, newest first"].waitForExistence(timeout: 15))
 
-        app.buttons["skill.agents"].tap()
+        let agents = app.buttons["skill.agents"]
+        for _ in 0..<6 where !(agents.exists && agents.isHittable) { app.swipeDown() }
+        agents.tap()
         let claude = app.switches["skill.agent.claude"]
         XCTAssertTrue(claude.waitForExistence(timeout: 10))
         // Codex reads ~/.agents/skills itself, so it stays on and says why.
@@ -54,7 +57,9 @@ import XCTest
         app.buttons["skill.agents.done"].tap()
         XCTAssertTrue(app.staticTexts["Codex, OpenCode, Cursor and Pi"].waitForExistence(timeout: 15))
 
-        app.buttons["skill.delete"].tap()
+        let delete = app.buttons["skill.delete"]
+        for _ in 0..<6 where !(delete.exists && delete.isHittable) { app.swipeUp() }
+        delete.tap()
         let confirm = app.sheets.buttons["Delete skill"].firstMatch.exists ? app.sheets.buttons["Delete skill"].firstMatch : app.buttons["Delete skill"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         screenshot("delete")
@@ -72,6 +77,8 @@ import XCTest
         XCTAssertTrue(row.label.contains("On for Claude Code, Codex and Cursor"))
         row.tap()
         let pi = app.switches["plugin.agent.pi"]
+        // A tap while the list still glides after the swipes only stops it; the next opens the row.
+        if !pi.waitForExistence(timeout: 5) { row.tap() }
         XCTAssertTrue(pi.waitForExistence(timeout: 10))
         XCTAssertEqual(pi.value as? String, "0")
         screenshot("plugin")
@@ -124,11 +131,49 @@ import XCTest
         XCTAssertEqual(opened.first?["path"], ".claude/skills/release-desktop/SKILL.md")
     }
 
+    /// At the largest text size the Agents row stacks: its Change button goes under the words,
+    /// so neither squeezes the other (design language, rows at accessibility sizes).
+    func testTheAgentsRowStacksItsButtonUnderItsWordsAtTheLargestTextSize() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchWithArguments()
+        defer { app.terminate() }
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
+        app.openBrowseDestination("library.skills")
+        // A project's skill: the fixture reads it, and it can be changed, so it shows Change.
+        let picker = app.buttons["skills.project"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 15))
+        let project = app.buttons["skills-demo"].firstMatch
+        for _ in 0..<10 where !project.exists {
+            picker.tap()
+            if project.waitForExistence(timeout: 2) { break }
+            app.navigationBars.firstMatch.tap()
+        }
+        project.tap()
+        // At this size a row can sit under the bottom search field and still count as hittable, so
+        // the list scrolls until the row is clear of it.
+        let clear = app.frame.height * 0.75
+        let row = app.buttons["skills.row.release-desktop"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        for _ in 0..<8 where !(row.isHittable && row.frame.maxY < clear) { app.swipeUp() }
+        row.tap()
+        let change = app.buttons["skill.agents"]
+        for _ in 0..<8 where !(change.exists && change.isHittable && change.frame.maxY < clear) { app.swipeUp() }
+        XCTAssertTrue(change.waitForExistence(timeout: 15))
+        let words = app.staticTexts["Agents"].firstMatch
+        XCTAssertTrue(words.exists)
+        screenshot("large-agents")
+        XCTAssertGreaterThanOrEqual(change.frame.minY, words.frame.maxY - 1, "Change sits under the Agents words")
+    }
+
     /// A personal skill lives outside every project, so it offers no Open on computer.
     func testAPersonalSkillHasNoOpenOnComputer() throws {
         let app = launchIntoSkills()
         app.buttons["skills.row.research"].tap()
-        XCTAssertTrue(app.buttons["skill.edit"].waitForExistence(timeout: 15))
+        let edit = app.buttons["skill.edit"]
+        for _ in 0..<6 where !(edit.exists && edit.isHittable) { app.swipeUp() }
+        XCTAssertTrue(edit.waitForExistence(timeout: 15))
         XCTAssertFalse(app.descendants(matching: .any)["skill.openOnComputer"].firstMatch.exists)
     }
 

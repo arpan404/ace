@@ -1,4 +1,6 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
+import type { AceClient } from "@ace/protocol/ace-client";
+import { namedUrl } from "./ace-client.ts";
 import {
   CREDIT_FLAG,
   FlowCredit,
@@ -32,6 +34,11 @@ export interface PortableSocket {
   close(): void;
 }
 export interface PortableRelay {
+  /**
+   * The stream's Noise handshake hash, base64url: what this end and the daemon (or whoever holds
+   * its host key) both derived, and the binding a proof of the person's standing names (ADR 0190).
+   */
+  readonly channelBinding: string;
   send(message: ClientMessage): Promise<void>;
   receive(): Promise<ServerMessage | Uint8Array>;
   /**
@@ -74,6 +81,8 @@ export interface PortableRelayOptions {
   purpose?: "media" | undefined;
   /** A device grant for ace's hosted relay (ADR 0111), offered as `ace.grant.<token>`. */
   grant?: string | undefined;
+  /** This app's `ace-client` name (ADR 0189), carried on the upgrade's URL. */
+  aceClient?: AceClient | undefined;
   keys(): Pick<HandshakeOptions, "staticKey" | "ephemeralKey">;
   schedule(callback: () => void, delayMs: number): () => void;
   signal?: AbortSignal;
@@ -122,6 +131,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     [RELAY_EARLY.query]: "1",
   }).toString();
   url.hash = "";
+  namedUrl(url, options.aceClient);
   const nk = options.nk;
   const { nkState, xxState, nkFirst, xxFirst, nkFits, protocols } = handshakeStates(options);
   /** Erases both handshake states: every way out of the dial before the stream is up. */
@@ -317,7 +327,9 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   // and ahead of anything the caller sends.
   const usedNk = state instanceof NoiseNK;
   if (usedNk && nk) void sendBody(nk.confirm.slice()).catch(() => {});
+  if (!secured) throw new Error("Relay handshake failed");
   return {
+    channelBinding: encodeBase64url(secured.handshakeHash),
     earlyCapable,
     ...(hostKey ? { hostKey } : {}),
     handshake: usedNk ? "nk" : "xx",

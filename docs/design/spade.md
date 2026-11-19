@@ -14,7 +14,7 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Rail.** ace's rail, the only one: Threads · Chats · Spade │ Code review · Automations · Skills
   … Settings · account. While a bot needs the person and they are elsewhere, Spade carries the
   8px needs-you dot.
-- **List** (Spade's panel). The main bot's head, then one row per bot or group, then the person at
+- **List** (Spade's panel). The main bot's head, then one row per bot or club, then the person at
   the foot.
 - **Conversation** (the main column). The floating pill, bubbles, raised cards, folded steps, the
   working line and the composer. The top bar carries no title here.
@@ -43,10 +43,10 @@ Spade is one of ace's places. It adds no navigation of its own.
   | Finished, not seen | pleased        | none  | name and line in full ink                |
   | At rest            | still          | none  | the last thing it said, as plain text    |
   | Off                | still          | grey  | "Off on this Mac"                        |
-  | A group            | members' faces | —     | the last speaker named, then their words |
+  | A club             | members' faces | —     | the last speaker named, then their words |
 
 - **Search** opens in place over the rows and finds conversations by their words. **+** holds New
-  bot (⌘N), New group and Import bot.
+  bot (⌘N), New club and Import bot.
 - **Foot.** The person (initials or picture, name) opens About you in Spade's Library; the gear
   beside it opens Settings › Spade.
 - **Empty:** Spade alone and one way on. **Loading:** skeleton rows at row size. **Couldn't
@@ -55,7 +55,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 3. Conversation
 
 - **The pill.** A `glass-regular` capsule floating at the top centre of the column, over the
-  transcript as the composer floats under it: the bot's 28px face and name. It opens the profile.
+  transcript as the composer floats under it: the bot's 28px face and name, and "Full access" in
+  the quiet ink while the bot is in it. It opens the profile.
   The transcript runs to the top under it.
 - **Bubbles.** The bot's on `--chat-bubble`, left, at most 64ch; the person's on `--chat-mine`
   (the accent) with `--chat-mine-foreground`, right, at most 56ch. Both 18 corners
@@ -66,7 +67,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   and Copy, code in 13/20 mono, scrolling sideways. Inline code in the person's bubble sits on
   `--chat-mine-code`.
 - **Runs.** 4px between bubbles of a run, 16px between turns. In a one-to-one chat no face sits
-  beside a bubble: the pill and the working line carry it. In a group, each member's run starts
+  beside a bubble: the pill and the working line carry it. In a club, each member's run starts
   with its face and name.
 - **Time lines.** Only after a 30-minute gap or on a new day, 12/16 subtle, 24px above and 12px
   below. A routine's run names itself in its line. Times follow the person's locale, never 24-hour
@@ -74,8 +75,15 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Working line.** Under the last bubble while the bot works: its 32px face, moving, one line of
   what it is doing and a running time. It goes when the reply ends. Only a working face moves
   (ADR 0127); every other pose moves once and holds.
-- **Steps.** Approved steps fold into one line under the reply that opens to them. Helpers are one
-  line each, opening to their steps. Raw markdown and tool arguments never show.
+- **Steps.** A reply's finished steps fold into one quiet line under its words, counted in words
+  ("Ran 3 commands, changed 2 files"), that opens to each: what it did and the one thing it
+  touched (a command, a path, an address), where it ran (in its sandbox or outside it) and how it
+  ended. A step the person must see stands under the line unopened, in full ink: one the network
+  policy blocked ("Blocked example.com: …"), the review refused or the person declined, one that
+  deletes or can't be undone, and one that acted outside the bot's box (ran outside the sandbox,
+  reached the network, pushed, commented, sent). Words only: no icons, badges or tints. Notes it
+  saved and what it showed the person keep their own places. Helpers are one line each, opening
+  to their steps. Raw markdown and raw tool arguments never show.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.
 - **Raised card** (an open question or request, and only those): `--chat-raised`, its edge and
   lift (`shadow-chat-raised`), 18 corners, 20px padding, at most 600px. The amber needs-you glyph
@@ -96,25 +104,35 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
-  22/28 at 600, then Details · Library · Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps,
-  spending, then Duplicate and Delete. Everything edits in place: ⌘↵ saves a task, Esc puts it
+  22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
+  Computer as a segmented control in the body.
+- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
+  (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
+  what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
+  spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
+  machines with Spade (an offline one named and not choosable); Spade read through a machine that
+  isn't its host offers Move Spade to this machine (ADR 0187). A move, a failed move or what needs
+  the person after one is one sentence above the task with its text buttons (Cancel; Try again
+  and Dismiss; Dismiss), the list row says the same in fewer words. Everything edits in place: ⌘↵ saves a task, Esc puts it
   back. The face opens a popover to change it.
 - **Routines** are a section of Details: schedule, webhook (its address and secret only here, with
   Copy), heartbeat, on a thread event. A row says a failed last run in words; paused reads paused.
 - **Library:** notes (Spade's own starts with About you), files and skills. A suggested note offers
   Keep or Dismiss; ↵ saves an edit, Esc puts it back.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
-  words (only exceptions stand out), and Take over only while it drives; after that, Hand back.
+  words (only exceptions stand out), and Take over only while it drives (it is at work and the
+  surface is live, never live alone: Spade keeps a surface live a while after its last use);
+  after that, Hand back. Idle, one quiet sentence ("Flights isn't using the terminal now.") and
+  no face, button or spinner.
   While the computer starts, its small face and "Waking up…". Never used: one line.
 
 ## 5. New bot and groups
 
 - **New bot** is a conversation, not a form: under the name, one quiet line that opens the
-  profile (model and machine live there; every bot is on the auto-review, so there is no access
-  choice). Import lives once, in +; a failed import is said
+  profile (model and machine live there; every bot starts on the auto-review, and Full access is
+  chosen in the profile, never here). Import lives once, in +; a failed import is said
   where the bot would have appeared.
-- **Groups:** member runs with face and name, a profile with Members and Library, New group in
+- **Clubs:** member runs with face and name, a profile with Members and Library, New club in
   place, and @ to address a member.
 
 ## 6. Shape and buttons

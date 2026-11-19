@@ -31,7 +31,7 @@ use tokio::time::Instant;
 
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
-use crate::workspace::shell::{Cleanup, Job, Ran, Shell, Tee};
+use crate::workspace::shell::{By, Cleanup, Job, LaunchPlan, Ran, Shell, Tee};
 
 /// How long a command's supervisor waits for the end of what it started before it gives up and
 /// quarantines the terminal.
@@ -134,6 +134,16 @@ impl Terminals {
     /// Whether the bot with home `home` runs its commands outside the sandbox (ADR 0171).
     pub fn outside(&self, home: &Path) -> bool {
         self.shell.outside(home)
+    }
+
+    /// Whether a settled command can run in a read-only sandbox here (ADR 0172, amendment 7).
+    pub fn read_only_available(&self) -> bool {
+        self.shell.read_only_available()
+    }
+
+    /// Whether `command` can settle in a read-only sandbox here (ADR 0172, amendment 7).
+    pub fn read_only_settles(&self, command: &str) -> bool {
+        self.shell.read_only_settles(command)
     }
 
     /// Who hears that a terminal started, ended or ran something.
@@ -313,6 +323,10 @@ fn carried_over(name: &str, value: &str) -> bool {
         "FPATH",
     ];
     !(NEVER.contains(&name)
+        // What a settled command ran with stays with it (ADR 0172, amendment 3), and a bot's own
+        // git configuration variables never reach the next command.
+        || name.starts_with("GIT_CONFIG")
+        || spade_classify::hardening_names().iter().any(|n| n == name)
         || name.starts_with("LD_")
         || name.starts_with("DYLD_")
         || name.starts_with("BASH_FUNC_")
@@ -398,6 +412,21 @@ impl Terminal {
             .dir
             .filter(|dir| dir.is_dir())
             .unwrap_or_else(|| self.dir.clone())
+    }
+
+    /// The environment `session`'s next command would start with: the terminal's, with the
+    /// variables carried from its last command over it (what Spade's classifier inspects
+    /// configuration through, ADR 0172 amendment 2).
+    pub fn start_environment(&self, session: &str) -> Vec<(String, String)> {
+        let carried = self.carried_in(session).env;
+        let mut vars: Vec<(String, String)> = self
+            .environment
+            .iter()
+            .filter(|(name, _)| !carried.iter().any(|(c, _)| c == name))
+            .cloned()
+            .collect();
+        vars.extend(carried);
+        vars
     }
 
     fn carried_in(&self, session: &str) -> Carried {
@@ -666,21 +695,38 @@ impl Terminal {
     /// supervisor owns it: if this call is dropped, the command and everything it started are
     /// ended, and the next command starts only once that is done.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
-        self.run_in_state(MAIN, command, timeout, None, false).await
+        self.run_in_state(
+            MAIN,
+            command,
+            timeout,
+            None,
+            LaunchPlan::AS_FOUND,
+            &[],
+            false,
+            // No bot's call and no gate: Spade's own run in the terminal, as tests drive it.
+            By::Spade,
+        )
+        .await
     }
 
     /// [`Terminal::run`] in `session`, only while that session is in the state `expected` names
     /// (a [`Terminal::state_digest`]): checked under the session's command lock, right before it
     /// runs, so no command in between can change what it would run. Otherwise it is not run.
-    /// `outside`: the gate decided it runs with no sandbox (ADR 0171).
+    /// `plan`: where the gate decided it runs (ADR 0171): outside the sandbox, only held by it,
+    /// or as the sandbox finds it.
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_in_state(
         self: &Arc<Self>,
         session: &str,
         command: &str,
         timeout: Duration,
         expected: Option<&str>,
-        outside: bool,
+        plan: LaunchPlan,
+        overrides: &[(String, String)],
+        settled: bool,
+        by: By,
     ) -> Result<Ran, String> {
+        let overrides = overrides.to_vec();
         let lane = lock(&self.commands)
             .entry(session.to_owned())
             .or_default()
@@ -711,7 +757,7 @@ impl Terminal {
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), outside) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), plan, &overrides, settled, by) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -771,15 +817,34 @@ impl Terminal {
         lock(&self.carried).clear();
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn supervised(
         self: &Arc<Self>,
         session: &str,
         command: &str,
         timeout: Duration,
         cleanup: Cleanup,
-        outside: bool,
+        plan: LaunchPlan,
+        overrides: &[(String, String)],
+        settled: bool,
+        by: By,
     ) -> Result<Ran, String> {
         let carried = self.carried_in(session);
+        // A settled command runs with a clean, fixed environment (`Job::clean`), never the
+        // variables carried from an earlier command (ADR 0172, amendment 4): only the hardening
+        // overrides are passed, over the clean base. Any other command keeps the carried
+        // variables, with the overrides (none) on top.
+        let mut env: Vec<(String, String)> = if settled {
+            Vec::new()
+        } else {
+            carried
+                .env
+                .iter()
+                .filter(|(name, _)| !overrides.iter().any(|(o, _)| o == name))
+                .cloned()
+                .collect()
+        };
+        env.extend(overrides.iter().cloned());
         let dir = carried
             .dir
             .filter(|dir| dir.is_dir())
@@ -821,23 +886,32 @@ impl Terminal {
                 Job {
                     dir: &dir,
                     script: &script,
+                    // Spade's wrapper saves the folder and variables after it: the bot's own
+                    // command is what is read again at the spawn.
+                    asked: Some(command),
                     timeout,
-                    env: &carried.env,
+                    env: &env,
                     tee: Some(tee),
                     cleanup: Some(cleanup),
                     stdin: None,
                     kind: crate::workspace::shell::Kind::Terminal {
                         scratch: self.scratch.clone(),
                     },
-                    outside,
-                    // The bot terminal is Unix-only, where confining never yields `NeedsReview`
-                    // (that is the Windows containment narrowing); the field is never consulted
-                    // here, so a reviewed terminal command runs as the gate decided.
-                    may_run_uncontained: true,
+                    outside: plan.outside,
+                    may_run_uncontained: plan.may_run_uncontained,
+                    // Cleared to run only contained: refused where nothing holds it.
+                    contained_only: plan.contained_only(),
+                    // Under this session's lock: no other command runs here until it starts, so
+                    // what it runs is read again at its spawn as it will start.
+                    by,
+                    clean: settled,
+                    read_only: settled,
                 },
             )
             .await;
-        lock(&self.carried).insert(session.to_owned(), state_files.read());
+        if !settled {
+            lock(&self.carried).insert(session.to_owned(), state_files.read());
+        }
         if let Ok(ran) = &ran {
             let ending = match (ran.timed_out, ran.code) {
                 (true, _) => "[bot] stopped: past its deadline\n".to_owned(),

@@ -1,5 +1,6 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
+import { fakeMarket } from "./fake-market.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
 import {
   FakeDaemon,
@@ -94,6 +95,10 @@ export function bootFake(): {
     worktreeCreationSlow:
       (globalThis as { aceFakeWorktree?: string }).aceFakeWorktree === "slow" ||
       new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorktree") === "slow",
+    // `?fakeLine=beta`: a daemon on the beta release line, so the rail shows the beta mark.
+    ...(new URLSearchParams(globalThis.location?.search ?? "").get("fakeLine") === "beta" && {
+      releaseLine: "beta",
+    }),
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
   // threads and no projects: the first run. `?fakeWorld=showcase` is the small, tidy world the
@@ -158,6 +163,8 @@ export function bootFake(): {
       Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
     daemon.seedServices(longLists > 0 ? withLongAutomations(services, longLists) : services);
+    // The marketplace's listings, account and drafts, so its every page can be walked.
+    daemon.marketplace.seed(fakeMarket(Date.now()));
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
@@ -257,7 +264,11 @@ export function bootFake(): {
   ]);
   // One project there already, so New thread can start on the build server.
   if (!empty) {
-    server.projects.command({ type: "workspace.add", path: "/home/ci/src/relay-ci" });
+    const relay = server.projects.command({ type: "workspace.add", path: "/home/ci/src/relay-ci" });
+    // Linked to This Mac's relay (ADR 0180): New thread in lists them as one project.
+    const relayProject = "5e1f0c2a-7d1b-4c7e-9a0e-2f6b8d4c1a90";
+    if (relay?.workspace) server.projects.identities.set(relay.workspace.id, relayProject);
+    daemon.projects.identities.set("relay", relayProject);
     const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
     // A thread there, so Continue on… runs from the build server too.
     if (added?.workspace)

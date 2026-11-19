@@ -102,6 +102,14 @@ export const CliSpadeChat = z.object({
   reply: z.string().optional(),
 });
 
+/** `ace spade move BOT --to MACHINE` (ADR 0187): where the bot went and how the move ended. */
+export const CliSpadeMove = z.object({
+  bot: z.object({ id: z.string(), name: z.string() }),
+  to: z.object({ host: z.string(), name: z.string() }),
+  state: z.enum(["done", "cancelled"]),
+});
+export type CliSpadeMove = z.infer<typeof CliSpadeMove>;
+
 export const CliFeatures = z.object({ spade: z.boolean(), marketplace: z.boolean() });
 export const CliFeatureSwitch = z
   .object({ live: z.boolean(), spade: z.boolean().optional(), marketplace: z.boolean().optional() })
@@ -136,6 +144,7 @@ export const cliMachineOutputs = {
   "spade.bot.list": z.array(CliSpadeBot),
   "spade.bot.show": CliSpadeBot,
   "spade.chat": CliSpadeChat,
+  "spade.move": CliSpadeMove,
   "feature.list": CliFeatures,
   "feature.switch": CliFeatureSwitch,
   "automation.list": AutomationResponse.loose(),

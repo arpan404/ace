@@ -22,6 +22,9 @@ import { AccessError } from "./remote-auth.ts";
 import type { ClientMessage, PairResult } from "@ace/protocol";
 import type { MediaRelayStreams } from "./media-relay/streams.ts";
 import { mediaHelloAdmission, type MediaTicketClaim } from "./media-relay/admit.ts";
+import { serveRelayMachineCalls } from "./relay-machine-host.ts";
+import type { TransferTarget } from "./transfers/serve.ts";
+import type { MachineTarget } from "./machines/target.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
 export async function startFilesRelay(
@@ -43,6 +46,12 @@ export async function startFilesRelay(
     onRegistration?: ((registered: boolean) => void) | undefined;
     /** Serves a main conversation channel (a hello without `channel`). */
     relayMain?: ((entry: RelayedMain) => void) | undefined;
+    /** Machine calls from paired machines that reach this one only through the relay (ADR 0182). */
+    machineCalls?: (() => Pick<MachineTarget, "handle"> | undefined) | undefined;
+    /** Transfers from paired machines that reach this one only through the relay (ADR 0192). */
+    transfers?: (() => TransferTarget | undefined) | undefined;
+    /** `url` is ace's hosted relay, by this machine's settings: transfers through it are bounded. */
+    hostedRelay?: boolean | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
     /**
@@ -60,6 +69,8 @@ export async function startFilesRelay(
      * out its deadline, and a running one stops as `close` would.
      */
     signal?: AbortSignal | undefined;
+    /** This daemon's `ace-client` name (ADR 0189), sent on each upgrade to ace's own relay. */
+    aceClient?: string | undefined;
   },
 ) {
   const media = options.media;
@@ -171,6 +182,7 @@ export async function startFilesRelay(
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
       ...(options.http ? { http: options.http } : {}),
       ...(nk ? { nk } : {}),
+      ...(options.aceClient ? { aceClient: options.aceClient } : {}),
       ...(media && admitMedia
         ? {
             media: {
@@ -225,6 +237,34 @@ export async function startFilesRelay(
           } finally {
             mains.delete(channel);
             accountClients.delete(channel);
+          }
+          return;
+        }
+        // A paired machine's calls (ADR 0182): paired devices only, never an account device.
+        if (hello.channel === "machine") {
+          if (admitted.stillAdmitted || !options.machineCalls) {
+            await channel
+              .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
+              .catch(() => {});
+            channel.close();
+            return;
+          }
+          channel.authorize();
+          clients.set(channel, device.id);
+          try {
+            await serveRelayMachineCalls(channel, {
+              target: options.machineCalls,
+              transfers: options.transfers,
+              hostedRelay: options.hostedRelay,
+              device: () =>
+                options.devices.current(device.id, device.generation, options.auth.now()),
+              deviceId: device.id,
+              hostId: options.hostId,
+              headSeq: options.headSeq,
+            });
+          } finally {
+            clients.delete(channel);
+            channel.close();
           }
           return;
         }
@@ -326,7 +366,10 @@ async function redeemPairing(
   let result: PairResult["result"];
   try {
     auth.pairingAttempt("relay");
-    result = { ok: true, ...auth.redeem(request.code, request.name, request.installId) };
+    result = {
+      ok: true,
+      ...auth.redeem(request.code, request.name, request.installId, request.standingKey),
+    };
   } catch (error) {
     const status = error instanceof AccessError ? error.status : 500;
     result =

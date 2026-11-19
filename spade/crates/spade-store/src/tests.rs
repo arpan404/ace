@@ -478,12 +478,13 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
-                 DROP TABLE episodes_search; DROP TABLE episodes;",
+                 DROP TABLE episodes_search; DROP TABLE episodes;
+                 DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
         )?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 10,
+            crate::schema::current_version() as i64 - 11,
         )?;
     }
     let store = Store::open(&path)?;
@@ -590,11 +591,16 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
         store.set_setting("oversight:a2", Some(r#"{"daily_cap_micros":5}"#))?;
         store.set_setting("oversight", Some(r#"{"review_default":true}"#))?;
     }
-    rusqlite::Connection::open(&path)?.pragma_update(
-        None,
-        "user_version",
-        crate::schema::current_version() as i64 - 1,
-    )?;
+    {
+        let connection = rusqlite::Connection::open(&path)?;
+        connection
+            .execute_batch("DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+        connection.pragma_update(
+            None,
+            "user_version",
+            crate::schema::current_version() as i64 - 2,
+        )?;
+    }
     let store = Store::open(&path)?;
     let one: Option<serde_json::Value> = store
         .setting("oversight:a1")?

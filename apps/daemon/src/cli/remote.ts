@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { DeviceToken } from "@ace/protocol";
 import { parsePairingLink } from "@ace/client/access";
 import { redeemPairing, accessRequest } from "../client-access.ts";
-import { Profiles, RemoteProfile, profileSummary } from "./profiles.ts";
+import { Profiles, RemoteProfileFields, directOf, profileSummary } from "./profiles.ts";
 import { option, type Args } from "./args.ts";
 import { emit, prompt } from "./io.ts";
 import { CliFailure, usageFailure } from "./output.ts";
@@ -64,17 +64,25 @@ export async function remoteCommand(
         : await readFile(tokenFile, "utf8")
       ).trim(),
     );
-    const profile = RemoteProfile.omit({ id: true }).parse({
+    const fields = RemoteProfileFields.omit({ id: true }).parse({
       name,
       origin: args.words[1],
       fingerprint: option(args, "fingerprint"),
       deviceId: option(args, "device"),
       token,
     });
+    // Added by hand, it is always a pinned TLS address.
+    const direct = directOf(fields);
+    if (!direct)
+      throw usageFailure("Adding a remote by hand takes ORIGIN and --fingerprint.", {
+        code: "missing_argument",
+        argument: "--fingerprint",
+      });
+    const profile = { ...fields, ...direct };
     // Confirm the supplied pin before admitting a credential-bearing profile.
-    await accessRequest(profile.origin, "/v1/tickets", {
+    await accessRequest(direct.origin, "/v1/tickets", {
       method: "POST",
-      fingerprint: profile.fingerprint,
+      fingerprint: direct.fingerprint,
       token,
     });
     return emit(args, profileSummary(profiles.add(profile)), {

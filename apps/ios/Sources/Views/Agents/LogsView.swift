@@ -21,9 +21,7 @@ struct LogsView: View {
                 if let logs {
                     if logs.earlier > 0 {
                         Button("Show earlier lines") { model.sheet(["kind": "logs.earlier"]) }
-                            .font(AceDesign.Typeface.body).fontWeight(.semibold)
-                            .foregroundStyle(AceDesign.Ink.primary)
-                            .frame(minHeight: AceDesign.Size.tap)
+                            .buttonStyle(.rowAction)
                             .accessibilityHint("\(logs.earlier) earlier")
                             .accessibilityIdentifier("logs.earlier")
                     }

@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectRemoteKey.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "remotes": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "subpath": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "remotes",
+    "subpath"
+  ],
+  "type": "object"
+}

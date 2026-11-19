@@ -192,9 +192,13 @@ impl Store {
         Ok(changed > 0)
     }
 
+    /// A setting; one of a bot still arriving (ADR 0187) reads as none.
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
-        Ok(self
-            .lock()?
+        let connection = self.lock()?;
+        if crate::gate::setting_arriving(&connection, key)? {
+            return Ok(None);
+        }
+        Ok(connection
             .query_row(
                 "SELECT value FROM settings WHERE key = ?1",
                 params![key],
@@ -204,6 +208,30 @@ impl Store {
     }
 
     /// Sets `key`, or clears it with `None`.
+    /// Stores `key` (under `prefix`) with the time `at_ms` once: `true` the first time, `false`
+    /// when it is there already, so a one-use token is taken once even across restarts. Keys under
+    /// `prefix` stored before `expired_before` are removed first. One statement each, so two
+    /// callers can't both take the same key.
+    pub fn claim_once(
+        &self,
+        prefix: &str,
+        key: &str,
+        at_ms: i64,
+        expired_before: i64,
+    ) -> Result<bool> {
+        let connection = self.lock()?;
+        connection.execute(
+            "DELETE FROM settings WHERE substr(key, 1, length(?1)) = ?1
+             AND CAST(value AS INTEGER) < ?2",
+            params![prefix, expired_before],
+        )?;
+        let taken = connection.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
+            params![format!("{prefix}{key}"), at_ms.to_string()],
+        )?;
+        Ok(taken == 1)
+    }
+
     pub fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
         let connection = self.lock()?;
         match value {

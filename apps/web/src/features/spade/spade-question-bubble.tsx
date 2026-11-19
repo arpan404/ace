@@ -1,16 +1,18 @@
 import {
   spadeAnswerWords,
   spadeCardAnswers,
+  spadeCardSettledWords,
   spadeDraftAnswer,
   spadeEmptyDraft,
   spadeRefusedQuestion,
   type SpadeBubble,
   type SpadeDraft,
 } from "@ace/ui-core/spade-chat";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { QuestionPager } from "@/components/question-pager.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useCardFocus } from "./use-card-focus.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { QuestionInputs } from "./spade-question-inputs.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
@@ -85,7 +87,6 @@ export function SpadeQuestionBubble(props: {
       <OpenCard
         item={item}
         label={label}
-        focus={opened}
         // Opened again from its line, Answer later folds it back; it is for later already.
         onFold={item.standing === "deferred" ? () => setOpened(false) : undefined}
         onReply={props.onReply}
@@ -97,8 +98,6 @@ export function SpadeQuestionBubble(props: {
 function OpenCard(props: {
   item: Card;
   label: string;
-  /** Opened again from its folded line: focus moves into it, its inputs ready. */
-  focus: boolean;
   /** Fold it back to its line (a card already for later). */
   onFold: (() => void) | undefined;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
@@ -167,10 +166,7 @@ function OpenCard(props: {
     if (loneConfirm && next.kind === "confirm") send(all);
   };
   const card = useRef<HTMLDivElement>(null);
-  const focus = props.focus;
-  useEffect(() => {
-    if (focus) card.current?.focus({ preventScroll: true });
-  }, [focus]);
+  useCardFocus(card, at);
   if (!current) return null;
   return (
     <RaisedCard
@@ -334,20 +330,11 @@ function SettledCard(props: { item: Card; label: string }) {
               <SpadeBubbleText key={at} text={question.prompt} />
             ))}
           </div>
-          <p className={cn(settledLine, "mt-1 text-subtle-foreground")}>{settled(item)}</p>
+          <p className={cn(settledLine, "mt-1 text-subtle-foreground")}>
+            {spadeCardSettledWords(item)}
+          </p>
         </>
       )}
     </div>
   );
-}
-
-function settled(item: Card): string {
-  switch (item.standing) {
-    case "answered":
-      return item.typed && item.answers === undefined ? "Answered in the chat" : "Answered";
-    case "dismissed":
-      return "Dismissed";
-    default:
-      return "Not answered";
-  }
 }

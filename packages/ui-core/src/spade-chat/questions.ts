@@ -260,3 +260,19 @@ export function spadeRefusedQuestion(refusal: string, count: number): number | u
 export function spadeForLaterWords(count: number): string {
   return `${count} ${count === 1 ? "question" : "questions"} for later`;
 }
+
+/** How a settled card ended, for the quiet line under its questions. */
+export function spadeCardSettledWords(card: {
+  standing: SpadeQuestionStanding;
+  answers: readonly unknown[] | undefined;
+  typed: boolean;
+}): string {
+  switch (card.standing) {
+    case "answered":
+      return card.typed && card.answers === undefined ? "Answered in the chat" : "Answered";
+    case "dismissed":
+      return "Dismissed";
+    default:
+      return "Not answered";
+  }
+}

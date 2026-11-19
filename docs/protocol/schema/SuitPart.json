@@ -117,7 +117,8 @@
     "queue-item",
     "market-stage",
     "market-hero",
-    "market-try"
+    "market-try",
+    "section-title"
   ],
   "type": "string"
 }

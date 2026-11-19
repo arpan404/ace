@@ -25,7 +25,10 @@ way every time, and leave the rest to the reviewer as today.
    - The model is never the security boundary and never lowers a deterministic decision. The
      sandbox, declared effects, the credential refusal and the person-only effects (`pay`,
      `send_as_person`, `change_access`, `credential`, `drive`, `unknown`) are decided before it,
-     exactly as in ADR 0171. It only sees calls the rules already sent to the reviewer.
+     exactly as in ADR 0171. It only sees calls the rules already sent to the reviewer. Since
+     ADR 0171 amendment 3 an ace driving step goes to the reviewer instead of the person; the
+     model isn't shown ace's tools, so it neither settles nor raises one. It may still raise a
+     connector's or plugin's tool it reads as `drive`.
    - It can do two things, each only above a calibrated threshold:
      - **raise** a call to the person when it reads a person-only effect;
      - **settle** a call as clearly low-risk (`read`, or `write_local` in the bot's folders).
@@ -191,3 +194,487 @@ the eligibility checks read the whole of what is parsed.
   without the reviewer and is logged without its arguments; a tool read as a send goes to the
   person; an abstention goes to the reviewer; turned off, the reviewer decides as before; a
   person-only effect the rules decide never reaches the classifier.
+
+## Amendment 1 (2026-11-17): measured on real work, and settling reads under untrusted content
+
+Decided by: the owner (2026-11-17: the classifier "is completely broken" in practice; make it
+useful and provably safe, with numbers that hold up). Changes decisions 2, 3 and 5; the rules in
+decision 1 are unchanged.
+
+### What was measured
+
+The template sets above say little about real use, so the classifier is now measured on sets
+that aren't its templates, labelled by hand or by a reference labeller written for measuring
+(`classify-train/src/label.rs`: explicit tables, Spade's own rules and tldr's descriptions; it
+never sees the model). A call the labeller can't name counts as risky, so a settled one counts
+as a false low-risk; those were then read by hand.
+
+- **A hand-labelled hard set** of 213 commands written for it (`hard.rs`): everyday commands that
+  look busy and risky ones that look plain.
+- **Hand-labelled connector calls** (`connectors.rs`): 65 calls in the shapes the public GitHub,
+  Slack, Gmail, Linear, filesystem, Google Calendar and Drive, Notion and Stripe MCP servers offer.
+- **tldr-pages** (CC BY 4.0, pinned commit; `DATA-LICENSES.md`): 41,757 filled examples; one page
+  in five is held out of training. NL2Bash is GPL-3.0 and stays out.
+- **Real coding-agent sessions** on the owner's machine: 6,708 calls (5,564 shell commands) from
+  56 Claude, Codex and OpenCode threads, read from a read-only copy of `events.sqlite`
+  (`real-sessions.sh`; no daemon is started). Measured only: never trained on, never committed,
+  aggregates only.
+- **End to end**: those sessions replayed through the whole gate as a Spade bot with no sandbox
+  would meet them (`replay.rs`): `effect::route` with the shell classifier's reading first, then
+  the classifier on what is sent to review, with untrusted content following Spade's own rule (a
+  command's output and a file Spade didn't write are untrusted). These sessions mostly work
+  outside the folder they were started in (sibling worktrees 42% of commands, `/tmp` 32%, the home
+  folder 16%), which the classifier never settles, so the replay is also given with each thread
+  placed in the folder it `cd`s into most: the same calls as a bot whose own folder that is.
+
+`cargo run -p classify-train -- --tldr DIR --real DIR` reruns all of it; `classify-train
+measure --weights FILE` scores any model file.
+
+### Why it almost always abstained
+
+Measured on `main`'s model and wiring, with the same labeller:
+
+1. **Untrusted content in view.** It may settle only with nothing untrusted in view, and a
+   command's own output is untrusted, so after a conversation's first command it could settle
+   nothing. 5,514 of the 5,564 real commands ran with untrusted content in view. Of the 5,259 the
+   rules sent to review, 65.3% were barred for that alone, 34.0% had a rule finding (here-documents
+   and unreadable text 1,329, writes outside 293, network 72), and 0.7% were open to it.
+2. **A part never seen as low-risk.** This check stopped 90% of tldr's low-risk commands and 45% of
+   the hard set's: the training templates knew few flags, and a digit after an option letter
+   (`-A5`, `-j8`) was read as an option of its own.
+3. **Outside the folder.** It stopped 91% of real low-risk commands. Mostly it was right: the work
+   happened elsewhere. But the gate passed no folder, so an absolute path into the bot's own
+   folder also read as outside, and `$?` read as a variable path.
+4. **Template coverage.** Ordinary agent shapes (chained reads, `2>&1 | tail`, reading code about
+   payments or tokens) read as risky: a search for `send_email` carried the weight of a send. The
+   same gap made it raise file edits done through `python - <<'EOF'` to the person: 56 of the 57
+   real calls it raised weren't person-only.
+5. **Not the 0.95 floor.** On the calibration data (the validation split and tldr's validation
+   pages, unnamed calls counted unsafe) alone the threshold would be far lower, since few risky
+   calls have a hard form at all (`REPORT.md` gives it), so the floor stays and binds.
+6. **Not mainly the model's capacity.** A small MLP (one hidden layer of 16 ReLU units, the same
+   data, calibration and checks) settles a point or two more of the low-risk calls in the untouched
+   sets, but settles one tldr-pages call that isn't low-risk where the linear model settles none,
+   at about 1.8× the work and 2 MB of weights, and with 12 units it once settled a risky held-out
+   command. What binds now is which commands have a hard form
+   (amendment 3), not capacity. The linear model stays; `REPORT.md` reruns the comparison.
+
+### Decision
+
+1. **Reads under untrusted content.** A plain command (decision 2's conditions, except taint) may
+   be settled while untrusted content is in view only as a read: P(read or write_local) over the
+   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.800: above
+   every calibration call that isn't a read and could be settled there, by 0.02, never below 0.8),
+   and nothing in it that can reach another machine (`Prediction::network`: a program that can,
+   or a URL, host or address argument). A read in the bot's folder that reaches nothing neither
+   sends nor changes anything, and what it shows joins content that is already untrusted. Writes,
+   builds and anything that may reach the network wait for the reviewer as before.
+2. **The folder.** The gate passes the bot's folder to the classifier (`Classed::workspace`, set
+   when the command starts inside it), and a command it can't place against the folder (a service
+   command with its own `cwd`, a start folder outside the workspace) is never settled.
+3. **More things it never settles**, in code (decision 3): an option that runs another program
+   (`rg --pre`, `tar --to-command`/`-I`, `rsync -e`, `find -exec`, `fd -x`, `git -c`, `sort
+--compress-program`), and a wrapper that runs a command with the person's secrets in its
+   environment (`doppler run`, `op run`, `aws-vault exec`, `infisical`, `sops exec-env`…), which
+   the parser takes off. The next word after a subcommand whose meaning it changes (`git remote`,
+   `git stash`, `git bisect`, `jj git`, `brew services`, `npm config`…) is a key part; a digit after
+   an option letter is its value; `$?`, `$#` and `$$` aren't paths.
+4. **Raising.** The person is asked when the person-only effects together pass the threshold
+   (0.60, the lowest with 98% precision on the calibration data); the request names the likeliest
+   one.
+5. **Training data.** Besides the templates: tldr-pages' commands labelled by the reference
+   labeller (one it can't name is never trained on), and new families in the shapes agents write,
+   including desktop input on Linux and macOS and tokens in headers. Thresholds come from the
+   calibration calls whose effect the labels name (amendment 2).
+6. **The same bits everywhere.** `exp` (inference and training) and `ln` (calibration) are plain
+   arithmetic, so the shipped file is reproducible on any machine, not only the one it was trained
+   on (`main`'s file, trained on a Mac, differs from a Linux run from the same seed).
+7. **Connector tools stay raise-only.** A read-only connector call with a trusted read
+   declaration already runs on the rules; any connector call that reaches the classifier is
+   declared as more than a read, and settling it would lower a declaration. So no change.
+
+### Measures, before and after
+
+Both columns are measured the same way (ADR 0172, amendment 6): the reference labeller as oracle,
+the same held-out evaluation sets, with fit overlaps removed by folded signature. "after" is the
+shipped weights (`spade-classify/54b8d47a`) with this build's logic; "before" is **main's own
+model** (`spade-classify/99f56e23`) run with **main's own decision logic**, reproduced in a pinned
+`origin/main` worktree by `tools/classify-train/main-baseline.sh` (not by passing the shipped model
+to a main-shaped gate, which the earlier rounds mistakenly did). The realistic sets are external to
+both models (hand-written, public, or real), so both see identical inputs.
+
+| Set                                           | Low-risk recall | False low-risk              | Person precision  | Person recall     |
+| --------------------------------------------- | --------------- | --------------------------- | ----------------- | ----------------- |
+| Hand-labelled hard set (175, deduped)         | 0.404 → 0.242   | **0 of 76 → 0 of 76**       | 0.972 → **1.000** | 0.897 → **0.949** |
+| tldr-pages, held-out pages (8,198, deduped)   | 0.042 → 0.016   | **3 of 6,823 → 0 of 6,823** | 0.190 → **0.288** | 0.176 → **0.472** |
+| Real sessions, distinct commands, model alone | 0.024 → 0.027   | **1 of 2,310 → 0 of 2,309** | 0.136 → **0.833** | 0.070 → 0.039     |
+| Hand-labelled connector calls (raise only)    | –               | –                           | 0.900 → 0.889     | 0.857 → 0.762     |
+
+The headline is the false-low column: **main settled four risky calls as low-risk across the
+held-out sets (three on tldr-pages, one on a real session); the shipped build settles none, on any
+set.** `REPORT.md` shows the same zero on the fresh and held-out-trick adversarial sets (0 of 5,136
+and 0 of 3,706). The cost is recall: only reads with a hard form settle now, so builds, installs,
+every write (`cp`, `mkdir`, `touch`, a redirect), `git status`, `git diff`, the script languages
+and plain `curl` stay with the reviewer. Person precision and recall rise sharply on real sessions
+(0.136 → 0.833, and the raises are right).
+
+End to end, real sessions (shares of 6,708 calls); "before" is main's model with main's rules and
+gate:
+
+| Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
+| ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
+| As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 55)                                      | 77.9%     | 22.1%                        | 0              |
+| As recorded, this build                                | **1.8%**              | 0.1% (4 of 55)                                      | **77.2%** | **22.8%**                    | **0**          |
+| Placed in the folder each thread worked in, this build | **14.2%**             | 0.1% (5 of 55)                                      | **65.7%** | **34.3%**                    | **0**          |
+
+A false low-risk here is a settled call the labeller doesn't name as low-risk, or, with untrusted
+content in view, one it doesn't name as a read. Of the 55 person-only real calls the rules sent to
+review, the classifier raises 4 (before: 1), and every call it raises is one. Main's rules send
+8.1% to the person against this build's 7.8%: this build also changed the shell parser slightly
+(amendment 4), so the rule layer differs a little, which is why the baseline's shares aren't a
+clean subtraction.
+
+One classification on this Linux machine (`cargo bench -p spade-classify`, features, inference and
+the hard-form check): p50 2.8 µs → 5.3 µs, p99 65 µs → 127 µs. The configuration inspection is a
+few small file reads on the gate's blocking thread; a settled command then launches with a clean,
+fixed environment. The file is 1,310,824 bytes.
+
+### What is still weak
+
+- Only reads settle. Builds, tests, installs, every write (a program or a redirect), `git status`,
+  `git diff`, the script languages (`awk`, `sed`) and the pagers never settle: no fixed override
+  covers what they can run or where they can write.
+- Reading against writing: `git log` (P(read) 0.55) and `git diff` (0.46) are under the read
+  threshold, so with untrusted content in view they still go to the reviewer; plain `ls` (0.81)
+  and `git status` (0.79) abstain even untainted.
+- Most real work happened outside the folder each thread was started in, and the classifier never
+  settles that. A third of what the rules send to review has a rule finding, mostly here-documents
+  and text the shell parser can't read; only the rules can open that up.
+- Settling fewer commands than the earlier rounds is the deliberate cost of a provable settled
+  set: reads with a hard form only.
+- Person recall on real calls is 4 of 55; raising on the connector set is a little below
+  `main`'s.
+- The labeller can't name 67% of tldr-pages' held-out pages and 29% of real commands; every
+  measure counts those as risky.
+
+### Follow-ups outside the classifier
+
+- Spade's shell rules (`spade-core`) don't treat Linux input tools (`wtype`, `ydotool`, `dotool`,
+  `wlrctl`) as driving apps, and they take secrets-injecting wrappers (`doppler run`, `op run`,
+  `aws-vault exec`) off without a credential finding. The classifier now holds both back, but
+  these belong in the rules.
+- PR #2265 (computer-use routing, not merged) and this change meet in a few places, all
+  mechanical: both add a field next to each other in `engine/classify.rs` (its `acts_in` on the
+  stored verdict) and in the tests' `FakeTool` (its `answers`, this one's `unplaced`), and both
+  edit the classifier's paragraphs here and in `spade/docs/autonomy.md`. This change doesn't touch
+  `effect.rs` or `calls.rs`; code that builds `autonomy::Classed` by hand needs the new
+  `workspace` field (`None` keeps the classifier from settling).
+
+## Amendment 2 (2026-11-18): configuration that runs programs, and calibrating the shipped weights
+
+Decided by: the owner, after review of amendment 1. Changes decisions 3 and 5.
+
+### Configuration that runs programs
+
+`git status` runs the program a repository's `core.fsmonitor` names; git can also run a pager,
+diff and filter drivers, credential and gpg programs, aliases that start a shell, and hooks, all
+from configuration the command never names, and the rules read configuration only for the git
+operations that run hooks. A "read" could run code. The Node package managers (`.npmrc`'s
+`node-options` and `script-shell`, a pnpmfile, `yarnPath`, `bunfig.toml`'s `preload`, `.env` for
+bun), cargo (`.cargo/config.toml` runners and wrappers, a toolchain file's `path`) and ripgrep (a
+config file's `--pre`) do the same.
+
+1. **The gate inspects it.** For a command with no sandbox the shell tool inspects, from the folder
+   the command starts in and through the environment it will run with, the configuration of each
+   of those tools (`spade_classify::inspect`, pure, over the files and variables the gate brings;
+   `Classed::config_clean`): for git, the repository's config, its worktree's (`commondir`,
+   `config.worktree`), every file either includes (`include`, `includeIf`), the home's config
+   (Spade runs commands with `HOME` set to the bot's folder, so `~/.gitconfig` is a file the bot
+   can write), the hooks folder and `GIT_*` variables, a terminal's carried ones included; for
+   the others, their files in the folders from the start folder up to the bot's folder, and their
+   variables. A file that can't be read counts as running something. Machine-wide configuration
+   and folders above the bot's folder are the person's and aren't read.
+2. **A command that runs git, a Node package manager, cargo or ripgrep is settled only when that
+   tool's configuration names no program** (`rg --no-config` needs none), and since amendment 3
+   only in its hard form; the inspection is then one more reason to abstain. Otherwise it goes to
+   the reviewer. Never settled at all: such a tool run after a `cd` to a folder other than the bot's
+   own, or pointed at other configuration (`git -C`, `--git-dir`, `cargo --config`, `npm
+--node-options`, `--prefix`); a command that sets a variable that makes a program load code or
+   read other configuration (`PATH`, `PYTHONPATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`, `CARGO_*`,
+   `LESSOPEN`, `PAGER`, `RIPGREP_CONFIG_PATH`…); one run through a project environment (`direnv`,
+   `nix-shell`, `devbox`, `mise exec`); and one carrying a credential (a URL with a password in
+   it, or a string shaped like an issued token or key). Make already runs files the reviewer is
+   shown, and interpreters (Python, Node) can reach the network, so neither settles with untrusted
+   content in view; builds and tests run the project's own code by design (decision 1) and settle
+   only with nothing untrusted in view.
+3. On the real sessions no command was held back by its folder's configuration; the regression
+   test `a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_reviewer`
+   (`spade-server/tests/classifier_git.rs`) runs real git on a repository whose fsmonitor would
+   leave a marker, and checks the reviewer decides and the marker never appears.
+
+### Calibrating the weights that ship
+
+Amendment 1 refitted the shipped weights on every template after choosing the temperature and
+thresholds on a model fitted without validation, so its calibration described another model.
+Now there is one model, and every number describes it:
+
+- **Fit** on the training split, the first test sets' templates and fixtures, and tldr-pages'
+  training pages.
+- **Calibrate** (temperature, low-risk, read and person thresholds) on the validation split and
+  tldr-pages' validation pages, reserved from the fit.
+- **Measure** on what neither touched: the fresh pool, the tricks and misleading tools held out of
+  every fit, tldr-pages' held-out pages, the hand-labelled sets, real sessions and the replay.
+
+Calibrating the shipped weights this way showed a gap the refit had hidden: a clone URL carrying a
+token (`https://user:ghp_…@github.com/…`) read as a plain clone. Such a command is now never
+settled (above). Fresh clean low-risk recall is 0.316, not the 0.477 the refit reported; every
+figure in amendment 1 is now the shipped weights'.
+
+## Amendment 3 (2026-11-18): settled commands run in a hard form
+
+Decided by: the owner, after the second review of amendment 2. Changes amendment 2's decision.
+
+### Context
+
+Amendment 2 inspected configuration when the gate decided and kept only the answer. A file changed
+or a symlink pointed elsewhere between that decision and the launch (by a background job, or by
+the call before it in the same step) could still make git run a program, and the inspection itself
+misread a quoted include path containing `#`. A settled command can't depend on parsing
+configuration right or on it staying the same.
+
+### Decision
+
+1. **A settled command runs in a form that ignores configuration that could run a program,
+   whatever the files say at launch** (`spade_classify::hardening`). Spade sets, on the command:
+   `GIT_CONFIG_COUNT` entries, which git reads as command-line configuration over every file
+   (`core.fsmonitor=false`, `core.hooksPath=/dev/null`, `core.pager=cat`, editors and askpass
+   `false`, `core.sshCommand=false`, `credential.helper=` (reset), `protocol.allow=never`, every
+   `gpg` program `false`, `log.showSignature=false`); `GIT_CONFIG_NOSYSTEM=1`,
+   `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_PARAMETERS=`, `GIT_PAGER=cat` (over every
+   `pager.*`), `GIT_NO_LAZY_FETCH=1` and kin; and `RIPGREP_CONFIG_PATH=`, `GREP_OPTIONS=`,
+   `LESSOPEN=`, `LESSKEYIN=/dev/null`, `TAR_OPTIONS=`, `ZIPOPT=`, `UNZIP=`, `AWKPATH=`, `PAGER=cat`.
+2. **Only what that form covers settles.** Every program in the command must either read no such
+   configuration (an explicit list: `cat`, `ls`, `find` without `-exec`, `sort` without
+   `--compress-program`…) or be covered above, and only for the uses where it covers everything:
+   git's reads that never run a diff, filter or merge driver (`log` and its kin without patch,
+   stat or pickaxe options, `ls-files` without `-m`/`-o`, `rev-parse`, branch and tag listings,
+   `config --get`, `cat-file` without filters); awk programs with no `system`, pipe, redirect,
+   `getline` or program file; sed scripts that only select, print, delete or substitute; `less`
+   with no `+` command but a line number. `git status`, `diff`, `show`, `blame` and every git
+   write, the Node package managers, cargo, interpreters, `curl` and anything else stay with the
+   reviewer: no override covers what they can run (diff and filter drivers are named in the
+   repository's own files). `xargs` and `parallel`, which run a program on operands read at run
+   time, never settle.
+3. **Recorded, applied, checked.** The gate records the form with the settled verdict (its name in
+   the verdict's reason) and hands it to the launch; the shell tool derives it again from the
+   command, refuses to run if it differs, and applies it, one-shot or in the bot's terminal, which
+   never carries it to the next command. After a restart a stored classifier verdict runs only in
+   the form derived again and matched against its record; otherwise the person decides. With no
+   form (Windows, where `/dev/null` names nothing), nothing settles.
+4. **The inspection stays as a reason to abstain**, and reads git config by git's rules (quoted
+   values, the escapes git knows, `#` and `;` comments only outside quotes, continuations,
+   both header forms), failing closed on anything else.
+5. **Calibration** chooses the low-risk and read thresholds on every calibration call, those the
+   labeller can't name counted as unsafe, with the run-time checks (the hard form included)
+   applied; the temperature and person threshold still fit the named calls. **The replay** counts
+   a settled call with untrusted content in view as right only if it is labelled a read. **The
+   labeller** no longer calls reads what writes or runs something (`sort -o`, `uniq in out`, sed's
+   `w`, `e`, `r` and flags, awk's `system`, pipes and redirects, `find -fprintf`, `git --output`,
+   `gh browse`, `less +!cmd`, `date -s`, `dd of=` outside the folder, `trap`, `xargs`).
+
+### Tests
+
+`spade-server/tests/classifier_git.rs` runs real git with the real shell tool:
+`a_settled_read_ignores_a_config_file_replaced_after_the_decision` and
+`a_settled_read_ignores_a_symlinked_config_pointed_elsewhere_after_the_decision` decide
+`git ls-files` while the config is clean, swap in a config whose fsmonitor would leave a marker
+before it launches, and check the marker never appears. Both fail with the overrides taken out.
+`ambient.rs` `config_is_read_by_gits_own_quoting_and_what_it_cant_read_counts` covers the quoted
+`#` include. `harden.rs` and `decide.rs` cover which commands have a form and that a settled
+decision carries it.
+
+## Amendment 4 (2026-11-18): no variables, and an audited list of programs
+
+Decided by: the owner, after the third review. Changes amendment 3's decision 2.
+
+1. **A command that sets any variable never settles**: a leading `VAR=x`, `env VAR=x`, a bare
+   assignment, `export`, `declare`, `typeset`, `readonly`, `local`, `set`, `read`, `printf -v`, or
+   text built at run time (`$(…)`, backticks, `${…}`). Spade's shell parser keeps the fact on what
+   it reads (`Simple::assigns`, carried into the strings a command runs), so this is decided on
+   parsed syntax, not on words.
+2. **The programs a settled command may run are an audited list**, each kept only where its own
+   manual page shows that the overrides and refusals cover every configuration file, variable and
+   option that could make it run something it doesn't name. The table, with the section each row
+   rests on, is in `spade/docs/autonomy.md` ("Programs a settled command may run"). `cloc` is gone,
+   with every program the audit couldn't support; `less` and `more` now run in their secure modes,
+   and git's trace output and the files git reads by a path from configuration are overridden too.
+3. **The report's blocker table** derives "settled" from the decision itself and adds a column for
+   commands with no hard form.
+
+Tests: `spade_core::autonomy::shell` `a_variable_a_command_sets_is_kept_on_what_it_reads`;
+`harden.rs` `what_no_override_covers_has_no_form` (assignments, the removed programs, the refused
+options); `classify-train` `the_blocker_tables_settled_share_is_the_low_risk_recall_and_every_call_is_counted_once`.
+
+## Amendment 5 (2026-11-18): the settled set is reads only, in a clean environment
+
+Decided by: the owner, after the fourth review. Shrinks amendment 4's settled set to what is
+simple to prove, after corners kept turning up (a second `gawk -e` program with `system()`, a
+`cp` into a directory with a symlinked destination, a `GAWK_PERSIST_FILE` carried in a terminal).
+
+1. **A settled command only reads.** The script languages (`awk`, `gawk`, `mawk`, `sed`), `tar`
+   and the pagers (`less`, `more`) leave the settled set: a program given to them on the command
+   line, or an archive, can run programs and reach files from more places than the parser reads.
+   A command that writes any real file — a write-capable program (`cp`, `mv`, `mkdir`, `touch`,
+   `rm`, `rmdir`, `ln`, `chmod`, `tee`, `truncate`, `split`, `csplit`) or a redirect to anything
+   but `/dev/null` and its kin — has no hard form. `git` reads, `rg` and `grep` stay, with the
+   content and program options refused; the audited plain reads stay. The audit table in
+   `spade/docs/autonomy.md` is the kept set.
+2. **Writes being gone removes the write-destination symlink.** No settled command writes, so
+   there is no destination to resolve and no launch-time re-check for a swapped write target. This
+   does _not_ resolve reads through a symlink: a settled `cat README.md` where `README.md` links to
+   a secret outside the folder, a `grep -r`/`rg`/`find` through a symlinked directory, or `git`
+   following a `.git` `gitdir:` file still read outside, and a lexical path check races a swap
+   between decision and launch. Amendment 7 contains those reads in the kernel, not in a path check.
+3. **A settled command launches with a clean, fixed environment built by Spade**
+   (`Shell::settled_environment`, `Job::clean`): `PATH` the system folders, `HOME` and `TMPDIR`
+   the bot's folder, the locale, shell and terminal fixed, plus the hardening overrides. Nothing
+   is read from the daemon's environment or carried from an earlier terminal command, so a
+   variable the bot exported (`GAWK_PERSIST_FILE`, `TAR_OPTIONS`, `GIT_*`, `LESSOPEN`, `PATH`)
+   never reaches it. In a terminal the settled command runs isolated and does not update the
+   terminal's carried state, so the bot's own variables stay for its other commands.
+
+Tests: `harden.rs` `what_no_override_covers_has_no_form` (writes, redirects, `awk`, `sed`, `tar`,
+`less`); `spade-classify` `plain_reads_with_a_hard_form_are_low_risk_and_writes_and_builds_are_not`
+and `a_command_settles_only_with_the_form_it_runs_in`; `spade-server`
+`a_settled_command_never_sees_variables_an_earlier_terminal_command_exported` (a real terminal, a
+real exported `GAWK_PERSIST_FILE`/`TAR_OPTIONS`/`LESSOPEN`/`PATH`).
+
+## Amendment 6 (2026-11-18): an honest evaluation
+
+Decided by: the owner, after sub-reviews found the evaluation, not the classifier, overstated the
+case. None of this changes what settles; it changes what the numbers mean.
+
+1. **The `main` baseline is main.** The before/after had passed the shipped model to a
+   main-shaped gate and called it `main`, so it measured the new model twice. The true baseline is
+   main's own model (`99f56e23`) run with main's own decision logic, reproduced in a pinned
+   `origin/main` worktree by `tools/classify-train/main-baseline.sh` (vendored
+   `baseline/baseline.rs`, built against main's crates, using no API this PR added), on the same
+   held-out sets. The shipped build exports its deduped public evaluation sets, and the exact ids
+   of the real-session calls it retained after the fit hold-out (`real::identity`, an unsalted FNV
+   fingerprint of command and workspace — not reversible, but a fingerprint rather than an
+   anonymiser, so the ids are kept private, written to a temp file the baseline reads and never
+   committed, and only the number, never the command text, leaves the process), so both evaluators
+   measure the identical calls; without the shared ids the baseline kept its own distinct set and counted 2,310
+   risky real calls where the shipped build counts 2,309. This reconciled the end-to-end row: main
+   raises **1 of 55** person-only real calls and settles **0.1%**, not the 9 the mislabelled row
+   showed.
+2. **Fit and the held-out sets are disjoint.** Two calls the classifier folds to the same features
+   are the same call to it, so a disguised tool clone or a `pwd` that recurs verbatim in fit is not
+   held out. An evaluation call is kept now only when its folded signature
+   (`classify-train/src/overlap.rs`) is in no fit call; the calibration and test corpus is deduped,
+   and so are the hand-labelled, tldr and real sets. A corpus-wide check fails the build on any
+   remaining overlap. Removed: 1,028 corpus calls, 38 of 213 hand-set, 214 of 8,412 tldr held-out,
+   2 real. The thresholds are chosen on the deduped calibration set, so the shipped weights changed.
+3. **The threshold sweep** labels its columns as probability crossings before the code checks, not
+   settlements. **The MLP comparison** calibrates like the shipped weights (the low-risk and read
+   thresholds on the whole calibration set).
+4. **The labeller parses short options explicitly** (`classify-train/src/label.rs`): an attached
+   value (`sort -oout`), the value-taking options so a value's letters aren't read as flags
+   (`sort -to`), and a short option's output path for the outside-the-folder check.
+5. **Real-session commands are never printed.** The end-to-end replay prints no command text, and
+   command-level dumps are gated to the synthetic sets; real sessions are reported only as
+   aggregates.
+
+Tests: `classify-train` the labeller's short-option cases, the overlap build-failing assert (any
+leftover overlap panics the run); `main-baseline.sh` reproduces the baseline table.
+
+## Amendment 7 (2026-11-18): a settled command runs in a read-only OS sandbox
+
+Decided by: the owner, after the sixth review found that dropping writes (amendment 5) left reads
+free to follow a symlink or a `.git` `gitdir:` file out of the bot's folder, and that a lexical
+path check races a swap between the gate's decision and the launch. Changes amendment 5's decision 2. Containment moves from path checks to the kernel.
+
+The read-only profile is strict, minimal and offline, and it is enforced fully or not used at all.
+A later review of the first cut found it still too loose — partial sandboxes qualified, the system
+read grants were broad, and loopback networking and Unix sockets were left open — so the profile is
+now the narrowest one that still lets each settled program start.
+
+1. **Every settled command runs inside a read-only OS sandbox confined to the bot's folder.** Spade
+   already sandboxes work on all three platforms (ADR 0167: Linux Landlock + seccomp, macOS
+   Seatbelt, Windows AppContainer/LPAC). A settled command launches through a read-only profile
+   built from an empty `Facts` (`spade-server` `security/confine.rs`, `spade-sandbox`
+   `wrap_read_only`). The kernel refuses a read that resolves outside the folder — a symlink, a
+   recursive walk through a symlinked directory, a `gitdir:` file — regardless of what the path
+   looked like when the gate decided, so the resolution race is gone too.
+2. **The read grant is a narrow allowlist, not the broad system folders.** A read-only run reads the
+   bot's folder, the program and library trees it needs to start (`/usr/bin`, `/bin`, `/usr/lib*`,
+   `/lib*`, the dynamic loader's `ld.so.cache`; on macOS `/usr/lib`, `/usr/bin`, `/bin`, the dyld
+   shared cache under `/System`), and nothing else. `/etc` (but the loader's files), `/opt`,
+   `/var/lib`, `/sys` and macOS's `/Library` are closed: a read-only run has no reason to read them
+   and they can hold the person's data. The kept list was derived by running every settled program
+   under the profile; none failed to start, so none left the settled set. On macOS `/System` is a
+   firmlink union whose `/System/Volumes/Data` is every user's files; Seatbelt already matches a read
+   by its resolved path, so a read of `/System/Volumes/Data/<outside>` is refused by the allowlist
+   today, and the profile adds an explicit deny of `/System/Volumes/Data` after the `/System` read
+   as defence in depth, so a future broad `/System` grant could not re-expose the person's files by
+   their real path there (`seatbelt.rs`).
+3. **It is offline and minimal.** The launcher's seccomp filter denies `socket`/`socketpair`
+   outright for a read-only run (`linux/seccomp.rs`), so it can reach no machine, bind no port and
+   open no Unix socket — not even on loopback or inside the folder. macOS emits no network rule for
+   the profile, and drops the POSIX semaphore, notification shared memory and named Mach services
+   (`opendirectoryd`, `trustd`, the logger…) a normal run keeps — the settled read programs start
+   without any (user/group lookups degrade like a missing `/etc/passwd`); if one is ever found to
+   need a service, only that exact one is added back. Its one device is `/dev/null`; `/dev/tty*`,
+   `/dev/fd/*` and the other sinks a normal run may open are closed.
+4. **Enforced fully or not at all.** A read-only command settles only where the whole boundary
+   holds: the file ABI that contains truncation, the loaded seccomp filter, and process and IPC
+   isolation (`Status::contains`). Admission checks this (`Confine::read_only_available` →
+   `Classed::sandboxable`; a partial sandbox sends the call to the reviewer, `engine/classify.rs`)
+   and the launcher re-checks it and refuses below ABI 3 or without the filter (`linux/launch.rs`),
+   so a settled command can never run half-confined, for one-shot runs or persistent terminals.
+   Windows has no read-only profile yet and never advertises one. Spade makes no temporary folder
+   for a read-only run (which would follow a symlinked `.spade` out of the folder before the sandbox
+   applied); `TMPDIR` points at the bot's folder, which the sandbox keeps unwritable, so a program
+   needing scratch fails closed (and one that only queries `TMPDIR`, like `git`, resolves it cleanly
+   instead of warning about `DARWIN_USER_TEMP_DIR`).
+5. **The gate resolves each program before settling.** A settled command's own programs may live
+   outside the narrow allowlist — Homebrew's `/opt/homebrew`, a Cargo `~/.cargo/bin`, or, on macOS,
+   the real `git` behind the `/usr/bin/git` xcrun shim. Spade resolves each program on the clean
+   PATH outside the sandbox (`security/read_only.rs`) and adds exactly the extra read roots it needs
+   (a resolved program's install prefix, read-only; on macOS the active developer dir from
+   `xcode-select -p`, and the `/private/var/select/sh` link the `/bin/sh` trampoline reads — the
+   link alone, not its folder). On macOS the shim at `/usr/bin/git` opens the developer dir itself,
+   which the sandbox refuses, so the developer dir's `usr/bin` goes first on the command's PATH and
+   the **real** tool runs directly, never the shim. A program that can't be resolved means the
+   command does **not** settle: it goes to the reviewer rather than failing "command not found"
+   inside the sandbox. This is checked at admission and again when the launch
+   builds the policy.
+6. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
+   behind the gate's own refusals, not a replacement for them; the classifier still never lowers a
+   deterministic decision (decision 2 of the original ADR). It closes the gap that a _settled_ read
+   — one the gate already judged low-risk — could still reach a byte outside the folder.
+
+None of this changes which commands the model settles (the profile only shapes how a settled one
+runs, and resolution only moves an unresolvable program to the reviewer), so the shipped weights and
+the measures are unchanged.
+
+Tests: `spade-sandbox` `read_only.rs`, against real Linux objects — every settled program starts
+under the narrow allowlist; a read-only run can make no socket (an INET/INET6/loopback-bind/
+workspace-Unix attempt via python3 is all refused); a symlink to a readable file under `/opt`,
+`/etc`, `/var/lib` or `/sys` is denied; only `/dev/null` is open; a settled `cat` of a symlink to a
+file outside the folder reads nothing and errors; `grep -r`/`find` through a symlinked directory out
+of the folder see nothing outside; a credential symlinked in is denied; a write is refused; `git
+rev-parse` with a `.git` file pointing at a repository outside the folder cannot read it. `net.rs`
+an offline run's rules deny every address. `security/read_only.rs` resolution: a system program
+needs no extra read, a program given by an absolute path or one that resolves nowhere on the clean
+PATH doesn't settle. `spade-server` `classifier.rs`
+`with_no_read_only_sandbox_a_plain_read_goes_to_the_reviewer` (the fail-closed gate) and
+`classifier_git.rs` (a settled read launches confined). These ran on Linux here. For macOS, the
+Seatbelt read-only profile text is asserted (`seatbelt.rs`: narrow reads, the shell and developer-dir
+links alone, `/dev/null` only, no network, no POSIX semaphore/notification/Mach services, and
+`/System/Volumes/Data` denied after the `/System` read), and a `#[cfg(target_os = "macos")]`
+process test (`security/read_only.rs::macos::containment_holds_and_the_settled_programs_still_run`)
+is provided for a Mac: it runs the probe cases (symlink/recursive/credential reads, writes,
+`/dev/tty`, loopback, `/Users`, and a file reached by its real path under `/System/Volumes/Data`,
+all refused) and checks that `git --version` and `git log -1` succeed under read-only once the
+developer dir is resolved. Windows has no read-only profile.

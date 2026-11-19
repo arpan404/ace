@@ -14,6 +14,7 @@ mod computer;
 mod continuation;
 mod control;
 mod digests;
+mod drive;
 mod endpoints;
 mod episodes;
 mod goals;
@@ -31,6 +32,7 @@ pub(crate) use ledger::Admission;
 mod maintenance;
 mod media;
 mod memory;
+mod moves;
 mod outbox;
 mod oversight;
 mod park;
@@ -46,6 +48,7 @@ mod search;
 mod security;
 mod services;
 mod trim;
+mod try_again;
 mod turn;
 mod turn_log;
 mod types;
@@ -58,7 +61,7 @@ pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -71,6 +74,10 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+/// How many locks images are spread over, by the first digit of their hash.
+const IMAGE_LOCKS: usize = 16;
+
+pub use moves::{AcceptFor, HostRecord, HostRefused, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,
@@ -81,6 +88,7 @@ pub use retry::Retry;
 pub use roster::{LastMessage, State};
 pub use routing::{RolesChange, entry_role};
 pub(crate) use search::Native;
+pub use try_again::RetryError;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
     CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
@@ -145,10 +153,16 @@ pub struct Engine {
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
+    /// Image reads, uploads and an arrival's placing and undoing, by hash (ADR 0187).
+    image_locks: [std::sync::Mutex<()>; IMAGE_LOCKS],
     /// Attached documents and recordings, beside the images (ADR 0134).
     media: Arc<crate::media::Media>,
     /// Spade's classifier's decisions, logged on this machine (ADR 0172).
     decisions: classify::Decisions,
+    /// How long a call's classification may take, in milliseconds.
+    classify_ms: std::sync::atomic::AtomicU64,
+    /// What a test runs right before a call is screened.
+    screening_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -198,7 +212,19 @@ pub struct Engine {
     allowed_scopes: Mutex<HashMap<String, String>>,
     /// What the gate authorized for each call about to run, by call key (ADR 0171; ADR 0167
     /// Windows hardening): outside the sandbox, contained only, or reviewed. Taken once at launch.
-    launches: Mutex<HashMap<String, crate::workspace::shell::Launch>>,
+    /// With each, the warrant its start outside the sandbox must pass.
+    launches: Mutex<
+        HashMap<
+            String,
+            (
+                crate::workspace::shell::Launch,
+                crate::workspace::outside::Warrant,
+            ),
+        >,
+    >,
+    /// Where the gate found each driving step about to run acts, by call key (ADR 0171,
+    /// amendment 3): checked again right before it runs. Taken once.
+    drive_places: Mutex<HashMap<String, (spade_core::effect::drive::Place, bool)>>,
     /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
     continuations: Mutex<HashMap<String, String>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
@@ -213,6 +239,8 @@ pub struct Engine {
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
     digests: digests::Shared,
+    /// Bots moving to or from another machine (ADR 0187, `moves`).
+    moves: moves::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -286,8 +314,13 @@ impl Engine {
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
+            image_locks: Default::default(),
             media,
             decisions,
+            screening_hook: Mutex::default(),
+            classify_ms: std::sync::atomic::AtomicU64::new(
+                u64::try_from(calls::CLASSIFY_TIME.as_millis()).unwrap_or(u64::MAX),
+            ),
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),
@@ -311,6 +344,7 @@ impl Engine {
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
+            drive_places: Mutex::default(),
             continuations: Mutex::default(),
             helpers: helpers::Shared::default(),
             wakes: wakes::Shared::default(),
@@ -318,6 +352,7 @@ impl Engine {
             security: std::sync::OnceLock::new(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
+            moves: moves::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -330,8 +365,13 @@ impl Engine {
         // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
         // from the first answer, whatever setup does later.
         engine.retire_levels()?;
+        // Every move's hold first, before anything of a moving or arriving bot can run.
+        engine.restore_moves()?;
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
+            if engine.frozen(&conversation.id) {
+                continue;
+            }
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(events.iter());
             if let Some(close) = transcript.close_after_restart() {
@@ -496,6 +536,20 @@ impl Engine {
         self.announce(id);
     }
 
+    /// The open step's words began to stream: a turn that was thinking now writes. Told once
+    /// per step, not per piece; any other status (a tool, a retry) is left as it is.
+    pub(crate) fn writing(&self, id: &str) {
+        {
+            let live = self.live(id);
+            let mut status = live.status.lock().unwrap_or_else(|p| p.into_inner());
+            if status.as_deref() != Some(roster::THINKING) {
+                return;
+            }
+            *status = Some(roster::WRITING.to_owned());
+        }
+        self.announce(id);
+    }
+
     /// Marks a conversation (a bot's or a group's) seen up to `seq`, its last event when `None`,
     /// and tells its live subscribers, so every device drops its "not seen" mark. Answers the
     /// cursor, or `None` for no such conversation.
@@ -554,16 +608,19 @@ impl Engine {
         }
     }
 
-    /// Whether `id`'s agent is being deleted.
+    /// Whether `id`'s agent is being deleted, or is frozen while it moves to another machine
+    /// (ADR 0187): either way nothing is delivered to it and nothing of it starts.
     pub(super) fn deleting(&self, id: &str) -> bool {
-        self.deleting
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains(id)
+        self.frozen(id)
+            || self
+                .deleting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains(id)
     }
 
     pub fn events(&self, id: &str, after: i64) -> Result<Option<Vec<StoredEvent>>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         Ok(Some(self.store.events(id, after)?))
@@ -587,9 +644,44 @@ impl Engine {
         )
     }
 
-    /// A stored image and its media type, by hash.
+    /// A stored image and its media type, by hash (any case: it is checked in lowercase, as
+    /// stored); one an arrival brought here reads as none until it is this machine's (ADR 0187).
     pub fn image(&self, sha256: &str) -> Option<(Vec<u8>, &'static str)> {
-        self.images.read(sha256)
+        let hash = sha256.to_ascii_lowercase();
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let _held = self.image_lock(&hash);
+        if self.store.image_arriving(&hash).unwrap_or(true) {
+            return None;
+        }
+        self.images.read(&hash)
+    }
+
+    /// Stores an uploaded image. One an arrival brought here and has yet to make this
+    /// machine's is the upload's from now: that arrival never takes it out (ADR 0187).
+    pub(crate) fn put_image(
+        &self,
+        bytes: &[u8],
+    ) -> Result<spade_core::event::ImageRef, crate::images::ImageError> {
+        let hash = crate::images::ImageStore::hash_of(bytes);
+        let _held = self.image_lock(&hash);
+        self.store
+            .move_image_adopt(&hash)
+            .map_err(|e| crate::images::ImageError::Io(e.to_string()))?;
+        self.images.put(bytes)
+    }
+
+    /// The lock every read, upload, placement and undo of image `hash` holds.
+    pub(crate) fn image_lock(&self, hash: &str) -> std::sync::MutexGuard<'_, ()> {
+        let stripe = hash
+            .bytes()
+            .next()
+            .and_then(|b| (b as char).to_digit(16))
+            .unwrap_or(0) as usize;
+        self.image_locks[stripe % IMAGE_LOCKS]
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     /// Images as a prompt for `model` shows them: as images if it can see them.
@@ -719,7 +811,7 @@ impl Engine {
 
     /// Live frames after `after`, with the stored backlog and the open reply's text so far.
     pub fn subscribe(&self, id: &str, after: i64) -> Result<Option<Subscription>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         let live = self.live(id);

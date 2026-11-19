@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { shutdownDeadline, trackStage } from "./shutdown.ts";
 import { relayPairing, relayRoute } from "./relay-route.ts";
 import { isHostedRelay } from "./relay-account.ts";
@@ -7,6 +8,7 @@ import { createSocketRegistry } from "./services/registry.ts";
 import { decodeDeviceFrame, parseSocketMessage } from "./services/socket-message.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
+import { pairedMachinePaths } from "./machine-paths.ts";
 import { MaintenanceGate } from "@ace/service";
 import { AppUpdateBoard } from "./app-update-board.ts";
 import { createMachineUpdates } from "./machine-update/create.ts";
@@ -46,6 +48,7 @@ import { admitUpgrades } from "./socket-upgrade.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
+import { provenDevice } from "./account-access/device-grant.ts";
 import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
 import {
   ACCESS_CHANGED_CLOSE,
@@ -81,6 +84,12 @@ export async function startServer(options: ServerOptions): Promise<{
   fingerprint?: string | undefined;
   /** Shutdown stages that started and have not finished. */
   pendingShutdown(): string[];
+  /**
+   * Remote access's first start, which listening never waits for: `direct` settles once the LAN
+   * and Tailscale listener started or failed, `networks` once every network did (relays too).
+   * Both settle on close and never reject; status says how each network is doing meanwhile.
+   */
+  remoteStarted: { direct: Promise<void>; networks: Promise<void> };
   outsideReach(): ReachFacts;
   close(): Promise<void>;
 }> {
@@ -112,7 +121,15 @@ export async function startServer(options: ServerOptions): Promise<{
   let remoteOrigin: string | undefined;
   const pairing = (): PairingConnection | undefined =>
     options.remote && remoteOrigin
-      ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
+      ? {
+          origin: remoteOrigin,
+          fingerprint: options.remote.identity.fingerprint,
+          // The person's own relay from launch options, as a second way in (ADR 0182).
+          ...(options.relay &&
+          !isHostedRelay(options.relay.url, options.remoteConfig?.hostedRelayUrl)
+            ? { alsoRelay: relayPairing(options.relay).relay }
+            : {}),
+        }
       : dynamicRemote
         ? dynamicRemote.pairing()
         : // A relay from launch options (`ACE_RELAY_URL`) is self-hosted unless it is ace's.
@@ -191,6 +208,15 @@ export async function startServer(options: ServerOptions): Promise<{
     ...(options.homeData ? { homeData: options.homeData } : {}),
     updateHold,
   };
+  // Paired machines learn where else this one answers from `describe` (ADR 0182).
+  options.servedPaths = () => pairedMachinePaths(access.remoteStatus(), access.pairing());
+  options.relayDeviceGrant = async (deviceId, url, signal) => {
+    const account = options.machineAccount;
+    // A grant goes only to ace's own relay: any other address a machine names could replay it.
+    if (!isHostedRelay(url, options.remoteConfig?.hostedRelayUrl)) return undefined;
+    if (!account?.status().signedIn) return undefined;
+    return account.deviceGrant(deviceId, signal);
+  };
   const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
   const remote = options.remote
     ? httpsServer({ ...options.remote.identity, minVersion: "TLSv1.2" }, remoteHttp())
@@ -234,6 +260,10 @@ export async function startServer(options: ServerOptions): Promise<{
   const authenticated = new Map<MainSocket, SessionActor>();
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
+  // No owner (ADR 0190): a fresh machine, or the person reset it by removing `ace-owner.json`
+  // with the daemon stopped, which a reader of ACE_HOME can't. No paired device or pending link
+  // is the person's until the next owner's proof makes one.
+  if (options.machineAccount?.ownerAccount() === undefined) auth.dropPersonStanding();
   const stopRevocation = auth.onRevoke((id) => {
     // Preview sessions name the credential that opened them, so the authority decides.
     void preview?.revalidate().catch((error: unknown) => options.log?.(error));
@@ -382,6 +412,33 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
+    // Any socket may prove the person's standing (ADR 0190): on this socket only, against this
+    // nonce and, relayed, this stream's Noise handshake hash, and only until the proving grant's
+    // expiry; a grant refresh never carries it on.
+    const standingNonce = randomBytes(16).toString("base64url");
+    const standingHost = options.machineAccount?.relayHostId();
+    const channelBinding = relayed
+      ? Buffer.from(relayed.channel.channelBinding).toString("base64url")
+      : undefined;
+    let personUntil = 0;
+    /** The owner generation this socket's standing was proven under; any change since ends it. */
+    let provenUnder = -1;
+    /** How it was proven: the owner's own grant, or a paired device's key. */
+    let provenBy: "account" | "device" | undefined;
+    // Whether this socket is the person's for person-only actions (ADR 0190): only once it proved
+    // it, under the machine's current owner, while that lasts. A device paired from a person's
+    // link proves it with its own key; its bearer token alone, the host token or an account
+    // device's admission never do, and nor does someone having signed in lately.
+    const personProven = () =>
+      personUntil > auth.now() && options.machineAccount?.standingHolds(provenUnder) === true;
+    /** Stamps a proof that began under `generation`, unless the owner changed since. */
+    const proved = (until: number, generation: number, by: "account" | "device") => {
+      if (options.machineAccount?.standingHolds(generation) !== true) return false;
+      personUntil = until;
+      provenUnder = generation;
+      provenBy = by;
+      return true;
+    };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
@@ -416,6 +473,7 @@ export async function startServer(options: ServerOptions): Promise<{
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential,
+      personProven,
       accountDevice: () => accountId,
       access: {
         auth,
@@ -678,6 +736,8 @@ export async function startServer(options: ServerOptions): Promise<{
           headSeq: options.store.headSeq(),
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
+          // Only a daemon that knows its relay host id can be proved to: proofs name it.
+          ...(standingHost ? { standingNonce, standingHost } : {}),
           ...(next ? { ticket: next } : {}),
           // Announced only where the pinned key authenticates it: over the relay.
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
@@ -726,6 +786,92 @@ export async function startServer(options: ServerOptions): Promise<{
             send({ type: "account.grant.refresh.result", requestId, result });
           return;
         }
+        case "account.standing": {
+          const { requestId } = message;
+          // A grant from the machine's owner only (ADR 0190), whatever account it is signed in to.
+          const checked = stillAdmitted()
+            ? await options.machineAccount?.proveStanding({
+                grant: message.grant,
+                proof: message.proof,
+                nonce: standingNonce,
+                binding: channelBinding,
+                deviceId: actor,
+              })
+            : undefined;
+          // Only if the owner is still the one it was checked against (ADR 0190 §3a).
+          const proven =
+            checked && proved(checked.until, checked.generation, "account") ? checked : undefined;
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({
+              type: "account.standing.result",
+              requestId,
+              result: proven
+                ? { ok: true, until: proven.until }
+                : {
+                    ok: false,
+                    code: "unauthorized",
+                    message: "That doesn't prove the person on this connection.",
+                  },
+            });
+          return;
+        }
+        case "device.standing": {
+          // A device paired from a person's link proves it holds the key it paired with, on this
+          // socket and channel (ADR 0190): its bearer token, which a host impersonated with a
+          // key read from ACE_HOME could collect, proves nothing.
+          const { requestId } = message;
+          const paired = authenticated.get(socket);
+          // Read before the key: a change of owner since then clears the key and ends the proof.
+          const seen = options.machineAccount?.ownerGeneration();
+          const keyNow = () =>
+            paired?.revocable === true
+              ? options.store.devices.standingKeyOf(paired.id, paired.generation, auth.now())
+              : undefined;
+          const record = keyNow();
+          const verified =
+            record !== undefined &&
+            seen !== undefined &&
+            standingHost !== undefined &&
+            (await provenDevice({
+              key: record,
+              proof: message.proof,
+              host: standingHost,
+              nonce: standingNonce,
+              binding: channelBinding,
+              deviceId: actor,
+            }));
+          // As long as this socket lasts, under this owner: revoking the device ends the socket
+          // (ADR 0115), and a change of owner its standing.
+          const ok =
+            verified &&
+            keyNow() === record &&
+            proved(Number.MAX_SAFE_INTEGER, seen ?? -1, "device");
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({
+              type: "account.standing.result",
+              requestId,
+              result: ok
+                ? { ok: true, until: Number.MAX_SAFE_INTEGER }
+                : {
+                    ok: false,
+                    code: "unauthorized",
+                    message: "That doesn't prove the person on this connection.",
+                  },
+            });
+          return;
+        }
+        case "account.owner.release": {
+          // Only a socket that proved the owner's own grant hands the machine on (ADR 0190 §3a),
+          // never a paired device; every standing proven under it, and every person's pairing,
+          // ends as the release starts.
+          const { requestId } = message;
+          const ok =
+            personProven() && provenBy === "account" && options.machineAccount !== undefined;
+          if (ok) await options.machineAccount?.releaseOwner(() => auth.dropPersonStanding());
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({ type: "account.owner.release.result", requestId, ok });
+          return;
+        }
         case "command":
           await admitCommand(message.command, {
             options,
@@ -736,7 +882,7 @@ export async function startServer(options: ServerOptions): Promise<{
             flights,
             open: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
             authorize,
-            hostCredential,
+            personProven,
             send,
             delay: runtime.delay,
           });
@@ -798,6 +944,7 @@ export async function startServer(options: ServerOptions): Promise<{
   );
   let port: number;
   let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
+  let remoteStarted = { direct: Promise.resolve(), networks: Promise.resolve() };
   try {
     port = await bind(local, "127.0.0.1", options.port);
     if (remote && options.remote) {
@@ -825,7 +972,12 @@ export async function startServer(options: ServerOptions): Promise<{
         },
       );
       options.applyRemoteSetting = dynamicRemote.set;
-      await dynamicRemote.start();
+      // In the background: a relay or a Tailscale read that never answers must not hold the
+      // daemon's listening. Each network reports its own state in status meanwhile, and a stop
+      // while it starts gives up what waits on the network (`close`).
+      const starting = dynamicRemote;
+      void starting.start().catch((error: unknown) => options.log?.(error));
+      remoteStarted = { direct: starting.directStarted, networks: starting.started };
     }
     if (options.preview)
       preview = await createDaemonPreview(options.store, options.preview, auth.now);
@@ -850,6 +1002,7 @@ export async function startServer(options: ServerOptions): Promise<{
     trackStage(closingStages, name, task);
   return {
     pendingShutdown: () => [...closingStages],
+    remoteStarted,
     ...(preview ? { preview } : {}),
     get relayHostId() {
       return dynamicRemote?.relayHostId ?? transports?.relayHostId;

@@ -999,6 +999,31 @@
     },
     {
       "properties": {
+        "folders": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "type": "array"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "files.watch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "folders"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "channel": {
           "maximum": 4294967295,
           "minimum": 1,
@@ -1038,6 +1063,12 @@
         "channel"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayCall.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayCancel.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/CommandsList.json"
@@ -2505,7 +2536,8 @@
             "browser",
             "screen",
             "provider_auth",
-            "media"
+            "media",
+            "machine"
           ],
           "type": "string"
         },
@@ -2560,6 +2592,11 @@
         "protocolVersion": {
           "const": 1,
           "type": "number"
+        },
+        "standing": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
         },
         "ticket": {
           "type": "string"

@@ -227,7 +227,7 @@ async fn files(State(state): State<AppState>, Path(id): Path<String>) -> Respons
     .await;
     match found {
         Ok(Ok(Some(files))) => Json(json!({ "files": files })).into_response(),
-        Ok(Ok(None)) => problem(StatusCode::NOT_FOUND, "no such group"),
+        Ok(Ok(None)) => problem(StatusCode::NOT_FOUND, "no such club"),
         Ok(Err(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
         Err(_) => problem(StatusCode::INTERNAL_SERVER_ERROR, "the request stopped"),
     }

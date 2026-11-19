@@ -11,7 +11,7 @@ import { useNow } from "@/lib/time.ts";
 import { knowledgeKey, readEpisode, readEpisodes } from "./spade-knowledge-api.ts";
 import { DocTop, LibraryRow, dayWords, leading } from "./spade-library-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileEmpty, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** Past work shown before Show all. */
@@ -47,6 +47,7 @@ export function LibraryPast(props: { bot: RosterBot; onOpen(id: string): void })
   return (
     <ProfileSection
       label="Past work"
+      bare={past.isSuccess && episodes.length === 0}
       actions={
         episodes.length > shownEpisodes && (
           <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAll(!all)}>
@@ -60,7 +61,7 @@ export function LibraryPast(props: { bot: RosterBot; onOpen(id: string): void })
       ) : past.isError && !past.data ? (
         <ProfileProblem text="Couldn't read the past work." onRetry={() => void past.refetch()} />
       ) : episodes.length === 0 ? (
-        <ProfileEmpty>{`Each goal ${bot.name} finishes is kept here.`}</ProfileEmpty>
+        <ProfileNone>{`Each goal ${bot.name} finishes is kept here.`}</ProfileNone>
       ) : (
         <SettingList aria-label={`${bot.name}'s past work`}>
           {shown.map((episode) => (

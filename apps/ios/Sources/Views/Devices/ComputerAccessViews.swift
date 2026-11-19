@@ -43,7 +43,7 @@ struct LockedUseRow: View {
                     Button("Check again") { model.lockedUse("recheck") }.accessibilityIdentifier("computer.locked.recheck")
                 }
                 .font(AceDesign.Typeface.body)
-                .tint(AceDesign.Ink.accent)
+                .tint(AceDesign.Ink.action)
                 .buttonStyle(.borderless)
                 .disabled(busy)
                 .frame(minHeight: AceDesign.Size.tap)

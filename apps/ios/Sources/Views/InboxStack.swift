@@ -12,6 +12,8 @@ struct InboxHeaderActions {
     var place: (SearchPlace) -> Void = { _ in }
     /// New thread on Threads, New chat on Chats.
     var compose: () -> Void = {}
+    /// Code review, from the Projects list's top bar.
+    var review: () -> Void = {}
     /// A page inside Settings, so Back lands on its list: the avatar menu's Profile and
     /// Archived threads.
     var page: (SettingsRoute) -> Void = { _ in }
@@ -19,9 +21,9 @@ struct InboxHeaderActions {
 
 /// One home list and the page it opens (`InboxSplit`): Threads (Inbox, Snoozed and Settled under
 /// the title) or Chats. A large title that collapses as the list scrolls, its menu choosing the
-/// machine, project and sort, the scope or a connection problem under it, and the round compose
-/// button where the tab bar doesn't hold it (`HomeTabs.composeTab`). Beside an open page the list
-/// carries the places at its foot (`SidebarPlaces`), where a phone has the tab bar.
+/// machine, project and sort, the scope or a connection problem under it, and in a regular window
+/// the compose button. Beside an open page the list carries the places at its foot
+/// (`SidebarPlaces`); on a phone its first page carries the tab bar (`HomeBar`), compose at its end.
 struct InboxStack<Destination: View, Side: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [InboxRoute]
@@ -76,9 +78,20 @@ struct InboxStack<Destination: View, Side: View>: View {
     private var chats: Bool { list == .chats }
 
     var body: some View {
-        InboxSplit(path: $path, drawer: $drawer, empty: chats ? "No chat open" : "No thread open", showing: tab == list, selecting: selecting) {
+        InboxSplit(path: $path, drawer: $drawer, selecting: selecting) {
             root.inboxCommands(commands)
-        } page: { page($0) } side: { side($0, $1) }
+        } page: { page($0) } side: { side($0, $1) } empty: { nothingOpen }
+    }
+
+    /// The detail column with nothing open: how many need the person, under the same guards as
+    /// the list's own needs-you line (Threads › Inbox, not picking), so Open first only opens a
+    /// thread the list beside it shows; otherwise a way to start one.
+    private var nothingOpen: some View {
+        let counts = !chats && threadsTab == "inbox" && !selecting
+        let shown = counts ? inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }.filter { $0.tab == threadsTab } : []
+        let waiting = inbox.needs(in: shown)
+        return NothingOpen(list: list, waiting: waiting.count, first: waiting.first?.thread, canStart: inbox.canStartThreads,
+                           open: { picking.open($0) }, compose: header.compose)
     }
 
     /// The list, its title and bar, and the places at its foot beside a page.
@@ -87,6 +100,12 @@ struct InboxStack<Destination: View, Side: View>: View {
             listed
                 .inboxFootBar {
                     if holds { SidebarPlaces(tab: $tab, open: header.place, needsYou: needsYou) }
+                }
+                // Select mode's own bar takes the tab bar's place.
+                .homeBar {
+                    if sizeClass != .regular && !selecting {
+                        HomeBar(tab: $tab, compose: inbox.canStartThreads ? header.compose : nil, needsYou: needsYou)
+                    }
                 }
                 .modifier(ListTitle(title: HomeTabs.title(list), subtitle: subtitle, selecting: selecting))
                 .toolbar { if selecting { selectToolbar } else { listToolbar } }
@@ -257,12 +276,20 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The person's avatar at the bar's leading edge, then the scope menu and compose on one
-    /// glass capsule at the right: system bar buttons with ace's glyphs, at the system's size. Compose shows where the tab bar doesn't hold it:
-    /// before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
+    /// The person's avatar at the bar's leading edge, then Code review (the Projects list; neither the
+    /// phone's tab bar nor the iPad sidebar's foot holds it), the scope menu and compose on one glass capsule at the right: system
+    /// bar buttons with ace's glyphs, at the system's size. Compose shows where the tab bar doesn't
+    /// hold it: before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
     /// title menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
         AccountToolbarItem(open: header.page, settings: header.settings)
+        if !chats {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: header.review) { Image(bar: HomeTabs.icon(.review)) }
+                    .accessibilityLabel(HomeTabs.title(.review))
+                    .accessibilityIdentifier("inbox.review")
+            }
+        }
         if !chats || inbox.showsMachineNames {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu { titleMenu } label: { Image(bar: .funnelSimple) }
@@ -270,7 +297,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                     .accessibilityIdentifier("inbox.projects")
             }
         }
-        if inbox.canStartThreads && (sizeClass == .regular || !HomeTabs.composeTab) {
+        if inbox.canStartThreads && sizeClass == .regular {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: header.compose) { Image(bar: HomeTabs.icon(.compose)) }
                     .accessibilityLabel(chats ? "New chat" : "New thread")

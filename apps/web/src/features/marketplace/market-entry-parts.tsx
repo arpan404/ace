@@ -4,12 +4,14 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useMarketSearch, type EntryKey } from "./market-api.ts";
+import { BotsApproval, waitsForBots } from "./market-bots-approval.tsx";
 import {
   Card,
   CardItem,
   Cards,
   EntryByline,
   Section,
+  shelfCount,
   entryVerified,
   publisherHandle,
   publisherName,
@@ -78,9 +80,14 @@ export function InstallAction(props: {
   if (action === "installed") {
     const target = props.detail.installed?.target;
     const bot = props.detail.summary.type === "spade-bot" && target;
+    const installed = props.detail.installed;
     return (
       <>
-        <span className="mk-state-word">Installed</span>
+        {waitsForBots(installed) ? (
+          <BotsApproval item={installed} />
+        ) : (
+          <span className="mk-state-word">Installed</span>
+        )}
         {props.extra}
         {bot && (
           <Button
@@ -194,13 +201,14 @@ export function MoreFrom(props: { entry: MarketEntrySummary; title?: string | un
         (other.byAce ? "ace" : other.publisher?.id) === by &&
         !(other.type === entry.type && other.name === entry.name),
     )
-    .slice(0, 4);
-  if (!by || !more.length) return null;
+    .slice(0, 8);
+  const shown = more.slice(0, shelfCount(4, more));
+  if (!by || !shown.length) return null;
   const title = props.title ?? `More from ${publisherName(entry) ?? ""}`;
   return (
     <Section title={title}>
-      <Cards cols={4} shelf label={title}>
-        {more.map((other) => (
+      <Cards cols={4} entries={shown} shelf label={title}>
+        {shown.map((other) => (
           <CardItem key={`${other.type}/${other.name}`}>
             <Card entry={other} />
           </CardItem>

@@ -1,0 +1,28 @@
+{
+  "json": {
+    "payload": {
+      "file": {
+        "lines": [
+          {
+            "line": 12,
+            "preview": "  const cached = cache.get(key);",
+            "ranges": [[17, 22]],
+            "column": 0
+          },
+          {
+            "line": 40,
+            "preview": "  cache.set(key, value);",
+            "ranges": [[2, 7]],
+            "column": 0
+          }
+        ],
+        "path": "apps/daemon/src/cache.ts"
+      },
+      "type": "matches"
+    },
+    "subscription": 3,
+    "type": "event"
+  },
+  "text": "{\"type\":\"event\",\"subscription\":3,\"payload\":{\"type\":\"matches\",\"file\":{\"path\":\"apps/daemon/src/cache.ts\",\"lines\":[{\"line\":12,\"column\":0,\"preview\":\"  const cached = cache.get(key);\",\"ranges\":[[17,22]]},{\"line\":40,\"column\":0,\"preview\":\"  cache.set(key, value);\",\"ranges\":[[2,7]]}]}}}",
+  "frame": "18010000017b2274797065223a226576656e74222c22737562736372697074696f6e223a332c227061796c6f6164223a7b2274797065223a226d617463686573222c2266696c65223a7b2270617468223a22617070732f6461656d6f6e2f7372632f63616368652e7473222c226c696e6573223a5b7b226c696e65223a31322c22636f6c756d6e223a302c2270726576696577223a222020636f6e737420636163686564203d2063616368652e676574286b6579293b222c2272616e676573223a5b5b31372c32325d5d7d2c7b226c696e65223a34302c22636f6c756d6e223a302c2270726576696577223a22202063616368652e736574286b65792c2076616c7565293b222c2272616e676573223a5b5b322c375d5d7d5d7d7d7d"
+}

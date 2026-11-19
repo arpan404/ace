@@ -31,7 +31,15 @@ export class FailureEpisodes {
  * Calls a remote parent or this daemon's poll repeats about once a second, which read and change
  * nothing: a success is not logged per call, only a failure episode's start and end.
  */
-export const routineOps = ["status", "describe", "command.jobs"] as const;
+export const routineOps = [
+  "status",
+  "describe",
+  "command.jobs",
+  // A parcel moves as many chunks and reads, and parents ask for parcels each round (ADR 0182).
+  "parcel.chunk",
+  "parcel.read",
+  "parcel.outbox",
+] as const;
 export function routineCall(op: string): boolean {
   return (routineOps as readonly string[]).includes(op);
 }

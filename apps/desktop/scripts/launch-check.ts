@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -55,13 +56,25 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
       });
     });
   } finally {
-    // Quitting stops the daemon the app started; a stuck app is killed.
+    // A stuck app is killed. Its daemon outlives it (ADR 0186), so it is stopped next.
     child.kill("SIGTERM");
     const quit = setTimeout(() => child.kill("SIGKILL"), quitTimeoutMs);
     await exited;
     clearTimeout(quit);
+    stopDaemon(env);
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/** Stops the daemon the check's app left running, with the `ace` command the app wrote. */
+function stopDaemon(env: NodeJS.ProcessEnv): void {
+  const ace = join(env.ACE_HOME ?? "", "bin", "ace");
+  if (!existsSync(ace)) return;
+  const stop = spawnSync(ace, ["stop"], { env, encoding: "utf8", timeout: quitTimeoutMs });
+  if (stop.status !== 0)
+    console.warn(
+      `The launch check's daemon may still be running (ace stop: ${stop.error?.message ?? (stop.stderr || stop.stdout).trim()})`,
+    );
 }
 
 function freePort(): Promise<number> {

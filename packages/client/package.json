@@ -26,8 +26,11 @@
     "./tool-icons": "./src/tool-icons.ts",
     "./terminal-keys": "./src/terminal-keys.ts",
     "./ace-account": "./src/ace-account.ts",
+    "./ace-client": "./src/ace-client.ts",
     "./install-id": "./src/install-id.ts",
-    "./link-proof": "./src/link-proof.ts"
+    "./link-proof": "./src/link-proof.ts",
+    "./market-intent": "./src/market-intent.ts",
+    "./standing": "./src/standing.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

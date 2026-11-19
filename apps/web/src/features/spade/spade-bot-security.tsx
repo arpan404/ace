@@ -1,31 +1,40 @@
-import { spadeGrantSentence, type SpadeBotSecurity } from "@ace/ui-core/spade-chat";
+import {
+  spadeGrantSentence,
+  spadeMachinePlace,
+  type SpadeBotSecurity,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { SettingFooter, SettingRow } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useNativePicker } from "@/lib/native-picker.ts";
+import { AutonomyChoice } from "./spade-autonomy-choice.tsx";
 import { ProfileCheckpoints, ProfileEgress } from "./spade-bot-checkpoints.tsx";
 import { CommandsChoice } from "./spade-commands-choice.tsx";
-import { ProfileNetwork } from "./spade-bot-network.tsx";
+import { ProfileNetworkRows } from "./spade-bot-network.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
-import { ProfileEmpty, ProfileSection } from "./spade-profile-parts.tsx";
+import { ProfileEmpty, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 import {
   addGrant,
   botSecurityKey,
   removeGrant,
+  setBotAutonomy,
   setBotCommands,
   useBotSecurity,
+  useSecurityMachine,
 } from "./spade-security-api.ts";
 import { Refusal } from "./spade-settings-rows.tsx";
-import type { RosterBot } from "./use-spade-roster.ts";
+import { agentsKey, type RosterBot } from "./use-spade-roster.ts";
 
 /**
- * The bot's boundaries (ADR 0167), sections of Details: its folders, its grants, its network,
- * its checkpoints and its network activity. Without a Spade that has them (or while it can't
- * answer) they aren't there.
+ * The bot's boundaries (ADR 0167), sections of Details: its folders, its grants, where its
+ * commands run and what it may reach, its checkpoints and its network activity. Without a Spade
+ * that has them (or while it can't answer) they aren't there.
  */
 export function ProfileSecurity(props: { bot: RosterBot }) {
   const security = useBotSecurity(props.bot.id);
@@ -35,26 +44,70 @@ export function ProfileSecurity(props: { bot: RosterBot }) {
     <>
       <ProfileFolders bot={props.bot} security={data} />
       <ProfileGrants bot={props.bot} security={data} />
-      <ProfileCommands bot={props.bot} security={data} />
-      <ProfileNetwork bot={props.bot} security={data} />
+      <ProfileBoundaries bot={props.bot} security={data} />
       <ProfileCheckpoints bot={props.bot} />
       <ProfileEgress bot={props.bot} />
     </>
   );
 }
 
-/** Where the bot's commands run: the sandbox, outside it, or as this Mac has it (ADR 0171). */
-function ProfileCommands(props: { bot: RosterBot; security: SpadeBotSecurity }) {
+/**
+ * How the bot decides (ADR 0163, amendment 2), then where its commands run and what it may reach
+ * (ADR 0171). A bot on the machine's settings
+ * says so in one line, with the way to them and Set its own; one with its own, or once the
+ * person sets its own, shows each choice with the way back to the machine's.
+ */
+function ProfileBoundaries(props: { bot: RosterBot; security: SpadeBotSecurity }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
+  const place = spadeMachinePlace(useSecurityMachine().data?.platform);
+  const [setting, setSetting] = useState(false);
   const { security } = props;
+  const own = security.own.commands || security.own.network || security.own.pluginNetwork;
+  const settings = (
+    <Link
+      to="/settings/spade/security"
+      className={cn(buttonVariants({ size: "sm", variant: "ghost" }), rowPill)}
+    >
+      Security settings
+    </Link>
+  );
+  const decides = (
+    <AutonomyChoice
+      title="How it decides"
+      value={security.autonomy}
+      who={props.bot.name}
+      confirmed={security.fullAccessConfirmed}
+      save={async (choice) => {
+        cache.setQueryData(
+          botSecurityKey(machine, props.bot.id, "bot"),
+          await setBotAutonomy(client, props.bot.id, choice),
+        );
+        // The bot's conversation says when it is in Full access: read the bots again.
+        await cache.invalidateQueries({ queryKey: agentsKey });
+      }}
+    />
+  );
+  if (!own && !setting)
+    return (
+      <ProfileSection label="Security" actions={settings}>
+        {decides}
+        <SettingRow title={`Same as ${place}`} density="compact" inline>
+          <Button size="sm" variant="ghost" onClick={() => setSetting(true)}>
+            Set its own
+          </Button>
+        </SettingRow>
+      </ProfileSection>
+    );
   return (
-    <ProfileSection label="Commands">
+    <ProfileSection label="Security" actions={settings}>
+      {decides}
       <CommandsChoice
+        title="Commands run"
         value={security.own.commands ? security.commands : "inherit"}
         effective={security.commands}
-        inheritable
+        inherit={`Same as ${place}`}
         save={async (choice) =>
           cache.setQueryData(
             botSecurityKey(machine, props.bot.id, "bot"),
@@ -62,6 +115,7 @@ function ProfileCommands(props: { bot: RosterBot; security: SpadeBotSecurity }) 
           )
         }
       />
+      <ProfileNetworkRows bot={props.bot} security={security} place={place} />
     </ProfileSection>
   );
 }
@@ -139,21 +193,28 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
             if (typed) add(typed);
           }}
         >
-          <Input
-            aria-label="Folder path"
-            placeholder="Add a folder"
-            value={path}
-            className="min-w-0 flex-1"
-            disabled={change.saving}
-            onChange={(event) => setPath(event.target.value)}
-          />
-          <Select<"read" | "write">
-            label="Access"
-            className="w-36 shrink-0"
-            value={write}
-            options={access}
-            onValueChange={setWrite}
-          />
+          {/* Each control says what it is, so the row reads as a sentence. */}
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-ui text-muted-foreground">
+            Folder
+            <Input
+              aria-label="Folder path"
+              placeholder="Path"
+              value={path}
+              className="min-w-0 flex-1"
+              disabled={change.saving}
+              onChange={(event) => setPath(event.target.value)}
+            />
+          </label>
+          <span className="flex shrink-0 items-center gap-2 text-ui text-muted-foreground">
+            Access
+            <Select<"read" | "write">
+              label="Access"
+              className="w-36 shrink-0"
+              value={write}
+              options={access}
+              onValueChange={setWrite}
+            />
+          </span>
           {picker && !typed ? (
             <Button
               size="sm"

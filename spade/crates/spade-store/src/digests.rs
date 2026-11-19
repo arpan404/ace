@@ -4,6 +4,7 @@
 
 use rusqlite::{OptionalExtension, params};
 
+use crate::gate::ARRIVING_AGENTS;
 use crate::{Result, Store};
 
 /// The schema step that adds digests.
@@ -114,7 +115,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS} FROM digests
-             WHERE (?1 IS NULL OR agent_id = ?1) AND id > ?2
+             WHERE (?1 IS NULL OR agent_id = ?1) AND id > ?2 AND agent_id NOT IN {ARRIVING_AGENTS}
              ORDER BY id DESC LIMIT ?3"
         ))?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -126,7 +127,9 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                &format!("SELECT {COLUMNS} FROM digests WHERE id = ?1"),
+                &format!(
+                    "SELECT {COLUMNS} FROM digests WHERE id = ?1 AND agent_id NOT IN {ARRIVING_AGENTS}"
+                ),
                 params![id],
                 row,
             )

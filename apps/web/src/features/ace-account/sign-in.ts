@@ -48,7 +48,8 @@ export async function browserSignIn(options: {
   try {
     const request = client.login(
       AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-      options.returnTo ? { returnTo: options.returnTo } : {},
+      // This window holds the session itself: the person's (ADR 0190).
+      { holder: "person", ...(options.returnTo ? { returnTo: options.returnTo } : {}) },
     );
     options.open(request.then((login) => login.loginUrl));
     pending = await request;

@@ -119,6 +119,12 @@ import {
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
+  MachineRelayAnswer,
+  MachineRelayCall,
+  MachineRelayCancel,
+  MachineRelayTransfer,
+} from "./machine-relay.ts";
+import {
   CommandsList,
   CommandsResolve,
   CommandsListResult,
@@ -301,6 +307,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
   UsageSeries,
   UsageSessionTotals,
   ...FilesClientMessage.options,
+  MachineRelayCall,
+  MachineRelayCancel,
+  MachineRelayTransfer,
   CommandsList,
   CommandsResolve,
   PromptFilesRequest,
@@ -421,6 +430,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   UsageLimitsChanged,
   UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
+  MachineRelayAnswer,
   CommandsListResult,
   CommandsResolveResult,
   PromptFilesResponse,
