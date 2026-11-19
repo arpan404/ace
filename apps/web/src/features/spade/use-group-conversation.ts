@@ -2,6 +2,7 @@ import { spadeLiveGroup } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { GroupFollow } from "./conversation-follow.ts";
+import { KeptFollows } from "./kept-follows.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { postGroupMessage, stopGroup } from "./spade-teams-api.ts";
@@ -12,6 +13,9 @@ import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { liveRowKey, usePublishLiveGroup } from "./spade-live-rows.ts";
 
+/** Clubs' conversations opened lately, kept for opening again at once. */
+const keptGroups = new KeptFollows<GroupFollow>();
+
 /**
  * One group's conversation, live (ADR 0132): read like a bot's, from its `conversation`; the
  * person posts to the group itself, which starts a run, and Stop ends the run.
@@ -20,8 +24,13 @@ export function useGroupConversation(group: { id: string; conversation: string }
   const client = useSpadeClient();
   const cache = useQueryClient();
   const ready = useSpadeStatus()?.state === "ready";
-  const [follow] = useState(
-    () => new GroupFollow(spadeTransport(client), group.conversation, followDeps),
+  // Opened before, it shows at once as last seen and catches up from there.
+  const [follow] = useState(() =>
+    keptGroups.take(
+      client,
+      group.conversation,
+      () => new GroupFollow(spadeTransport(client), group.conversation, followDeps),
+    ),
   );
   useEffect(() => {
     follow.start();

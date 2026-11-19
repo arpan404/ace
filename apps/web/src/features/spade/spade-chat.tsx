@@ -36,6 +36,7 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
+import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeStepsLine } from "./spade-steps-line.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
@@ -111,6 +112,9 @@ export function SpadeChat(props: {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
   const now = useSeconds(false);
+  const client = useSpadeClient();
+  // The same object while the conversation is: bubbles skip drawing again as others stream.
+  const keep = useMemo(() => ({ owner: client, conversation: bot.id }), [client, bot.id]);
   const proposals = props.proposals;
   const digests = props.digests;
   const rows = useMemo(
@@ -168,6 +172,7 @@ export function SpadeChat(props: {
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
+    keep,
   };
   return (
     <div
@@ -256,6 +261,8 @@ interface Handlers {
   onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
   face(id: string): SpadeAvatar;
+  /** Where its finished bubbles stay drawn: this Spade connection and conversation. */
+  keep: { owner: object; conversation: string };
 }
 
 /**
@@ -379,7 +386,12 @@ function RunItem(props: {
                 className={cn(chatBubble, framed)}
               >
                 {item.text && (
-                  <SpadeBubbleText text={item.text} stream={item.key} streaming={item.live} />
+                  <SpadeBubbleText
+                    text={item.text}
+                    stream={item.key}
+                    streaming={item.live}
+                    keep={handlers.keep}
+                  />
                 )}
                 {item.end === "failed" && item.failure ? (
                   <Failure

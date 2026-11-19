@@ -23,6 +23,11 @@ export const SpadeBubbleText = memo(function SpadeBubbleText(props: {
   stream?: string | undefined;
   /** Its words are still arriving. */
   streaming?: boolean | undefined;
+  /**
+   * Where it is kept drawn once finished (its Spade connection, conversation and bubble), so
+   * opening the conversation again shows it at once, never its marks first.
+   */
+  keep?: { owner: object; conversation: string } | undefined;
 }) {
   const side = props.side ?? "bot";
   if (side === "mine" && !looksLikeMarkdown(props.text))
@@ -33,6 +38,14 @@ export const SpadeBubbleText = memo(function SpadeBubbleText(props: {
       stream={props.stream}
       streaming={props.streaming}
       className={cn("ace-spade-prose", side === "mine" && "ace-spade-prose-mine")}
+      keep={
+        props.keep && props.stream !== undefined
+          ? {
+              owner: props.keep.owner,
+              scope: { threadId: `spade:${props.keep.conversation}`, itemId: props.stream },
+            }
+          : undefined
+      }
     />
   );
 });

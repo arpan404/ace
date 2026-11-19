@@ -2,6 +2,7 @@ import { spadeLiveAgent, type SpadeAnswer } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
+import { KeptFollows } from "./kept-follows.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
 import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { agentsKey } from "./use-spade-roster.ts";
@@ -9,6 +10,9 @@ import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { liveRowKey, usePublishLiveBot } from "./spade-live-rows.ts";
+
+/** Bots' conversations opened lately, kept for opening again at once. */
+const keptConversations = new KeptFollows<ConversationFollow>();
 
 /** What a card posts: exactly one of these. */
 export type QuestionReply =
@@ -35,8 +39,13 @@ export function useSpadeConversation(conversation: string) {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const ready = useSpadeStatus()?.state === "ready";
-  const [follow] = useState(
-    () => new ConversationFollow(spadeTransport(client), conversation, followDeps),
+  // Opened before, it shows at once as last seen and catches up from there.
+  const [follow] = useState(() =>
+    keptConversations.take(
+      client,
+      conversation,
+      () => new ConversationFollow(spadeTransport(client), conversation, followDeps),
+    ),
   );
   useEffect(() => {
     follow.start();

@@ -18,7 +18,8 @@ import { contentHash, LruCache } from "@ace/ui-core";
  * - a thread the client no longer holds (deleted, evicted, or the client closed) loses its
  *   entries (`sweep`);
  * - an answer whose cost its text doesn't bound (images, video, diagrams) is not kept;
- * - streaming answers and prose outside a thread item are never kept.
+ * - streaming answers are never kept, nor prose outside a thread item unless its view names its
+ *   own scope and owner (`keptAnswersOwnedBy`: a Spade conversation's bubbles).
  * While detached an entry calls no view: its hooks are let go, so it keeps no client, store or
  * workspace alive.
  */
@@ -280,6 +281,28 @@ export function keptAnswersFor(client: ClientApi): KeptAnswers {
     });
     kept = created;
     owned.set(client, kept);
+  }
+  return kept;
+}
+
+/** Where finished prose outside a thread is kept: its owner (a connection) and its scope. */
+export interface ProseKeep {
+  owner: object;
+  scope: AnswerScope;
+}
+
+/** Kept answers of prose that names its own scope, by whoever owns it (a Spade connection). */
+const ownedElsewhere = new WeakMap<object, KeptAnswers>();
+
+/**
+ * Kept answers for finished prose outside a thread whose view names its scope (a Spade
+ * conversation's bubbles): bounded as a client's are, and dropped with their owner.
+ */
+export function keptAnswersOwnedBy(owner: object): KeptAnswers {
+  let kept = ownedElsewhere.get(owner);
+  if (!kept) {
+    kept = new KeptAnswers(() => true);
+    ownedElsewhere.set(owner, kept);
   }
   return kept;
 }

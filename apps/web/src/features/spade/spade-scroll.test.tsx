@@ -1,8 +1,8 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, fireEvent, screen, waitFor } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -71,4 +71,23 @@ test("a message sent while scrolled up takes the conversation to its end, where 
   );
   await screen.findByText("One more thing");
   await waitFor(() => expect(scroller.scrollTop).toBe(2000));
+});
+
+test("a conversation opened again shows at once as it was left, without reading its history again", async () => {
+  const { spade } = await spadeApp("/spade/garden", (api) => {
+    garden(api);
+    api.addAgent({ id: "weather", name: "Weather" });
+  });
+  within(await screen.findByRole("feed", { name: "Conversation with Garden" })).getByText(
+    "Answer 5",
+  );
+  const reads = () => spade.sentPaths("GET", /^\/v1\/conversations\/c-garden\/events\?after=0/);
+  expect(reads()).toHaveLength(1);
+  await userEvent.click(await botRow("Weather"));
+  await screen.findByRole("feed", { name: "Conversation with Weather" });
+  await userEvent.click(await botRow("Garden"));
+  // Back at once: its answers are there in the first frame, and its history wasn't read again.
+  const feed = screen.getByRole("feed", { name: "Conversation with Garden" });
+  expect(within(feed).getByText("Answer 5")).toBeTruthy();
+  expect(reads()).toHaveLength(1);
 });

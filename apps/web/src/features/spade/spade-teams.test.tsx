@@ -104,10 +104,9 @@ test("a group's chat shows the person, each member's face and name at the start 
     "Spade asked Research",
   ]);
   // Each member's turn starts with its face and name.
-  expect(chat.getAllByRole("article", { name: "Research" }).map((row) => row.textContent)).toEqual([
-    "ResearchThree options",
-    "Tuesday is cheapest",
-  ]);
+  expect(
+    chat.getAllByRole("article", { name: "Research" }).map((row) => row.textContent?.trim()),
+  ).toEqual(["ResearchThree options", "Tuesday is cheapest"]);
   const [firstRun, lastRun] = chat.getAllByRole("article", { name: "Research" });
   expect(firstRun?.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
   expect(lastRun?.querySelector("svg.bot-face")).toBeNull();
