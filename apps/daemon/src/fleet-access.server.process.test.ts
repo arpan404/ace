@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SettingsService } from "@ace/settings";
 import {
+  CommandId,
   FleetResult,
   PairingResponse,
   type FleetOperation,
@@ -217,6 +218,86 @@ it("revoking every other device spares the caller's own, which the device list m
     [credential.device.id]: false,
   });
   await expect(f.ticket(phone.token)).rejects.toThrow("HTTP 401");
+});
+
+it("an administrator allows a scope it holds on a paired device, which keeps its credential", async () => {
+  const f = await setup();
+  const link = await f.pair(["read", "operate"]);
+  const change = (commandId: string, scope: "projects" | "read" | "operate", allowed: boolean) =>
+    ({
+      op: "scope",
+      commandId: CommandId.parse(commandId),
+      deviceId: link.device.id,
+      scope,
+      allowed,
+    }) as const;
+  // An administrator without Projects can't hand it out, here as with pairing links.
+  const { client: admin } = await pairedSocket(f, ["admin"]);
+  expect(await ask(admin, change("admin-allows", "projects", true))).toMatchObject({
+    error: { code: "forbidden" },
+  });
+  const host = await welcomed(await f.connect());
+  expect(await ask(host, change("host-allows", "projects", true))).toMatchObject({
+    result: { kind: "scoped", device: { scopes: ["read", "operate", "projects"] } },
+  });
+  // The same token still opens a session, now holding Projects.
+  expect((await f.ticket(link.token)).ticket).toBeTruthy();
+  expect((await ask(host, { op: "devices" })).result).toMatchObject({
+    devices: expect.arrayContaining([
+      expect.objectContaining({ id: link.device.id, scopes: ["read", "operate", "projects"] }),
+    ]),
+  });
+  // Narrowing needs only administrator access; the last scope stays, since removing is Remove.
+  expect(await ask(admin, change("admin-narrows", "projects", false))).toMatchObject({
+    result: { device: { scopes: ["read", "operate"] } },
+  });
+  await ask(host, change("no-operate", "operate", false));
+  expect(await ask(host, change("no-read", "read", false))).toMatchObject({
+    error: { code: "invalid" },
+  });
+  // The same id again for another device answers nothing as applied, and changes nothing.
+  const other = await f.pair(["read", "operate"]);
+  expect(
+    await ask(host, { ...change("host-allows", "projects", true), deviceId: other.device.id }),
+  ).toMatchObject({ error: { code: "invalid" } });
+  expect(await ask(host, change("host-allows", "projects", false))).toMatchObject({
+    error: { code: "invalid" },
+  });
+  expect((await ask(host, { op: "devices" })).result).toMatchObject({
+    devices: expect.arrayContaining([
+      expect.objectContaining({ id: other.device.id, scopes: ["read", "operate"] }),
+    ]),
+  });
+  // A command id another device used is its receipt, not this one's.
+  expect(await ask(admin, change("host-allows", "projects", true))).toMatchObject({
+    error: { code: "forbidden" },
+  });
+});
+
+it("a connection that is open when its device loses Projects is refused on its next request", async () => {
+  const f = await setup();
+  const { credential, client } = await pairedSocket(f, ["read", "operate", "projects"]);
+  let asked = 0;
+  const browse = async () => {
+    const requestId = `home-${++asked}`;
+    client.send({ type: "projects.request", requestId, operation: { op: "fs.home" } });
+    for (;;) {
+      const message: ServerMessage = await client.next();
+      if (message.type === "projects.result" && message.requestId === requestId)
+        return message.result;
+    }
+  };
+  expect(await browse()).not.toMatchObject({ kind: "error", code: "forbidden" });
+  const host = await welcomed(await f.connect());
+  await ask(host, {
+    op: "scope",
+    commandId: CommandId.parse("take-projects"),
+    deviceId: credential.device.id,
+    scope: "projects",
+    allowed: false,
+  });
+  // The same socket, never reconnected.
+  expect(await browse()).toMatchObject({ kind: "error", code: "forbidden" });
 });
 
 it("a device without administrator access can't use fleet requests", async () => {

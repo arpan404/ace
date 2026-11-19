@@ -15,6 +15,7 @@ import {
   type CommandPayload,
   type CommandResult,
   type DeviceScope,
+  type FleetOperation,
   type ServerMessage,
   type Transfer,
   type TransfersRequest,
@@ -132,20 +133,28 @@ async function window(daemon: { url: string; tokenPath: string }) {
       { timeout: 30_000, interval: 20 },
     );
   }
-  async function links() {
+  /** One `fleet.request`: its result, or the refusal's code. */
+  async function fleet(operation: FleetOperation) {
     const requestId = `fleet-${++sequence}`;
-    client.send({ type: "fleet.request", requestId, operation: { op: "links" } });
+    client.send({ type: "fleet.request", requestId, operation });
     return vi.waitFor(
       () => {
         const found = messages.find(
-          (message) => message.type === "fleet.result" && message.requestId === requestId,
+          (message) =>
+            (message.type === "fleet.result" || message.type === "error") &&
+            message.requestId === requestId,
         );
-        if (found?.type !== "fleet.result" || found.result.kind !== "links")
-          throw new Error("No links yet");
-        return found.result.links;
+        if (found?.type === "fleet.result") return found.result;
+        if (found?.type === "error") return { kind: "refused" as const, code: found.code };
+        throw new Error("No answer yet");
       },
       { timeout: 30_000, interval: 20 },
     );
+  }
+  async function links() {
+    const result = await fleet({ op: "links" });
+    if (result.kind !== "links") throw new Error("No links");
+    return result.links;
   }
   /** Every `transfer.progress` push this window got for one transfer, in order. */
   const progress = (commandId?: string): Transfer[] =>
@@ -155,7 +164,15 @@ async function window(daemon: { url: string; tokenPath: string }) {
         ? [message.transfer]
         : [],
     );
-  return { command, request, links, progress, messages, lastCommand: () => `command-${sequence}` };
+  return {
+    command,
+    request,
+    fleet,
+    links,
+    progress,
+    messages,
+    lastCommand: () => `command-${sequence}`,
+  };
 }
 
 /** Polls and retries wait 20 ms in tests instead of up to 30 s. */
@@ -310,9 +327,16 @@ export async function transferMachines(
     sourceRoot,
     targetRoot,
     targetHostId,
+    /** The source's device on the target: the link's credential there. */
+    linkDevice: credential.device.id,
+    /** That credential's token, and where the target listens for paired devices. */
+    linkToken: credential.token,
+    targetOrigin: remoteUrl.replace("wss:", "https:").replace(/\/$/, ""),
     get here() {
       return here;
     },
+    /** The target's own app window. */
+    targetWindow: () => window(target.daemon),
     addProject,
     settled,
     restartSource,

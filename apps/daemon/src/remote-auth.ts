@@ -216,6 +216,28 @@ export class RemoteAuth {
     return this.devices.list();
   }
   /**
+   * Allows or stops allowing `scope` for paired device `id`, keeping its credential, so a link
+   * between the person's machines can take projects without pairing again (ADR 0101). Callers
+   * check the asker holds a scope before allowing it. Local credentials never change here, and a
+   * device keeps at least one scope: removing its last one is Remove.
+   */
+  setScope(id: string, scope: Scope, allowed: boolean): Device {
+    const at = this.now();
+    const device = this.devices.get(id);
+    if (!device || device.revokedAt !== null || (device.expiresAt ?? Infinity) <= at)
+      throw new AccessError(404, "That device isn't paired anymore.");
+    if (localOnly(device) || scope === "desktop" || scope === "user-browser")
+      throw new AccessError(403, "This machine's own credentials can't change here.");
+    const scopes = allowed
+      ? [...device.scopes, scope]
+      : device.scopes.filter((each) => each !== scope);
+    if (scopes.length === 0)
+      throw new AccessError(400, "A device keeps at least one kind of access. Remove it instead.");
+    const changed = this.devices.setScopes(id, scopes, at);
+    if (!changed) throw new AccessError(404, "That device isn't paired anymore.");
+    return changed;
+  }
+  /**
    * Revokes `id` and every record folded into it (ADR 0115). Listeners hear each revoked id, so
    * the folded records' sockets, notifications and relay channels close too.
    */
