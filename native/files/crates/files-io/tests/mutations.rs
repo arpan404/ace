@@ -109,19 +109,21 @@ fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
     use files_io::test_hooks::{Step, report_taken, watch};
 
     let fixture = Fixture::new();
-    fixture.write("Notes.md", b"the original\n");
+    // The names are unique to this test: every watcher in the process sees every move, and two
+    // tests sharing a spelling would write into each other's fixtures.
+    fixture.write("RaceNotes.md", b"the original\n");
     let folder = fixture.dir().to_path_buf();
     // A volume that folds both spellings together reports the destination as taken, so the entry
     // has to travel through a staging name. Between the two steps both names are free, and a
     // replacing rename there would silently discard what another writer put at the destination.
-    let _taken = report_taken("Notes.md", "notes.md");
+    let _taken = report_taken("RaceNotes.md", "racenotes.md");
     let _hook = watch(move |step, from, _to| {
-        if step == Step::BetweenMoveSteps && from == "Notes.md" {
-            std::fs::write(folder.join("notes.md"), b"someone else\n").expect("squatter");
+        if step == Step::BetweenMoveSteps && from == "RaceNotes.md" {
+            std::fs::write(folder.join("racenotes.md"), b"someone else\n").expect("squatter");
         }
     });
 
-    let error = files_io::rename(fixture.root(), "Notes.md", "notes.md", None, None)
+    let error = files_io::rename(fixture.root(), "RaceNotes.md", "racenotes.md", None, None)
         .expect_err("a move that could not be put back is its own outcome");
 
     let names: Vec<String> = std::fs::read_dir(fixture.dir())
@@ -139,7 +141,7 @@ fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
     assert_eq!(error.code(), "STRANDED");
     let kept = names
         .iter()
-        .find(|name| name.starts_with("Notes.conflict-"))
+        .find(|name| name.starts_with("RaceNotes.conflict-"))
         .expect("the entry is preserved under a visible name");
     assert_eq!(
         error.recovery().as_deref(),
@@ -158,7 +160,7 @@ fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
         "no private staging name is left behind: {names:?}"
     );
     assert_eq!(
-        fixture.read("notes.md"),
+        fixture.read("racenotes.md"),
         b"someone else\n",
         "the name that appeared is never replaced"
     );

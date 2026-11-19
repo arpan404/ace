@@ -314,9 +314,11 @@ pub fn measure(root: &Root, path: &str, walks: &Walks) -> Result<Measurement, Er
         return measure_folder(root, path, root.dir(), walks);
     }
     for _ in 0..2 {
-        let target = crate::policy::authorized_target(root, path)?;
-        crate::hooks::reached(crate::hooks::Step::MeasureTarget, path, path);
-        let own = match target.dir.symlink_metadata(&target.name) {
+        // The leaf is read where the policy proved it, never followed by its spelling: a folder
+        // is opened without following and a link is measured through the target one walk resolved.
+        let parent = root.open_parent_stored(path)?;
+        crate::policy::refuse_components(&parent.folders, &parent.name, path)?;
+        let own = match parent.dir.symlink_metadata(&parent.name) {
             Ok(metadata) => metadata,
             Err(error) if transient_kind(error.kind()) => {
                 return Ok(Measurement {
@@ -327,14 +329,30 @@ pub fn measure(root: &Root, path: &str, walks: &Walks) -> Result<Measurement, Er
             Err(error) => return Err(error.into()),
         };
         if own.file_type().is_symlink() {
-            // The walk resolved every link, so a link here is one that replaced the entry after
-            // the check: look again rather than read a target this request never authorized.
-            continue;
+            let target = crate::policy::authorized_target(root, path)?;
+            crate::hooks::reached(crate::hooks::Step::MeasureTarget, path, path);
+            let found = match target.dir.symlink_metadata(&target.name) {
+                Ok(metadata) => metadata,
+                Err(error) if transient_kind(error.kind()) => {
+                    return Ok(Measurement {
+                        bytes: 0,
+                        shallow: false,
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            };
+            // A delete carries the link itself, so only a file target's size stands in for what
+            // the entry is worth; a folder behind a link is not carried by the delete at all.
+            return Ok(Measurement {
+                bytes: if found.is_file() { found.len() } else { 0 },
+                shallow: false,
+            });
         }
         if own.is_dir() {
             // The very folder the walk proved, opened without following a link that may have
             // replaced it in between.
-            match target.dir.open_dir_nofollow(&target.name) {
+            crate::hooks::reached(crate::hooks::Step::MeasureTarget, path, path);
+            match parent.dir.open_dir_nofollow(&parent.name) {
                 Ok(folder) => return measure_folder(root, path, &folder, walks),
                 Err(error) if transient_kind(error.kind()) => continue,
                 Err(error) => return Err(error.into()),

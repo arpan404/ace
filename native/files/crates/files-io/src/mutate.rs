@@ -501,7 +501,8 @@ fn case_only_move(
     staging: Option<&str>,
 ) -> Result<TwoStep, Error> {
     let staging = staging.map_or_else(handle::moving_name, str::to_owned);
-    match handle::rename_noclobber(from_dir, from, from_dir, &staging)? {
+    let first = handle::rename_noclobber(from_dir, from, from_dir, &staging);
+    match first? {
         Noclobber::Done => {}
         Noclobber::Exists => {
             return Err(Error::Io(std::io::Error::new(
@@ -512,7 +513,8 @@ fn case_only_move(
         Noclobber::Unsupported => return Ok(TwoStep::Unsupported),
     }
     crate::hooks::reached(crate::hooks::Step::BetweenMoveSteps, from, to);
-    match handle::rename_noclobber(from_dir, &staging, to_dir, to) {
+    let second = handle::rename_noclobber(from_dir, &staging, to_dir, to);
+    match second {
         Ok(Noclobber::Done) => Ok(TwoStep::Done),
         refused => {
             // Neither name is where the entry belongs now: put it back exactly where it was, and
