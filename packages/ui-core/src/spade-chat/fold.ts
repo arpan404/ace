@@ -776,12 +776,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "reply_interrupted":
       return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
     case "reply_retried": {
-      // The next reply answers the same turn: the failure goes, what the reply said stays.
+      // The next reply answers the same turn in its place: the failure goes, and so do the words
+      // its failed call left unfinished (no step stored them), which the model no longer reads
+      // either; what its finished steps said and did stays.
       const index = replyAt(state, event.reply);
       const entry = index === undefined ? undefined : state.entries[index];
       if (index === undefined || entry?.kind !== "reply" || entry.end?.kind !== "failed")
         return false;
-      state.entries[index] = { ...entry, end: { kind: "finished" } };
+      const parts = entry.parts.filter((part) => part.key !== `${entry.key}:end`);
+      state.entries[index] = { ...entry, parts, end: { kind: "finished" } };
       return true;
     }
     case "task_paused":
