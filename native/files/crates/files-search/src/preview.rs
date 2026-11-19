@@ -10,14 +10,18 @@ pub(crate) const PREVIEW_BYTES: usize = 400;
 /// The leading padding kept before the first match on a line too long to show whole.
 const LEAD: usize = PREVIEW_BYTES / 5;
 
-/// A preview of `line`, plus each match's byte range inside that preview.
+/// A preview of `line`, the UTF-16 length of the line before it, and each match's byte range
+/// inside the preview. The UTF-16 offset lets an editor place a match from a cut line.
 ///
 /// Long lines are cut to [`PREVIEW_BYTES`] around the first match on them, on UTF-8 boundaries,
 /// so a minified file cannot stall the search with megabytes of preview text.
-pub(crate) fn preview(line: &[u8], spans: &[Range<usize>]) -> (String, Vec<(u32, u32)>) {
+pub(crate) fn preview(line: &[u8], spans: &[Range<usize>]) -> (String, u64, Vec<(u32, u32)>) {
     let line = trim_terminator(line);
     let window = window(line, spans);
     let text = String::from_utf8_lossy(&line[window.clone()]).into_owned();
+    let column = String::from_utf8_lossy(&line[..window.start])
+        .encode_utf16()
+        .count() as u64;
     let mut ranges = Vec::with_capacity(spans.len());
     for span in spans {
         // A span that only touches the window's edge shows no text; keeping it would add an
@@ -31,7 +35,7 @@ pub(crate) fn preview(line: &[u8], spans: &[Range<usize>]) -> (String, Vec<(u32,
         let to = from + lossy_len(&line[start..end]);
         ranges.push((from as u32, to as u32));
     }
-    (text, ranges)
+    (text, column, ranges)
 }
 
 /// The stretch of `line` a preview keeps: the whole line when it is short.

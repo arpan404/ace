@@ -85,6 +85,7 @@ pub fn file_matches(file: files_search::FileMatches) -> files_wire::FileMatches 
 fn line_match(line: files_search::LineMatch) -> files_wire::LineMatch {
     files_wire::LineMatch {
         line: line.line,
+        column: line.column,
         preview: line.preview,
         ranges: line.ranges,
     }
