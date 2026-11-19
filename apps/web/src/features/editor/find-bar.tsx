@@ -40,7 +40,7 @@ export function EditorFindBar(props: {
             props.onClose();
           }
         }}
-        className="h-full min-w-0 flex-1 bg-transparent text-ui text-foreground focus-ring placeholder:text-subtle-foreground"
+        className="h-6 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-visible:border-ring"
       />
       <Toggle
         label="Match case"

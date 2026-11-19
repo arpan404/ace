@@ -298,7 +298,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       aria-label={props.label}
       data-selected-lines={selected}
       className={cn(
-        "flex h-full min-h-0 flex-col focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]",
+        "flex h-full min-h-0 flex-col",
         props.className,
       )}
     >
@@ -317,7 +317,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           onClose={finder.close}
         />
       ) : null}
-      <div className="relative min-h-0 flex-1">
+      <div
+        data-editor-frame
+        className="relative min-h-0 flex-1 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
+      >
         <div
           ref={scroller}
           data-editor-scroller
