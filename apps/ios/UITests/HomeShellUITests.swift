@@ -83,17 +83,23 @@ import XCTest
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(field.isHittable, "Search's field is hidden until the list is pulled down")
         capture("search-field")
-        // Where Search is a plain tab (iOS 27, compose detached), the first tap shows Search and
-        // tapping it again focuses the field. On iOS 26 the system's own search tab turns into
-        // the field, which takes the tap.
+        // The first tap shows Search without the keyboard; tapping its tab again focuses the field.
         let tab = app.homeTab("search")
-        if tab.exists && tab.isHittable {
-            XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
-            tab.tap()
-        } else {
-            field.tap()
-        }
+        XCTAssertTrue(tab.isHittable, "Search's tab stays in the bar while Search shows")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+        tab.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
+    }
+
+    func testTappingProjectsAgainOnAScrolledListGoesBackToTheTop() {
+        let app = launch()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        for _ in 0..<4 where app.inboxReady.reachable { app.swipeUp() }
+        XCTAssertFalse(app.inboxReady.reachable, "the list never scrolled away from its top")
+        let projects = app.homeTab("threads")
+        XCTAssertTrue(projects.isSelected)
+        projects.tap()
+        XCTAssertTrue(app.inboxReady.waitForHittable(timeout: 5), "a second tap on Projects goes back to the list's top")
     }
 
     func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
