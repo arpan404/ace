@@ -226,7 +226,7 @@ export function holdSpadeOrder(
   const fresh = entries.filter((entry) => !at.has(spadeEntryKey(entry)));
   const kept = entries
     .filter((entry) => at.has(spadeEntryKey(entry)))
-    .sort((a, b) => (at.get(spadeEntryKey(a)) ?? 0) - (at.get(spadeEntryKey(b)) ?? 0));
+    .toSorted((a, b) => (at.get(spadeEntryKey(a)) ?? 0) - (at.get(spadeEntryKey(b)) ?? 0));
   return [...fresh, ...kept];
 }
 

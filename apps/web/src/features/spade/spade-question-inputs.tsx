@@ -101,9 +101,10 @@ export function QuestionInputs(props: {
         if (!option || event.target instanceof HTMLInputElement) return;
         event.preventDefault();
         toggle(option.label);
-        event.currentTarget
-          .querySelectorAll<HTMLElement>('[role="radio"], [role="checkbox"]')
-          [at]?.focus({ preventScroll: true });
+        const choices = event.currentTarget.querySelectorAll<HTMLElement>(
+          '[role="radio"], [role="checkbox"]',
+        );
+        choices[at]?.focus({ preventScroll: true });
       };
       const rows = question.options.map((option, index) => {
         const on = picks.picked.includes(option.label);

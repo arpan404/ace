@@ -266,9 +266,10 @@ test("a worker's row keeps its own state when its maker is pinned", () => {
   expect(rest[0]?.row.state).toBe("working");
 });
 
+const names = (entries: ReturnType<typeof spadeListEntries>) =>
+  entries.map((entry) => (entry.kind === "bot" ? entry.bot.name : entry.group.name));
+
 test("while the pointer holds the list, a row that turns busy stays in its place, still current, and a new one comes first", () => {
-  const names = (entries: ReturnType<typeof spadeListEntries>) =>
-    entries.map((entry) => (entry.kind === "bot" ? entry.bot.name : entry.group.name));
   const before = spadeListEntries(
     [
       bot({ id: "a", name: "Alpha", last_activity: 3 }),

@@ -113,20 +113,32 @@ export function Scroller(props: {
     // `follow` reads only refs: the first one is as good as any.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A wheel or trackpad turned up is the person reading back, before it even scrolls; so are the
+  // keys that scroll up, from inside the transcript (not a card's options or fields, where they
+  // move between choices).
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      if (event.deltaY < 0 && atEnd.current) letGo();
+    };
+    const key = (event: KeyboardEvent) => {
+      const control = event.target instanceof Element && event.target.closest(controls);
+      if (readBackKeys.has(event.key) && !control && atEnd.current) letGo();
+    };
+    element.addEventListener("wheel", wheel, { passive: true });
+    element.addEventListener("keydown", key);
+    return () => {
+      element.removeEventListener("wheel", wheel);
+      element.removeEventListener("keydown", key);
+    };
+    // `letGo` reads refs and stable setters only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <>
       <div
         ref={scroller}
-        onWheel={(event) => {
-          // A wheel or trackpad turned up is the person reading back, before it even scrolls.
-          if (event.deltaY < 0 && atEnd.current) letGo();
-        }}
-        onKeyDown={(event) => {
-          // So are the keys that scroll up, from inside the transcript (not a card's options
-          // or fields, where they move between choices).
-          const control = event.target instanceof Element && event.target.closest(controls);
-          if (readBackKeys.has(event.key) && !control && atEnd.current) letGo();
-        }}
         onScroll={(event) => {
           const element = event.currentTarget;
           const up = movedUp(element);

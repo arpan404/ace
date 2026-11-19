@@ -316,9 +316,9 @@ export function Conversation(props: {
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
-        send={(message) => {
+        send={(outgoing) => {
           setSent((count) => count + 1);
-          return conversation.send(message);
+          return conversation.send(outgoing);
         }}
       />
     </div>
