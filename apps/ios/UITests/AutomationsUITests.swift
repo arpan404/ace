@@ -218,15 +218,20 @@ import XCTest
         XCTAssertTrue(option.waitForExistence(timeout: 5), "\(label) isn't offered in \(identifier)")
         option.tap()
     }
-    /// Short slow drags, down the list then back up, until `target` shows clear of the bars.
+    /// Short slow drags, down the list then back up, until `target` shows clear of the bars. The
+    /// drags stay in the list above the keyboard while it is up (a field the test typed in keeps it
+    /// open), since a drag that starts on the keyboard never scrolls the list.
     private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
-        let top = app.frame.height * 0.15, bottom = app.frame.height * 0.8
+        let keyboard = app.keyboards.firstMatch
+        let visible = keyboard.exists ? keyboard.frame.minY : app.frame.height
+        let top = app.frame.height * 0.15, bottom = visible * 0.8
         for attempt in 0..<16 {
             if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
                target.frame.minY > top, target.frame.maxY < bottom { return }
             let below = !target.exists ? attempt < 8 : target.frame.minY >= bottom
-            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.65 : 0.35))
-            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.4 : 0.6))
+            let high = visible / app.frame.height * 0.35, low = visible / app.frame.height * 0.7
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? low : high))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? high : low))
             from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
         }
     }
