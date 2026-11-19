@@ -104,7 +104,7 @@ export class LiveSource {
     await ports.stopTerminals(threadId);
     await this.stopChildren(threadId, transferId, signal);
     // The provider's process goes, so its background shells stop and its session file is whole.
-    await ports.stopProvider(threadId);
+    await this.closeWithin(threadId, ports.now() + interruptMs, signal, "The agent");
     const folder = join(input.directory, `${transferId}.final.d`);
     await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -140,21 +140,50 @@ export class LiveSource {
   }
   /**
    * Stops every subagent thread running here and waits until each has really stopped: its turn
-   * ended (up to 30 s after the interrupt) and its provider process closed, which ends it
-   * regardless once that wait runs out. Only then is the final snapshot taken.
+   * ended, then its provider process closed and exited. The whole wait, polling and closes
+   * together, is bounded by 30 s from the interrupt; a child still running then fails the move
+   * before the hand-over, so no snapshot is taken while it writes.
    */
   private async stopChildren(threadId: string, transferId: string, signal: AbortSignal) {
     const { ports } = this;
     const children = ports.localChildren(threadId);
     for (const child of children)
       ports.stopChild(child.threadId, `transfer-live:${transferId}:stop:${child.threadId}`);
-    const since = ports.now();
+    const until = ports.now() + interruptMs;
     for (const child of children) {
-      while (ports.turnFacts(child.threadId).turnRunning && ports.now() - since < interruptMs) {
+      while (ports.turnFacts(child.threadId).turnRunning && ports.now() < until) {
         signal.throwIfAborted();
         await ports.sleep(250, signal);
       }
-      await ports.stopProvider(child.threadId);
+      await this.closeWithin(child.threadId, until, signal, `The subagent "${child.title}"`);
+    }
+  }
+  /** Ends a thread's provider process and waits for it to exit, by `until` at the latest. */
+  private async closeWithin(threadId: string, until: number, signal: AbortSignal, who: string) {
+    const { ports } = this;
+    const closed = ports.stopProvider(threadId).then(
+      () => "exited" as const,
+      () => "failed" as const,
+    );
+    const waited = new AbortController();
+    const onAbort = () => waited.abort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      const outcome = await Promise.race([
+        closed,
+        ports
+          .sleep(Math.max(0, until - ports.now()), waited.signal)
+          .then(() => "timed_out" as const),
+      ]);
+      signal.throwIfAborted();
+      if (outcome !== "exited")
+        throw new TransferError(
+          "process_still_running",
+          `${who} on this machine didn't stop, so the work stayed here.`,
+        );
+    } finally {
+      waited.abort();
+      signal.removeEventListener("abort", onAbort);
     }
   }
   private async safePoint(
