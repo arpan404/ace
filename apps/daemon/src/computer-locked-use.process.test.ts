@@ -6,10 +6,11 @@
  */
 import { expect, test } from "vitest";
 import { computerLockedUseGate } from "./computer-locked-use.ts";
+import type { Engine } from "./engine/index.ts";
 import { end, harness, scriptFrames, start } from "./engine/test-support.ts";
 
 /** The Mac is locked, locked use is on and installed: every call in a turn runs protected. */
-function lockedMac(engine: Parameters<typeof computerLockedUseGate>[0]["engine"]) {
+function lockedMac(engine: Engine) {
   const protectedTurns: string[] = [];
   let unprotected = 0;
   const gate = computerLockedUseGate({
