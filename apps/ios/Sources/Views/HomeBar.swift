@@ -15,6 +15,9 @@ struct HomeBar: View {
     var needsYou: (InboxTab) -> Bool = { _ in false }
     @Environment(\.showsSpade) private var showsSpade
     @Environment(\.homeRetap) private var retap
+    /// At accessibility text sizes the names leave the bar, as the system's tab bars drop theirs:
+    /// a long press shows each in the Large Content Viewer instead.
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var keyboard = false
     @Namespace private var fill
 
@@ -62,12 +65,14 @@ struct HomeBar: View {
                                 .offset(x: AceDesign.Space.tight, y: -AceDesign.Space.tight / 2)
                         }
                     }
-                Text(HomeTabs.title(place))
-                    .aceFont(AceDesign.TextRole.caption)
-                    .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
-                    .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if !typeSize.isAccessibilitySize {
+                    Text(HomeTabs.title(place))
+                        .aceFont(AceDesign.TextRole.caption)
+                        .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                        .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
             .padding(.vertical, AceDesign.Space.tight)
             .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
@@ -77,6 +82,10 @@ struct HomeBar: View {
             .contentShape(AceShape.capsule)
         }
         .buttonStyle(.plain)
+        .accessibilityShowsLargeContentViewer {
+            HomePlaceGlyph(place: place, chosen: chosen)
+            Text(HomeTabs.title(place))
+        }
         .accessibilityLabel(HomeTabs.title(place))
         .accessibilityValue(dot ? "Needs you" : "")
         .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
@@ -99,6 +108,10 @@ struct HomeBar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityShowsLargeContentViewer {
+            Image(HomeTabs.tabImage(.compose, chosen: false))
+            Text(title)
+        }
         .barGlass(in: Circle())
         .floatingShadow()
         .accessibilityLabel(title)
