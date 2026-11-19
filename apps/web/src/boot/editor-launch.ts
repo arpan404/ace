@@ -109,3 +109,23 @@ export function editorIconReader(
     return typeof icon === "string" && pngDataUrl.test(icon) ? icon : null;
   };
 }
+
+/**
+ * The desktop app's reader of any installed app's icon by the bundle or `.exe` the daemon found
+ * for it, for apps the desktop app has no editor id for; undefined in a browser. Resolves null
+ * when this computer has no such app (the daemon's may be another machine).
+ */
+export function appIconReader(
+  scope: object = globalThis,
+): ((path: string) => Promise<string | null>) | undefined {
+  const ace: unknown = Reflect.get(scope, "ace");
+  if (typeof ace !== "object" || ace === null || !("shell" in ace)) return undefined;
+  const shell: unknown = ace.shell;
+  if (typeof shell !== "object" || shell === null || !("appIcon" in shell)) return undefined;
+  const read: unknown = shell.appIcon;
+  if (typeof read !== "function") return undefined;
+  return async (path) => {
+    const icon: unknown = await Promise.resolve(Reflect.apply(read, shell, [path]));
+    return typeof icon === "string" && pngDataUrl.test(icon) ? icon : null;
+  };
+}

@@ -19,12 +19,14 @@ const marks: Record<string, { src: string; monochrome?: boolean }> = {
 /** The installed app's OS icon, or its published brand mark in a browser. */
 export function EditorIcon(props: {
   id: string | undefined;
+  /** The launcher or bundle the daemon found, for an app without a known editor id. */
+  app?: string | undefined;
   size?: number;
   className?: string;
   /** The glyph when there is neither an OS icon nor a brand mark; a code file by default. */
   fallback?: Icon;
 }) {
-  const native = useEditorAppIcon(props.id ?? "");
+  const native = useEditorAppIcon(props.id ?? "", props.app);
   const size = props.size ?? 16;
   const mark = marks[props.id ?? ""];
   const Glyph = props.fallback ?? FileCodeIcon;

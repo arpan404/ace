@@ -83,3 +83,26 @@ test("an editor this device can't open itself opens on the daemon's machine and 
   );
   expect(await within(side).findByRole("button", { name: "Open in Xcode" })).toBeTruthy();
 });
+
+test("in the desktop app a terminal shows its own app icon, read from its bundle", async () => {
+  const icon = "data:image/png;base64,R0hPU1RUWQ==";
+  const asked: string[] = [];
+  Reflect.set(window, "ace", {
+    shell: {
+      appIcon: async (path: string) => {
+        asked.push(path);
+        return path === "/Applications/Ghostty.app" ? icon : null;
+      },
+    },
+  });
+  try {
+    const { menu } = await openFile();
+    const row = within(await menu()).getByRole("menuitem", { name: "Ghostty" });
+    await waitFor(() =>
+      expect(row.querySelector('[data-app-icon="ghostty"]')?.getAttribute("src")).toBe(icon),
+    );
+    expect(asked).toContain("/Applications/Ghostty.app");
+  } finally {
+    Reflect.deleteProperty(window, "ace");
+  }
+});

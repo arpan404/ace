@@ -199,7 +199,7 @@ export function FileToolbar(props: {
           <SplitButton
             variant="ghost"
             className="ml-1 h-7"
-            icon={<EditorIcon id={editor?.id} />}
+            icon={<EditorIcon id={editor?.id} app={editor?.command} />}
             actionLabel={
               offline ??
               (editor ? `Open in ${editor.name}` : (apps.unavailable ?? "No editors installed"))

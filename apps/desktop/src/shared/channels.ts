@@ -21,6 +21,7 @@ import {
   DesktopSettingsPatch,
   EditorIconImage,
   EditorIconRequest,
+  AppIconRequest,
   NativeAppearance,
   NotifyRequest,
   OpenInEditor,
@@ -116,6 +117,8 @@ export const requests = {
   /** An installed editor's icon from the OS, for "Open in" (never a bundled logo). */
   "shell.appIdentity": { request: AppIdentityRequest, result: AppIdentity },
   "shell.editorIcon": { request: EditorIconRequest, result: EditorIconImage },
+  /** An installed app's icon by its bundle or `.exe`, for apps without an editor id. */
+  "shell.appIcon": { request: AppIconRequest, result: EditorIconImage },
   "shell.openExternal": { request: ExternalUrl, result: z.boolean() },
   /**
    * The native folder picker, for Add project: the absolute path chosen, or null when the

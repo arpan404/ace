@@ -24,8 +24,9 @@ export interface OpenWithTarget {
 /** An installed app's icon: an editor's own, a terminal's or the file manager's glyph. */
 export function OpenInAppIcon(props: { app: OpenInApp }) {
   const { app } = props;
-  if (app.kind === "editor") return <EditorIcon id={app.id} />;
-  if (app.kind === "terminal") return <EditorIcon id={app.id} fallback={TerminalWindowIcon} />;
+  if (app.kind === "editor") return <EditorIcon id={app.id} app={app.command} />;
+  if (app.kind === "terminal")
+    return <EditorIcon id={app.id} app={app.command} fallback={TerminalWindowIcon} />;
   return <FolderOpenIcon aria-hidden size={16} />;
 }
 

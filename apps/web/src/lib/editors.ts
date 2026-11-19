@@ -3,7 +3,7 @@ import { readJson, writeJson } from "@ace/ui-core";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useConnectionState } from "@ace/client-react";
-import { editorIconReader } from "@/boot/editor-launch.ts";
+import { appIconReader, editorIconReader } from "@/boot/editor-launch.ts";
 import { z } from "zod";
 import { useDaemonQuery } from "./daemon-query.ts";
 import { useLayout } from "./layout.tsx";
@@ -68,16 +68,21 @@ export function useEditors(): {
 }
 
 /**
- * An installed editor's own icon as this computer's OS draws it (a PNG data URL): the desktop
- * app reads it from the app itself, so nothing is bundled. Undefined in a browser, which can't
- * ask, or while it is read; null when the OS has none.
+ * An installed app's own icon as this computer's OS draws it (a PNG data URL): the desktop app
+ * reads it from the app itself, so nothing is bundled. An editor the desktop app knows is read
+ * by its id; any other app by `app`, the bundle or `.exe` the daemon found. Undefined in a
+ * browser, which can't ask, or while it is read; null when the OS has none.
  */
-export function useEditorAppIcon(id: string): string | null | undefined {
-  const read = editorIconReader();
+export function useEditorAppIcon(id: string, app?: string): string | null | undefined {
+  const byId = editorIconReader();
+  const byPath = appIconReader();
   return useQuery({
-    queryKey: ["editor-icon", id],
-    queryFn: () => (read ? read(id) : null),
-    enabled: read !== undefined,
+    queryKey: ["editor-icon", id, app ?? ""],
+    queryFn: async () => {
+      const own = byId ? await byId(id) : null;
+      return own ?? (app && byPath ? byPath(app) : null);
+    },
+    enabled: byId !== undefined || byPath !== undefined,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   }).data;
