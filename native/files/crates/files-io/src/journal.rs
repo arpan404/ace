@@ -265,56 +265,85 @@ fn resolve(root: &Root, journal: &str) -> Result<SaveRecovery, Error> {
 }
 
 /// Puts the displaced entry back, or keeps it where a person can see it.
+///
+/// Every private name the record says the save could use is inspected. One that holds this save's
+/// own copy is removed; any other entry there is the one the swap moved — whether or not its
+/// identity is the one the record wrote down, because the entry a swap displaces is whatever held
+/// the name at that instant. Such an entry goes back to its own name when that name is free, and
+/// otherwise under a visible recovery name. The record is reported unresolved, and so kept, while
+/// any of those entries is still hidden.
 fn settle(root: &Root, record: &Record) -> Result<SaveRecovery, Error> {
     let parent = root.open_parent_unlinked(&record.path)?;
     policy::refuse_components(&parent.folders, &parent.name, &record.path)?;
     let dir = &parent.dir;
     let name = parent.name.as_str();
-    let staged = identity_at(dir, &record.staging)?;
-    // The copy this save wrote is at a private name only while the swap never happened; finding
-    // its own identity means it is the uncommitted copy and never the entry that left the name.
-    let ours = staged == Some(record.staged);
-    // The entry this save displaced, wherever the interrupted swap left it: the Windows move-aside
-    // parks it under `preserved`, and the Unix exchange leaves it under the staging name.
-    let mut hidden = None;
+    // Every private name of this save that holds an entry now.
+    let mut hidden: Vec<(String, (u64, u64))> = Vec::new();
     if let Some(preserved) = &record.preserved
-        && identity_at(dir, preserved)? == Some(record.displaced)
+        && let Some(identity) = identity_at(dir, preserved)?
     {
-        hidden = Some(preserved.clone());
-    }
-    if hidden.is_none() && !ours && staged == Some(record.displaced) {
-        hidden = Some(record.staging.clone());
-    }
-    let outcome = match hidden {
-        Some(hidden) => match restore(dir, name, &hidden, &record.path) {
-            Some(outcome) => outcome,
-            None => preserve(dir, name, &hidden, &record.path),
-        },
-        // The swap never happened, or the entry it displaced is already gone: either way the file
-        // at the name is the caller's own and nothing of theirs is hidden.
-        None => SaveRecovery::Discarded {
-            path: record.path.clone(),
-        },
-    };
-    // The staging name is the copy this save wrote and never published: it is provably ours by
-    // its identity, so it is removed. An entry of any other identity is left alone.
-    if ours {
-        match dir.remove_file(&record.staging) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+        if identity == record.staged {
+            remove_if_present(dir, preserved)?;
+        } else {
+            hidden.push((preserved.clone(), identity));
         }
     }
-    Ok(outcome)
+    let staged = identity_at(dir, &record.staging)?;
+    let ours = staged == Some(record.staged);
+    if let Some(identity) = staged.filter(|identity| *identity != record.staged) {
+        hidden.push((record.staging.clone(), identity));
+    }
+    // The entry the record names as the displaced one is put back first, so the move's own
+    // version is the one that returns to the name; anything else is kept beside it.
+    hidden.sort_by_key(|(_, identity)| *identity != record.displaced);
+    let mut outcome: Option<SaveRecovery> = None;
+    let mut left_hidden = false;
+    for (index, (at, _)) in hidden.iter().enumerate() {
+        let placed = if index == 0 && restore(dir, name, at) {
+            SaveRecovery::Restored {
+                path: record.path.clone(),
+            }
+        } else {
+            preserve(dir, name, at, &record.path)
+        };
+        if matches!(placed, SaveRecovery::Unresolved { .. }) {
+            left_hidden = true;
+        } else if outcome.is_none() {
+            outcome = Some(placed);
+        }
+    }
+    // The copy this save wrote and never published is provably ours by its identity, so it is
+    // removed rather than offered as a version of the file.
+    if ours {
+        remove_if_present(dir, &record.staging)?;
+    }
+    Ok(if left_hidden {
+        SaveRecovery::Unresolved {
+            path: record.path.clone(),
+            reason: "an entry this save moved could not be placed where a person can see it"
+                .to_owned(),
+        }
+    } else {
+        outcome.unwrap_or_else(|| SaveRecovery::Discarded {
+            path: record.path.clone(),
+        })
+    })
 }
 
 /// Moves the displaced entry back to its own name when that name is free, never replacing one.
-fn restore(dir: &Dir, name: &str, hidden: &str, path: &str) -> Option<SaveRecovery> {
-    match handle::rename_noclobber(dir, hidden, dir, name) {
-        Ok(handle::Noclobber::Done) => Some(SaveRecovery::Restored {
-            path: path.to_owned(),
-        }),
-        _ => None,
+fn restore(dir: &Dir, name: &str, hidden: &str) -> bool {
+    matches!(
+        handle::rename_noclobber(dir, hidden, dir, name),
+        Ok(handle::Noclobber::Done)
+    )
+}
+
+/// Removes a private name that is this save's own, treating one already gone as done.
+fn remove_if_present(dir: &Dir, name: &str) -> Result<(), Error> {
+    match dir.remove_file(name) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -326,7 +355,7 @@ fn preserve(dir: &Dir, name: &str, hidden: &str, path: &str) -> SaveRecovery {
             Ok(handle::Noclobber::Done) => {
                 return SaveRecovery::Preserved {
                     path: path.to_owned(),
-                    at: kept,
+                    at: beside(path, &kept),
                 };
             }
             Ok(handle::Noclobber::Exists) => continue,
@@ -338,6 +367,14 @@ fn preserve(dir: &Dir, name: &str, hidden: &str, path: &str) -> SaveRecovery {
     SaveRecovery::Unresolved {
         path: path.to_owned(),
         reason: format!("{hidden} could not be moved to a visible name"),
+    }
+}
+
+/// The full path of `name` beside the path `path`, which names an entry in that same folder.
+fn beside(path: &str, name: &str) -> String {
+    match path.rsplit_once('/') {
+        Some((folder, _)) => format!("{folder}/{name}"),
+        None => name.to_owned(),
     }
 }
 
@@ -450,9 +487,9 @@ mod tests {
         );
     }
 
-    /// A name the record does not prove holds its entry is never moved or removed.
+    /// An occupied private name is an entry this save moved, whatever identity it reports.
     #[test]
-    fn a_preserved_name_that_holds_another_entry_is_left_alone() {
+    fn an_entry_the_record_cannot_prove_is_still_kept_visible() {
         let dir = tempfile::tempdir().expect("temp dir");
         std::fs::write(
             dir.path().join(".ace-upload-move-1-1"),
@@ -477,19 +514,21 @@ mod tests {
 
         let outcome = settle(&root, &record).expect("resolve the record");
 
+        let SaveRecovery::Preserved { at, .. } = outcome else {
+            panic!("the entry is kept where a person can see it: {outcome:?}");
+        };
+        assert!(!at.starts_with(".ace-upload-"), "{at}");
         assert_eq!(
-            outcome,
-            SaveRecovery::Discarded {
-                path: "doc.md".to_owned()
-            }
-        );
-        assert_eq!(
-            std::fs::read(dir.path().join(".ace-upload-move-1-1")).expect("read"),
+            std::fs::read(dir.path().join(&at)).expect("read"),
             b"another program\n"
         );
         assert_eq!(
             std::fs::read(dir.path().join("doc.md")).expect("read"),
             b"the new bytes\n"
+        );
+        assert!(
+            !dir.path().join(".ace-upload-move-1-1").exists(),
+            "nothing is left under the private name"
         );
     }
 

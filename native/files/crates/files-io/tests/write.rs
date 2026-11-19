@@ -353,46 +353,6 @@ fn a_crash_that_left_the_name_free_puts_the_displaced_version_back() {
     );
 }
 
-#[cfg(all(feature = "test-hooks", unix))]
-#[test]
-fn a_start_never_removes_an_entry_its_record_does_not_name() {
-    use files_io::SaveRecovery;
-    use files_io::test_hooks::{Step, halt_at};
-
-    let fixture = Fixture::new();
-    fixture.write("foreign.md", b"the version the caller read\n");
-    let version = fixture.version("foreign.md");
-    let _hook = halt_at(Step::AfterSaveSwap, "foreign.md");
-    write(
-        fixture.root(),
-        "foreign.md",
-        b"the bytes that landed\n",
-        Some(&version),
-    )
-    .expect_err("the save stops where the crash would");
-    // The private name now holds something this save never wrote: another program's entry.
-    let staging = private_names(fixture.dir())
-        .into_iter()
-        .find(|name| name.starts_with(".ace-upload-") && !name.starts_with(".ace-upload-journal-"))
-        .expect("the displaced entry waits under a private name");
-    std::fs::remove_file(fixture.path(&staging)).expect("clear the name");
-    std::fs::write(fixture.path(&staging), b"another program's bytes\n").expect("plant it");
-
-    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
-    assert_eq!(
-        outcomes,
-        vec![SaveRecovery::Discarded {
-            path: "foreign.md".to_owned()
-        }]
-    );
-    assert_eq!(
-        fixture.read(&staging),
-        b"another program's bytes\n",
-        "an entry the record does not name is never removed"
-    );
-    assert_eq!(fixture.read("foreign.md"), b"the bytes that landed\n");
-}
-
 #[test]
 fn a_start_waits_for_a_save_that_holds_the_checkout_lock() {
     use std::sync::mpsc;
@@ -426,4 +386,51 @@ fn a_start_waits_for_a_save_that_holds_the_checkout_lock() {
         "the start resolves the checkout once the lock is free"
     );
     starter.join().expect("the start thread");
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_start_keeps_an_entry_the_record_cannot_prove_under_a_visible_name() {
+    use files_io::SaveRecovery;
+    use files_io::test_hooks::{Step, halt_at};
+
+    let fixture = Fixture::new();
+    fixture.write("unknown.md", b"the version the caller read\n");
+    let version = fixture.version("unknown.md");
+    let _hook = halt_at(Step::AfterSaveSwap, "unknown.md");
+    write(
+        fixture.root(),
+        "unknown.md",
+        b"the bytes that landed\n",
+        Some(&version),
+    )
+    .expect_err("the save stops where the crash would");
+    // The private name no longer holds the entry the record proves: another program's entry sits
+    // where the displaced one was. It is still an entry this save moved out of the name.
+    let staging = private_names(fixture.dir())
+        .into_iter()
+        .find(|name| !name.starts_with(".ace-upload-journal-"))
+        .expect("the displaced entry waits under a private name");
+    std::fs::remove_file(fixture.path(&staging)).expect("clear the name");
+    std::fs::write(
+        fixture.path(&staging),
+        b"an entry the record cannot prove\n",
+    )
+    .expect("plant");
+
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    let Some(SaveRecovery::Preserved { at, .. }) = outcomes.first() else {
+        panic!("the entry is kept where a person can see it: {outcomes:?}");
+    };
+    assert_eq!(
+        fixture.read(at),
+        b"an entry the record cannot prove\n",
+        "the entry is preserved whole"
+    );
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "nothing stays under a private name: {:?}",
+        private_names(fixture.dir())
+    );
+    assert_eq!(fixture.read("unknown.md"), b"the bytes that landed\n");
 }
