@@ -9,20 +9,27 @@ import SwiftUI
 struct SpadeMark: View {
     var size: CGFloat = AceDesign.Size.barIcon
     /// A Spade bot works: the pupils look around and the eyes blink now and then (`SpadeMotion`),
-    /// until it stops. Still under Reduce Motion.
+    /// until it stops. Still under Reduce Motion and while the app isn't active.
     var moving = false
     @Environment(\.aceReduceMotion) private var reduceMotion
+    /// In the background, the app switcher or behind the lock screen the face is still.
+    @Environment(\.scenePhase) private var scenePhase
 
     private static let paper = Color(red: 0xF6 / 255, green: 0xF6 / 255, blue: 0xF7 / 255)
     private static let ink = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255)
 
     var body: some View {
         Group {
-            if moving && !reduceMotion {
-                // Only this mark redraws on the timeline: two eyes, a few small shapes.
-                TimelineView(.animation) { context in
+            if moving && !reduceMotion && scenePhase == .active {
+                // Only this mark redraws, and only while its eyes move (`SpadeMotion.Schedule`);
+                // a timeline slowed below live (the lock screen's always-on) holds the face still.
+                TimelineView(SpadeMotion.Schedule()) { context in
                     let seconds = context.date.timeIntervalSinceReferenceDate
-                    face(look: SpadeMotion.look(at: seconds), open: SpadeMotion.blink(at: seconds))
+                    if context.cadence == .live {
+                        face(look: SpadeMotion.look(at: seconds), open: SpadeMotion.blink(at: seconds))
+                    } else {
+                        face(look: .zero, open: 1)
+                    }
                 }
             } else {
                 face(look: .zero, open: 1)

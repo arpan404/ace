@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 /// A working Spade's eyes at a moment, as the web's `fx-spade-look` and `fx-spade-blink` move them
 /// (`motion.css`, ADR 0127): the pupils glance up-left, then up-right, then back, every 2.8 s on the
@@ -39,6 +40,41 @@ enum SpadeMotion {
         case ..<0.50: return 1 + (closed - 1) * easeInOut((t - 0.46) / 0.04)
         case ..<0.54: return closed + (1 - closed) * easeInOut((t - 0.50) / 0.04)
         default: return 1
+        }
+    }
+
+    /// Where in each cycle the eyes move (fractions of it); between these they hold still.
+    static let lookMoves: [ClosedRange<Double>] = [0.18...0.26, 0.44...0.52, 0.70...0.78]
+    static let blinkMoves: [ClosedRange<Double>] = [0.46...0.54]
+    /// How often the mark redraws while its eyes move.
+    static let frame = 1.0 / 60
+
+    /// The next moment the mark needs drawing after `seconds`: a frame later while the eyes move
+    /// (landing on the end of the movement), else the start of the next movement. Between
+    /// movements nothing redraws.
+    static func nextTick(after seconds: Double) -> Double {
+        min(nextTick(after: seconds, cycle: lookCycle, moves: lookMoves),
+            nextTick(after: seconds, cycle: blinkCycle, moves: blinkMoves))
+    }
+
+    private static func nextTick(after seconds: Double, cycle: Double, moves: [ClosedRange<Double>]) -> Double {
+        let base = (seconds / cycle).rounded(.down) * cycle
+        // This cycle's movements and the next cycle's first, in seconds.
+        let windows = moves.map { (base + $0.lowerBound * cycle, base + $0.upperBound * cycle) }
+            + [(base + cycle + moves[0].lowerBound * cycle, base + cycle + moves[0].upperBound * cycle)]
+        for (start, end) in windows {
+            if seconds < start { return start }
+            if seconds < end { return min(seconds + frame, end) }
+        }
+        return base + cycle + moves[0].lowerBound * cycle
+    }
+
+    /// The mark's timeline: display-rate frames only while the eyes move.
+    struct Schedule: TimelineSchedule {
+        func entries(from startDate: Date, mode: TimelineScheduleMode) -> UnfoldFirstSequence<Date> {
+            sequence(first: startDate) { date in
+                Date(timeIntervalSinceReferenceDate: SpadeMotion.nextTick(after: date.timeIntervalSinceReferenceDate))
+            }
         }
     }
 
