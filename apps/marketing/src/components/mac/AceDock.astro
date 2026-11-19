@@ -1,7 +1,8 @@
 ---
 /*
  * Under the open thread: what waits on you (an approval card, or a strip for a device request
- * or a usage limit), the thread's status strip, and the composer.
+ * or a usage limit), the thread's status strip, and the composer, set to the open thread's
+ * agent (Codex on the soak test, Claude elsewhere).
  */
 import { providerIcon } from "@ace/ui-core/provider-icons";
 import BrandMark from "../BrandMark.astro";
@@ -9,6 +10,7 @@ import AppIcon from "./AppIcon.astro";
 import { machines } from "../../content/stage.ts";
 
 const claude = providerIcon({ provider: "claude" }).brand;
+const codex = providerIcon({ provider: "codex" }).brand;
 const linux = machines.find((machine) => machine.id === "build-server")?.name;
 ---
 
@@ -28,6 +30,10 @@ const linux = machines.find((machine) => machine.id === "build-server")?.name;
       ><b>Waiting for 2 agents</b> · 1 on {linux} · <span data-seconds="248">4m 8s</span
       ></span
     >
+    <b>Stop</b>
+  </div>
+  <div class="strip before-done" data-for="soak" hidden>
+    <span><b>Working</b> · <span data-seconds="248">4m 8s</span></span>
     <b>Stop</b>
   </div>
   <div class="strip ask device-ask" data-for="sign-in" hidden>
@@ -59,8 +65,11 @@ const linux = machines.find((machine) => machine.id === "build-server")?.name;
       <span class="access"><AppIcon name="shield-check" size={16} />Auto review</span>
       <span class="model">
         <span class="provider"
-          >{claude && <BrandMark brand={claude} size={15} />}<i data-account>P</i></span
-        >Opus 5.5 <span>· Medium</span>
+          ><span class="as-claude">{claude && <BrandMark brand={claude} size={15} />}</span><span
+            class="as-codex">{codex && <BrandMark brand={codex} size={15} />}</span
+          ><i data-account>P</i></span
+        ><span class="name as-claude">Opus 5.5</span><span class="name as-codex">GPT-6.2 Sol</span>
+        <span>· Medium</span>
         <AppIcon name="caret-down" size={12} />
       </span>
       <span class="send"><AppIcon name="arrow-up" size={16} /></span>

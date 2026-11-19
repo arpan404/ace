@@ -17,6 +17,7 @@ import {
   website,
   type Node,
 } from "../seo/schema.ts";
+import { cardFor } from "../seo/cards.ts";
 import { markdownPath } from "../seo/markdown.ts";
 import Base from "./Base.astro";
 
@@ -47,6 +48,7 @@ const data = graph([
   structuredData={data}
   ogType={path === "/" ? "website" : "article"}
   markdown={markdownPath(path)}
+  ogImage={cardFor(path)}
 >
   <Backdrop />
   <Nav />

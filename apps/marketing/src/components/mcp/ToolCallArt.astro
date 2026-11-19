@@ -1,0 +1,273 @@
+---
+/*
+ * One ace tool call as it happens: a Codex thread whose browser steps read as the app words
+ * them (ui-core's ace-tool-specs), beside ace's browser with Codex's pointer on the button it
+ * is pressing. The steps arrive one by one once the drawing comes into view; without motion
+ * everything simply shows. Decorative: the page's words say the same.
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import BrandMark from "../BrandMark.astro";
+import AgentPointer from "../home/showcase/AgentPointer.astro";
+import UsingStrip from "../home/showcase/UsingStrip.astro";
+import AppIcon from "../mac/AppIcon.astro";
+
+const codex = providerIcon({ provider: "codex" }).brand;
+const steps = [
+  { verb: "Opened", detail: "localhost:5173/signup" },
+  { verb: "Resized the browser to", detail: "390×844" },
+  { verb: "Read the page" },
+  { verb: "Clicked “Create account”" },
+];
+---
+
+<div class="art piece reveal" aria-hidden="true">
+  <div class="win">
+    <div class="thread">
+      <div class="title">
+        {codex && <BrandMark brand={codex} size={16} />}
+        <b>Signup button on phones</b>
+      </div>
+      <p class="you">The signup button wraps on phones. Check it at 390 wide and fix it.</p>
+      <div class="steps">
+        {
+          steps.map((step, index) => (
+            <div class="step" style={`--n: ${index}`}>
+              <AppIcon name="globe" size={15} />
+              <span>{step.verb}</span>
+              {step.detail && <code>{step.detail}</code>}
+            </div>
+          ))
+        }
+      </div>
+      <p class="reply">The label wraps at this width. Shortening it in Signup.tsx.</p>
+    </div>
+
+    <div class="browser">
+      <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="url">localhost:5173/signup</span>
+      </div>
+      <div class="site">
+        <b>Create your account</b>
+        <span class="field">ada@example.com</span>
+        <span class="field">••••••••••</span>
+        <span class="button">
+          Create account
+          <AgentPointer name="Codex" />
+        </span>
+      </div>
+      <UsingStrip who="Codex" what="this tab" />
+    </div>
+  </div>
+</div>
+
+<style>
+  /* The ground the window stands on: the home page's showcase tiles, without their words. */
+  .art {
+    position: relative;
+    height: clamp(380px, 36vw, 440px);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--raised);
+    container-type: inline-size;
+  }
+
+  .win {
+    position: absolute;
+    inset: 24px -1px -1px 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: hidden;
+    border-radius: 12px 0 0;
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--border-strong);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /* The browser stands beside the thread once the drawing has room for both. */
+  .browser {
+    display: none;
+  }
+
+  @container (min-width: 440px) {
+    .win {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .browser {
+      display: block;
+    }
+  }
+
+  .thread {
+    padding: 14px 18px;
+    min-width: 0;
+  }
+
+  .title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .title b {
+    font-weight: 600;
+  }
+
+  .you {
+    width: fit-content;
+    max-width: 92%;
+    margin-left: auto;
+    padding: 8px 13px;
+    border-radius: 14px;
+    background: var(--raised);
+  }
+
+  .steps {
+    margin-top: 14px;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    min-width: 0;
+    color: var(--muted);
+  }
+
+  .step :global(svg) {
+    flex: none;
+    color: var(--subtle);
+  }
+
+  .step span {
+    white-space: nowrap;
+  }
+
+  .step code {
+    min-width: 0;
+    overflow: hidden;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--raised);
+    color: var(--foreground);
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .reply {
+    margin-top: 10px;
+  }
+
+  /* Its own size container, so the strip along its foot keeps to one line in a narrow pane. */
+  .browser {
+    position: relative;
+    border-left: 1px solid var(--border);
+    container-type: inline-size;
+  }
+
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 40px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dots {
+    display: flex;
+    gap: 6px;
+  }
+
+  .dots i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .url {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: var(--raised);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* The page, at a phone's width inside the tab. */
+  .site {
+    display: grid;
+    gap: 8px;
+    width: min(200px, 100% - 32px);
+    margin: 26px auto 0;
+  }
+
+  .site b {
+    margin-bottom: 4px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .field {
+    padding: 7px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+
+  .button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 600;
+  }
+
+  .button :global(.pointer) {
+    right: -10px;
+    bottom: -22px;
+  }
+
+  /* Once in view the steps arrive one by one and the button takes the press. */
+  :global(html.motion) .piece.is-in .step,
+  :global(html.motion) .piece.is-in .reply {
+    animation: step-in 0.45s var(--ease-out) both;
+    animation-delay: calc(0.4s + var(--n, 4) * 0.28s);
+  }
+
+  :global(html.motion) .piece.is-in .button {
+    animation: press 0.3s var(--ease-out) 1.6s both;
+  }
+
+  @keyframes step-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  @keyframes press {
+    50% {
+      scale: 0.96;
+    }
+  }
+</style>

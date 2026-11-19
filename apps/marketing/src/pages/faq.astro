@@ -1,30 +1,52 @@
 ---
+/*
+ * Every question the site answers, on one page, by topic (content/questions.ts). The page's
+ * FAQPage data lists the same questions in the same order.
+ */
 import Closing from "../components/Closing.astro";
-import Faq from "../components/Faq.astro";
-import PageIntro from "../components/site/PageIntro.astro";
-import { features } from "../content/features.ts";
-import { faq } from "../content/product.ts";
+import Topics from "../components/faq/Topics.astro";
+import { allQuestions, questionTopics } from "../content/questions.ts";
 import Page from "../layouts/Page.astro";
 import { faqPage, schemaFor } from "../seo/schema.ts";
+import { links } from "../site.ts";
 
 const path = "/faq/";
-const groups = [
-  { heading: "About ace", items: faq },
-  ...features.map((feature) => ({ heading: feature.name, items: feature.questions })),
-];
 ---
 
 <Page
   path={path}
-  title="ace FAQ: coding agents, platforms, pricing and privacy"
-  description="Answers about ace: which coding agents it runs, which platforms it supports, whether it needs API keys, where your code goes, and how computer use and Fleet work."
-  schema={[faqPage(schemaFor(Astro.site), path, groups.flatMap((group) => group.items))]}
+  title="FAQ: agents, machines, privacy and pricing: ace"
+  description="Answers about ace: which coding agents it runs, API keys, your machines and phone, where your code goes, Spade, and what it costs."
+  schema={[faqPage(schemaFor(Astro.site), path, allQuestions)]}
 >
-  <PageIntro
-    headline="Frequently asked questions"
-    intro="What people ask before trying ace. Something missing? Open a discussion or an issue on GitHub."
-    secondary={{ href: "/download/", label: "Download options" }}
-  />
-  {groups.map((group) => <Faq items={group.items} heading={group.heading} />)}
+  <header class="page intro">
+    <h1>Questions, answered.</h1>
+    <p class="lead">
+      What people ask before trying ace. Missing one?{" "}
+      <a class="text-link" href={`${links.source}/issues`}>Ask on GitHub</a>.
+    </p>
+  </header>
+  <Topics topics={questionTopics} />
   <Closing />
 </Page>
+
+<style>
+  .intro {
+    padding-top: clamp(40px, 6vw, 80px);
+  }
+
+  h1 {
+    max-width: 13em;
+    font-size: clamp(44px, 7.2vw, 96px);
+    letter-spacing: -0.055em;
+    line-height: 0.98;
+  }
+
+  .lead {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 34em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+</style>

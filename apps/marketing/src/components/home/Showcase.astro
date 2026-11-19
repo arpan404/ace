@@ -113,21 +113,15 @@ const span: Record<ShowcaseId, string> = {
   }
 
   /*
-   * The picture: a piece of the app on the page's own ground, cut off by the tile's edge. A
-   * soft light follows the pointer across it, and the window and what floats over it
-   * shift against each other as the pointer moves (`--px`, `--py`, set by the script below).
+   * The picture: a piece of the app on the tile's own flat ground, cut off by the tile's edge
+   * and ruled off from the words by a hairline. The window and what floats over it shift
+   * against each other as the pointer moves (`--px`, `--py`, set by the script below).
    */
   .art {
     position: relative;
     height: 300px;
     overflow: hidden;
     border-bottom: 1px solid var(--border);
-    background-color: var(--raised);
-    background-image: radial-gradient(
-      380px circle at var(--lx, 50%) var(--ly, -40%),
-      var(--glow),
-      transparent 70%
-    );
   }
 
   .words {
@@ -175,9 +169,7 @@ const span: Record<ShowcaseId, string> = {
     overflow: hidden;
     border-radius: 12px;
     background: var(--surface);
-    box-shadow:
-      0 0 0 1px var(--border-strong),
-      0 30px 60px -30px var(--frame-shadow);
+    box-shadow: 0 0 0 1px var(--border-strong);
     font-size: 13px;
     line-height: 1.4;
     container-type: inline-size;
@@ -202,22 +194,20 @@ const span: Record<ShowcaseId, string> = {
 
 
 <script>
-  /* Each tile learns where the pointer is over it: in pixels for its light, and from -1 to 1 for
-     the shift between its layers. Leaving a tile settles it back. */
+  /* Each tile learns where the pointer is over it, from -1 to 1, for the shift between its
+     layers. Leaving a tile settles it back. */
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   for (const piece of document.querySelectorAll<HTMLElement>("[data-piece]")) {
     piece.addEventListener("pointermove", (event) => {
+      if (still) return;
       const box = piece.getBoundingClientRect();
       const x = event.clientX - box.left;
       const y = event.clientY - box.top;
-      piece.style.setProperty("--lx", `${x}px`);
-      piece.style.setProperty("--ly", `${y}px`);
-      if (still) return;
       piece.style.setProperty("--px", ((x / box.width) * 2 - 1).toFixed(3));
       piece.style.setProperty("--py", ((y / box.height) * 2 - 1).toFixed(3));
     });
     piece.addEventListener("pointerleave", () => {
-      for (const name of ["--lx", "--ly", "--px", "--py"]) piece.style.removeProperty(name);
+      for (const name of ["--px", "--py"]) piece.style.removeProperty(name);
     });
   }
 </script>

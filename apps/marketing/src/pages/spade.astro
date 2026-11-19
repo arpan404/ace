@@ -15,7 +15,7 @@ import Say from "../components/spade/Say.astro";
 import Tour from "../components/spade/Tour.astro";
 import { spadePage, spadeQuestions, turnOn } from "../content/spade.ts";
 import Page from "../layouts/Page.astro";
-import { faqPage, schemaFor, softwareApplication } from "../seo/schema.ts";
+import { faqPage, schemaFor, softwareApplication, spadeApplication } from "../seo/schema.ts";
 
 const path = "/spade/";
 const schema = schemaFor(Astro.site);
@@ -26,7 +26,7 @@ const questions = [...spadeQuestions];
   path={path}
   title={spadePage.title}
   description={spadePage.description}
-  schema={[softwareApplication(schema), faqPage(schema, path, questions)]}
+  schema={[spadeApplication(schema), softwareApplication(schema), faqPage(schema, path, questions)]}
 >
   <Opening />
   <Tour />

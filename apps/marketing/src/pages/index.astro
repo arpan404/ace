@@ -6,8 +6,8 @@ import Showcase from "../components/home/Showcase.astro";
 import Yours from "../components/home/Yours.astro";
 import ZoomStory from "../components/zoom/ZoomStory.astro";
 import Spade from "../components/Spade.astro";
-import { product } from "../content/product.ts";
 import Page from "../layouts/Page.astro";
+import { homeMeta } from "../seo/meta.ts";
 import { schemaFor, softwareApplication, sourceCode } from "../seo/schema.ts";
 
 const schema = schemaFor(Astro.site);
@@ -15,8 +15,8 @@ const schema = schemaFor(Astro.site);
 
 <Page
   path="/"
-  title={product.title}
-  description={product.description}
+  title={homeMeta.title}
+  description={homeMeta.description}
   schema={[softwareApplication(schema), sourceCode(schema)]}
 >
   <ZoomStory />

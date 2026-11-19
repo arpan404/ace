@@ -1,0 +1,196 @@
+---
+/*
+ * A legal document's table of contents. On a wide screen it is a ruled list that stays beside
+ * the text, with the section being read marked; on a narrow one it folds into "On this page".
+ */
+interface Props {
+  entries: { id: string; heading: string }[];
+}
+
+const { entries } = Astro.props;
+---
+
+<nav class="wide" aria-label="On this page">
+  <p class="label">On this page</p>
+  <ol data-legal-contents>
+    {
+      entries.map((entry) => (
+        <li>
+          <a href={`#${entry.id}`} data-for={entry.id}>
+            {entry.heading}
+          </a>
+        </li>
+      ))
+    }
+  </ol>
+</nav>
+
+<details class="narrow card">
+  <summary>
+    On this page
+    <span class="sign" aria-hidden="true"></span>
+  </summary>
+  <nav aria-label="On this page">
+    <ol>
+      {
+        entries.map((entry) => (
+          <li>
+            <a href={`#${entry.id}`}>{entry.heading}</a>
+          </li>
+        ))
+      }
+    </ol>
+  </nav>
+</details>
+
+<style>
+  .label {
+    padding: 0 12px 10px;
+    color: var(--subtle);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  ol {
+    display: grid;
+  }
+
+  li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  a {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 8px;
+    color: var(--subtle);
+    font-size: 14px;
+    line-height: 1.35;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out);
+  }
+
+  a:hover {
+    background: var(--wash);
+    color: var(--foreground);
+  }
+
+  /* The section being read, marked as the app marks a selected row. */
+  a[aria-current] {
+    background: var(--active);
+    color: var(--foreground);
+    font-weight: 500;
+  }
+
+  .wide {
+    display: none;
+  }
+
+  .narrow {
+    padding: 6px;
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 12px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none;
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary:hover {
+    background: var(--wash);
+  }
+
+  .narrow nav {
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+
+  .narrow a {
+    color: var(--muted);
+    font-size: 15px;
+    padding-block: 10px;
+  }
+
+  /* A plus that turns into a minus when the list is open. */
+  .sign {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    color: var(--subtle);
+  }
+
+  .sign::before,
+  .sign::after {
+    content: "";
+    position: absolute;
+    inset: 5.5px 0 auto;
+    height: 1px;
+    background: currentColor;
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+
+  .sign::after {
+    transform: rotate(90deg);
+  }
+
+  details[open] .sign::after {
+    transform: rotate(0deg);
+  }
+
+  @media (min-width: 1000px) {
+    .wide {
+      display: block;
+    }
+
+    .narrow {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  /* Marks the section being read: the last one whose heading has passed a line under the header. */
+  import { currentSection } from "../../scripts/legal-outline.ts";
+
+  const list = document.querySelector<HTMLElement>("[data-legal-contents]");
+  if (list) {
+    const links = [...list.querySelectorAll<HTMLAnchorElement>("a[data-for]")];
+    const sections = links.flatMap((link) => {
+      const target = document.getElementById(link.dataset.for ?? "");
+      return target ? [target] : [];
+    });
+    let waiting = false;
+    const mark = () => {
+      waiting = false;
+      const tops = sections.map((section) => section.getBoundingClientRect().top);
+      // At the very bottom the last section is current, even when it is too short to reach the line.
+      const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
+      const current = atEnd ? sections.length - 1 : currentSection(tops, innerHeight * 0.3);
+      links.forEach((link, index) => {
+        if (index === current) link.setAttribute("aria-current", "true");
+        else link.removeAttribute("aria-current");
+      });
+    };
+    const soon = () => {
+      if (waiting) return;
+      waiting = true;
+      requestAnimationFrame(mark);
+    };
+    addEventListener("scroll", soon, { passive: true });
+    addEventListener("resize", soon, { passive: true });
+    mark();
+  }
+</script>
