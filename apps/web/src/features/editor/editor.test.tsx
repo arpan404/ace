@@ -343,7 +343,8 @@ test("the find bar's field sits inside the bar and only the field shows focus", 
   const region = screen.getByRole("region", { name: "Editor" });
   expect(document.activeElement).toBe(find);
   // The field is a box inside the 36px bar, never the bar's full height: its ring stays inside.
-  expect(bar?.className).toMatch(/\bh-9\b/);
+  expect(find.parentElement?.className).toMatch(/\bh-9\b/);
+  expect(bar?.contains(find.parentElement ?? null)).toBe(true);
   expect(find.className).toMatch(/\bh-6\b/);
   expect(find.className).not.toMatch(/\bh-full\b/);
   expect(find.className).not.toMatch(/\bfocus-ring\b/);

@@ -15,6 +15,7 @@ mod error;
 mod find;
 mod history;
 mod position;
+mod replace;
 mod selection;
 mod transaction;
 

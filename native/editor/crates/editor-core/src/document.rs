@@ -101,6 +101,11 @@ impl Document {
     /// caret after the new text, and the others move with the text around them.
     pub fn apply(&mut self, edit: Transaction) -> Applied {
         let edits = self.transaction_edits(edit);
+        self.apply_mapped(edits)
+    }
+
+    /// Applies an edit set, carrying every selection through it as [`Document::apply`] does.
+    pub(crate) fn apply_mapped(&mut self, edits: EditSet) -> Applied {
         if edits.is_empty() {
             return self.unchanged();
         }

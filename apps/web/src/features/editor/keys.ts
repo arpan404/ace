@@ -38,7 +38,10 @@ export interface EditorKeyOptions {
   rows: number;
   /** The document's visual rows, so Up and Down move a row and not a line. */
   layout: RowLayout | undefined;
-  onFind?: (() => void) | undefined;
+  /** Cmd+F opens find; Cmd+Alt+F (Cmd+H off macOS too) opens it with the replace row. */
+  onFind?: ((mode: "find" | "replace") => void) | undefined;
+  /** Cmd+G and Shift+Cmd+G: the next or previous match. */
+  onFindAgain?: ((delta: 1 | -1) => void) | undefined;
   onSave?: (() => void) | undefined;
   /** Returns true when Escape closed something (find); false collapses the carets. */
   onEscape?: (() => boolean) | undefined;
@@ -215,10 +218,24 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.reveal(last, false);
       return;
     }
-    if (mod && key.toLowerCase() === "f") {
+    // Cmd+F, and Cmd+Alt+F for replace: by key position, as macOS types ƒ with Alt held.
+    if (mod && (event.code === "KeyF" || key.toLowerCase() === "f")) {
       if (options.readOnly) return;
       event.preventDefault();
-      options.onFind?.();
+      options.onFind?.(event.altKey ? "replace" : "find");
+      return;
+    }
+    // Cmd+H (Ctrl+H) opens replace too, where the system lets the key reach the page.
+    if (mod && !event.altKey && !event.shiftKey && key.toLowerCase() === "h") {
+      if (options.readOnly) return;
+      event.preventDefault();
+      options.onFind?.("replace");
+      return;
+    }
+    if (mod && !event.altKey && key.toLowerCase() === "g") {
+      if (!options.onFindAgain) return;
+      event.preventDefault();
+      options.onFindAgain(event.shiftKey ? -1 : 1);
       return;
     }
     if (mod && key.toLowerCase() === "s") {

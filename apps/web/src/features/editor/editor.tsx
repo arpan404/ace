@@ -10,12 +10,12 @@ import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { EditorFindBar } from "./find-bar.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
-import { useEditorKeys } from "./keys.ts";
+import { isMacPlatform, useEditorKeys } from "./keys.ts";
 import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
 import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
-import { useEditorDocument } from "./use-editor.ts";
+import { useEditorDocument, type EditBatch } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
@@ -48,6 +48,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const wrap = props.wrap ?? false;
   /** The wrap index hears each edit as the document applies it, before React renders it. */
   const appliedRef = useRef<WrapEdits | undefined>(undefined);
+  /** Find in selection carries its scope through every edit. */
+  const scopeRef = useRef<((replacements: EditBatch["replacements"]) => void) | undefined>(
+    undefined,
+  );
   /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
   const [affinity, setAffinity] = useState<Affinity>(noAffinity);
   const state = useEditorDocument({
@@ -59,6 +63,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onNoEdit: () => appliedRef.current?.discard(),
     onApplied: (batch) => {
       appliedRef.current?.after(batch);
+      scopeRef.current?.(batch.replacements);
       // An edit or an undo replaces the document's selections: a side measured against the old
       // carets means nothing once their positions and order have changed.
       setAffinity(noAffinity);
@@ -206,7 +211,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       reveal(position, false);
       announce(position);
     },
+    edit: state.edit,
     focusEditor: () => field.current?.focus({ preventScroll: true }),
+  });
+  useLayoutEffect(() => {
+    scopeRef.current = finder.mapScope;
   });
 
   const navigationKeys = useEditorKeys({
@@ -218,6 +227,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     affinity,
     onBefore: setAffinity,
     onFind: finder.openFind,
+    onFindAgain: finder.findAgain,
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
     onEscape: () => {
@@ -297,26 +307,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       role="region"
       aria-label={props.label}
       data-selected-lines={selected}
-      className={cn(
-        "flex h-full min-h-0 flex-col",
-        props.className,
-      )}
+      className={cn("flex h-full min-h-0 flex-col", props.className)}
     >
-      {finder.open ? (
-        <EditorFindBar
-          query={finder.query}
-          count={finder.matches.length}
-          index={finder.index}
-          status={finder.status}
-          regex={finder.regex}
-          caseSensitive={finder.caseSensitive}
-          wholeWord={finder.wholeWord}
-          onQuery={finder.setQuery}
-          onToggle={finder.toggle}
-          onStep={finder.step}
-          onClose={finder.close}
-        />
-      ) : null}
+      {finder.open ? <EditorFindBar finder={finder} mac={isMacPlatform()} /> : null}
       <div
         data-editor-frame
         className="relative min-h-0 flex-1 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"

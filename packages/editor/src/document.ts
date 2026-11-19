@@ -150,14 +150,29 @@ export class EditorDocument {
 
   /** Finds at most `limit` matches, in document order. */
   find(query: FindQuery, limit = 1_000): Range[] {
-    return readRanges(
-      this.#inner.find(
-        query.pattern,
-        query.regex ?? false,
-        query.caseSensitive ?? true,
-        query.wholeWord ?? false,
-        limit,
-      ),
+    return readRanges(this.#inner.find(...queryArgs(query), limit));
+  }
+
+  /** Finds at most `limit` matches lying wholly inside one of `within`, in document order. */
+  findWithin(query: FindQuery, within: readonly Range[], limit = 1_000): Range[] {
+    const q = queryArgs(query);
+    return readRanges(this.#inner.findWithin(...q, flattenRanges(within), limit));
+  }
+
+  /**
+   * Replaces every match, or only those inside `within` when it is not empty, as one undo step.
+   * A regex query expands `$1` and `${name}` groups and `\n`, `\t` escapes.
+   */
+  replaceAll(query: FindQuery, replacement: string, within: readonly Range[] = []): Applied {
+    return readApplied(
+      this.#inner.replaceAll(...queryArgs(query), replacement, flattenRanges(within)),
+    );
+  }
+
+  /** Replaces the match at `at` when it is still exactly a match; otherwise changes nothing. */
+  replaceMatch(query: FindQuery, at: Range, replacement: string): Applied {
+    return readApplied(
+      this.#inner.replaceMatch(...queryArgs(query), flattenRanges([at]), replacement),
     );
   }
 
@@ -175,4 +190,20 @@ export class EditorDocument {
   dispose(): void {
     this.#inner.free();
   }
+}
+
+function queryArgs(query: FindQuery): [string, boolean, boolean, boolean] {
+  return [
+    query.pattern,
+    query.regex ?? false,
+    query.caseSensitive ?? true,
+    query.wholeWord ?? false,
+  ];
+}
+
+function flattenRanges(ranges: readonly Range[]): Uint32Array {
+  const flat = new Uint32Array(ranges.length * 4);
+  for (const [index, { start, end }] of ranges.entries())
+    flat.set([start.line, start.column, end.line, end.column], index * 4);
+  return flat;
 }

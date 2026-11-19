@@ -40,6 +40,30 @@ export interface WasmDocument {
     wholeWord: boolean,
     limit: number,
   ): Uint32Array;
+  findWithin(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    within: Uint32Array,
+    limit: number,
+  ): Uint32Array;
+  replaceAll(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    replacement: string,
+    within: Uint32Array,
+  ): WasmApplied;
+  replaceMatch(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    wholeWord: boolean,
+    at: Uint32Array,
+    replacement: string,
+  ): WasmApplied;
   selectColumn(
     anchorLine: number,
     anchorColumn: number,

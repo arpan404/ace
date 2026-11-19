@@ -182,16 +182,74 @@ impl EditorDocument {
         whole_word: bool,
         limit: u32,
     ) -> Vec<u32> {
-        let query = FindQuery {
-            pattern: pattern.to_owned(),
-            regex,
-            case_sensitive,
-            whole_word,
-        };
+        let query = query(pattern, regex, case_sensitive, whole_word);
         let ranges = self
             .core
             .find(&query, usize::try_from(limit).unwrap_or(usize::MAX));
         convert::flatten_ranges(&ranges)
+    }
+
+    /// Finds matches lying wholly inside the `within` range quads, at most `limit`.
+    #[wasm_bindgen(js_name = findWithin)]
+    pub fn find_within(
+        &self,
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_word: bool,
+        within: &[u32],
+        limit: u32,
+    ) -> Result<Vec<u32>, JsValue> {
+        let query = query(pattern, regex, case_sensitive, whole_word);
+        let within = convert::ranges(within)?;
+        let ranges = self.core.find_within(
+            &query,
+            &within,
+            usize::try_from(limit).unwrap_or(usize::MAX),
+        );
+        Ok(convert::flatten_ranges(&ranges))
+    }
+
+    /// Replaces every match inside the `within` range quads (all when empty) as one undo step.
+    #[wasm_bindgen(js_name = replaceAll)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_all(
+        &mut self,
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_word: bool,
+        replacement: &str,
+        within: &[u32],
+    ) -> Result<Applied, JsValue> {
+        let query = query(pattern, regex, case_sensitive, whole_word);
+        let within = convert::ranges(within)?;
+        Ok(Applied::new(self.core.replace_all(
+            &query,
+            replacement,
+            &within,
+        )))
+    }
+
+    /// Replaces the match at the `at` range quad when it is still exactly a match.
+    #[wasm_bindgen(js_name = replaceMatch)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_match(
+        &mut self,
+        pattern: &str,
+        regex: bool,
+        case_sensitive: bool,
+        whole_word: bool,
+        at: &[u32],
+        replacement: &str,
+    ) -> Result<Applied, JsValue> {
+        let query = query(pattern, regex, case_sensitive, whole_word);
+        let at = convert::range(at)?;
+        Ok(Applied::new(self.core.replace_match(
+            &query,
+            at,
+            replacement,
+        )))
     }
 
     /// Selects a rectangular block from `anchor` to `head`, with columns as visual columns and
@@ -216,5 +274,14 @@ impl EditorDocument {
     #[wasm_bindgen(js_name = selectNextOccurrence)]
     pub fn select_next_occurrence(&mut self) -> bool {
         self.core.select_next_occurrence()
+    }
+}
+
+fn query(pattern: &str, regex: bool, case_sensitive: bool, whole_word: bool) -> FindQuery {
+    FindQuery {
+        pattern: pattern.to_owned(),
+        regex,
+        case_sensitive,
+        whole_word,
     }
 }
