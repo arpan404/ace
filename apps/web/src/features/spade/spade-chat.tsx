@@ -19,10 +19,11 @@ import {
   type SpadeDigest,
   type SpadeRestAction,
 } from "@ace/ui-core/spade-chat";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
@@ -131,6 +132,7 @@ export function SpadeChat(props: {
       ),
     [view, proposals, digests, now],
   );
+  const from = useNewestFirst(rows.length);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
     view.resting &&
@@ -182,8 +184,14 @@ export function SpadeChat(props: {
       className="flex flex-col"
     >
       {rows.length === 0 && !lined && !rest && props.start}
-      {rows.map((row, index) => (
-        <Row key={row.key} row={row} previous={rows[index - 1]} bot={bot} handlers={handlers} />
+      {rows.slice(from).map((row, index) => (
+        <Row
+          key={row.key}
+          row={row}
+          previous={rows[from + index - 1]}
+          bot={bot}
+          handlers={handlers}
+        />
       ))}
       {rest && !props.paused && onWake ? (
         <RestingLine
@@ -236,6 +244,23 @@ export function SpadeChat(props: {
       )}
     </div>
   );
+}
+
+/** Rows a conversation draws at once when it opens; older ones join a batch at a time. */
+const openingRows = 40;
+
+/**
+ * Where the drawn rows start: a long conversation opens with its newest rows, the ones in view
+ * at its end, and the older ones join above them a batch at a time while the page is idle, so
+ * opening never waits on drawing all of its history. Rows arriving later always draw.
+ */
+function useNewestFirst(count: number): number {
+  const [from, setFrom] = useState(() => Math.max(0, count - openingRows));
+  useEffect(() => {
+    if (from === 0) return;
+    return whenIdle(() => setFrom((start) => Math.max(0, start - openingRows)), 250);
+  }, [from]);
+  return Math.min(from, count);
 }
 
 /** The reply still open, the last one in the conversation. */

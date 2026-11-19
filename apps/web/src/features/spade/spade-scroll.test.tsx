@@ -91,3 +91,18 @@ test("a conversation opened again shows at once as it was left, without reading 
   expect(within(feed).getByText("Answer 5")).toBeTruthy();
   expect(reads()).toHaveLength(1);
 });
+
+test("a long conversation opens on its newest messages, and its older ones join after", async () => {
+  await spadeApp("/spade/garden", (api) => {
+    const bot = garden(api);
+    for (let at = 6; at < 60; at++) {
+      api.store(bot.conversation, { type: "user_message", text: `Question ${at}` });
+      api.reply(bot, `Answer ${at}`);
+    }
+  });
+  const feed = within(await screen.findByRole("feed", { name: "Conversation with Garden" }));
+  await feed.findByText("Answer 59");
+  expect(feed.queryByText("Question 0")).toBeNull();
+  // The whole history is there once the page is idle, for reading back and finding.
+  expect(await feed.findByText("Question 0")).toBeTruthy();
+});
