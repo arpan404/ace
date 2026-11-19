@@ -5,16 +5,19 @@
 //! The parallel walk visits a folder's files together, so opening each file through
 //! [`files_safe::Root::open_parent`] walks the same names from the root again for every file: each
 //! segment costs a lookup and a folder handle, and on a volume that cannot name an open handle it
-//! costs a listing of the folder as well. One walk per folder is enough. The handle is opened
-//! through [`files_safe::Root::open_dir`], which applies the same checks a per-file walk applies
-//! (the root is still ours, every segment is stepped through a handle, links are followed only
-//! while they stay inside), and the files opened relative to it keep the checks a read needs: the
-//! leaf is opened with no link following, and its identity is compared with the entry that was
-//! walked.
+//! costs a listing of the folder as well. One walk per folder is enough.
+//!
+//! A handle is never reused on its own word. Between two files of a folder the folder can be
+//! renamed away and another one, or a link out of the root, put in its place, and the handle would
+//! still read the folder it was opened on. So every reuse is preceded by one lookup through the
+//! root's handle proving that the folder's name still leads to the same identity; when it does not,
+//! the folder is opened again through [`files_safe::Root::open_dir`], which walks it step by step
+//! and follows no link out of the root. The files themselves keep the checks a read needs: the leaf
+//! is opened with no link following, and its identity is compared with the entry that was walked.
 
 use std::collections::VecDeque;
 
-use files_safe::Root;
+use files_safe::{Identity, Root};
 
 /// Folder handles one walker thread keeps. The walk hands over a folder's files together, so a
 /// second slot already covers a walk that interleaves two folders; the rest is slack, and each
@@ -24,7 +27,14 @@ const KEPT: usize = 8;
 /// Recently used folder handles, most recent first, keyed by the relative folder path.
 #[derive(Default)]
 pub(crate) struct Folders {
-    open: VecDeque<(String, cap_std::fs::Dir)>,
+    open: VecDeque<Folder>,
+}
+
+struct Folder {
+    path: String,
+    dir: cap_std::fs::Dir,
+    /// What names this folder, kept so the handle can be proven with one lookup.
+    identity: Option<Identity>,
 }
 
 impl Folders {
@@ -34,17 +44,34 @@ impl Folders {
     /// folder any more, or a link on the way left the root. The caller skips that file, as it skips
     /// one whose open fails.
     pub(crate) fn get(&mut self, root: &Root, folder: &str) -> Option<&cap_std::fs::Dir> {
-        if let Some(index) = self.open.iter().position(|(held, _)| held == folder) {
-            let slot = self.open.remove(index)?;
-            self.open.push_front(slot);
+        let index = self.open.iter().position(|held| held.path == folder);
+        let reusable = index.is_some_and(|index| {
+            self.open
+                .get(index)
+                .is_some_and(|held| root.still_names(&held.path, held.identity))
+        });
+        if reusable {
+            if let Some(index) = index
+                && let Some(held) = self.open.remove(index)
+            {
+                self.open.push_front(held);
+            }
         } else {
+            if let Some(index) = index {
+                self.open.remove(index);
+            }
             let dir = root.open_dir(folder).ok()?;
+            let identity = root.folder_identity(&dir);
             while self.open.len() >= KEPT {
                 self.open.pop_back();
             }
-            self.open.push_front((folder.to_owned(), dir));
+            self.open.push_front(Folder {
+                path: folder.to_owned(),
+                dir,
+                identity,
+            });
         }
-        self.open.front().map(|(_, dir)| dir)
+        self.open.front().map(|held| &held.dir)
     }
 }
 
@@ -86,6 +113,33 @@ mod tests {
         assert!(
             folders.get(&root, "away").is_none(),
             "a folder that leaves the root must not answer a search"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_cached_before_it_left_the_root_is_refused_after() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let outside = tempfile::tempdir().expect("another temp dir");
+        std::fs::create_dir_all(dir.path().join("d")).expect("a folder");
+        std::fs::write(dir.path().join("d/one.txt"), "one").expect("a file");
+        let root = Root::open(dir.path()).expect("the root opens");
+        let mut folders = Folders::default();
+        assert!(
+            folders.get(&root, "d").is_some(),
+            "the folder is inside the root while it is cached"
+        );
+
+        // The folder moves out of the root and a link to where it went takes its name.
+        std::fs::rename(dir.path().join("d"), outside.path().join("d")).expect("the move");
+        std::os::unix::fs::symlink(outside.path().join("d"), dir.path().join("d"))
+            .expect("a link out");
+
+        assert!(
+            folders
+                .get(&root, "d")
+                .is_none_or(|folder| folder.read_to_string("one.txt").is_err()),
+            "the cached handle must not answer for a folder that left the root"
         );
     }
 }

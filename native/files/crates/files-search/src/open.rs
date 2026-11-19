@@ -41,7 +41,7 @@ fn still_the_entry(file: &File, seen: &DirEntry) -> bool {
         return false;
     };
     let (Ok(opened), Ok(seen)) = (
-        same_file::Handle::from_file(clone.into_std_file()),
+        same_file::Handle::from_file(clone.into_std()),
         same_file::Handle::from_path(seen.path()),
     ) else {
         return false;

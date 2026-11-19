@@ -5,6 +5,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use files_safe::{Found, Readings, Root};
@@ -14,6 +15,17 @@ fn checkout() -> (tempfile::TempDir, Root) {
     fs::create_dir_all(dir.path().join("many")).expect("a folder");
     let root = Root::open(dir.path()).expect("a root");
     (dir, root)
+}
+
+/// Whether the volume behind `dir` folds name case, asked the way the readings ask it: rename a
+/// name's case and see whether the folder still answers under the old spelling.
+fn volume_folds_case(dir: &Path) -> bool {
+    let before = dir.join("CaseProbe.tmp");
+    fs::write(&before, b"x").expect("a probe file");
+    fs::rename(&before, dir.join("caseprobe.tmp")).expect("a case-only rename");
+    let folds = before.exists();
+    fs::remove_file(dir.join("caseprobe.tmp")).expect("the probe goes");
+    folds
 }
 
 #[test]
@@ -91,6 +103,65 @@ fn a_file_created_after_the_folder_was_read_is_still_seen() {
 }
 
 #[test]
+fn a_folder_replaced_after_it_was_read_answers_from_the_new_folder() {
+    // A burst keeps a folder handle across thousands of names, and the folder can be renamed away
+    // and another put in its place meanwhile. The handle must not answer for the new folder's
+    // names, and the new folder's own names must be found.
+    let (dir, root) = checkout();
+    fs::write(dir.path().join("many/one.txt"), "x").expect("a file");
+    let mut readings = Readings::new();
+    assert_eq!(
+        root.look("many/one.txt", &mut readings).expect("a file"),
+        Found::Other,
+        "the reading is primed while the folder is the first one"
+    );
+
+    fs::remove_dir_all(dir.path().join("many")).expect("the folder goes");
+    fs::create_dir(dir.path().join("many")).expect("a new folder at the same name");
+    fs::write(dir.path().join("many/two.txt"), "x").expect("a file in the new folder");
+
+    assert_eq!(
+        root.look("many/two.txt", &mut readings).expect("a file"),
+        Found::Other,
+        "a name in the folder that took the old folder's place"
+    );
+    assert_eq!(
+        root.look("many/one.txt", &mut readings).expect("a name"),
+        Found::Missing,
+        "the replaced folder's file is not there any more"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_cached_folder_that_left_the_root_is_not_read() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let outside = tempfile::tempdir().expect("another temp dir");
+    fs::create_dir_all(dir.path().join("many")).expect("a folder");
+    fs::write(dir.path().join("many/one.txt"), "x").expect("a file");
+    let root = Root::open(dir.path()).expect("a root");
+    let mut readings = Readings::new();
+    assert_eq!(
+        root.look("many/one.txt", &mut readings).expect("a file"),
+        Found::Other
+    );
+
+    fs::rename(dir.path().join("many"), outside.path().join("many")).expect("the move");
+    std::os::unix::fs::symlink(outside.path().join("many"), dir.path().join("many"))
+        .expect("a link out");
+
+    let looked = root.look("many/one.txt", &mut readings);
+    let refused = match &looked {
+        Ok(found) => *found == Found::Missing,
+        Err(_) => true,
+    };
+    assert!(
+        refused,
+        "a folder that left the root must not answer, saw {looked:?}"
+    );
+}
+
+#[test]
 fn a_case_only_rename_leaves_the_old_spelling_gone() {
     let (dir, root) = checkout();
     fs::write(dir.path().join("many/Readme.txt"), "x").expect("a file");
@@ -113,7 +184,7 @@ fn a_case_only_rename_leaves_the_old_spelling_gone() {
             .expect("the new spelling"),
         Found::Other
     );
-    if root.folds_case() {
+    if volume_folds_case(dir.path()) {
         assert_eq!(
             old,
             Found::Renamed,
@@ -124,6 +195,41 @@ fn a_case_only_rename_leaves_the_old_spelling_gone() {
             old,
             Found::Missing,
             "a volume that keeps case no longer has the old spelling at all"
+        );
+    }
+}
+
+#[test]
+fn a_rename_reads_the_stored_names_again() {
+    // The names a folder stores can be read before a rename and still hold the old spelling when
+    // the new one is judged. The caller says a rename happened, and both spellings are then read
+    // again: the new one is kept and the old one is gone.
+    let (dir, root) = checkout();
+    fs::write(dir.path().join("many/Readme.txt"), "x").expect("a file");
+    let mut readings = Readings::new();
+    assert_eq!(
+        root.look("many/Readme.txt", &mut readings).expect("a file"),
+        Found::Other,
+        "the reading is primed before the rename"
+    );
+
+    fs::rename(
+        dir.path().join("many/Readme.txt"),
+        dir.path().join("many/readme.txt"),
+    )
+    .expect("a case-only rename");
+    readings.renamed("many/readme.txt");
+    if volume_folds_case(dir.path()) {
+        assert_eq!(
+            root.look("many/readme.txt", &mut readings)
+                .expect("the new spelling"),
+            Found::Other,
+            "the new spelling is the one the folder stores now"
+        );
+        assert_eq!(
+            root.look("many/Readme.txt", &mut readings).expect("a name"),
+            Found::Renamed,
+            "the old spelling is gone"
         );
     }
 }
@@ -141,7 +247,7 @@ fn a_name_that_only_differs_in_case_is_reported_as_it_is_stored() {
         Found::Other
     );
     let other = root.look("many/NOTES.md", &mut readings).expect("a name");
-    if root.folds_case() {
+    if volume_folds_case(dir.path()) {
         assert_eq!(other, Found::Renamed, "the volume stores `Notes.MD`");
     } else {
         assert_eq!(other, Found::Missing, "the other spelling is another name");
@@ -150,7 +256,10 @@ fn a_name_that_only_differs_in_case_is_reported_as_it_is_stored() {
 
 #[test]
 #[ignore = "timing check: run in release, cargo test --release -p files-safe -- --ignored"]
-fn a_burst_of_twenty_thousand_creates_costs_under_ten_microseconds_a_look() {
+fn a_burst_of_twenty_thousand_creates_costs_a_stat_a_look() {
+    // The guard is against a folder listing, or a walk from the root, per event: a lookup may cost
+    // its own stat and the one that proves the cached folder, and a floor of the same lookups made
+    // with one plain stat each keeps the bound honest on a loaded machine.
     let dir = tempfile::tempdir().expect("a temp dir");
     for set in 0..20 {
         fs::create_dir_all(dir.path().join(format!("burst/set_{set:02}"))).expect("a folder");
@@ -172,11 +281,30 @@ fn a_burst_of_twenty_thousand_creates_costs_under_ten_microseconds_a_look() {
         // One watcher window per folder: the readings are dropped when a batch is delivered.
         readings.clear();
     }
-
     let each = looks / created;
-    println!("look: {each:?} each over {created} creates");
+
+    let started = Instant::now();
+    let mut floor = Duration::ZERO;
+    for set in 0..20 {
+        for file in 0..1_000 {
+            let path = root
+                .path()
+                .join(format!("burst/set_{set:02}/burst_{file:05}.txt"));
+            let started = Instant::now();
+            let found = fs::symlink_metadata(&path);
+            floor += started.elapsed();
+            assert!(found.expect("the burst file").is_file());
+        }
+    }
+    let stat = floor / created;
+
+    println!("look: {each:?} each over {created} creates, one stat {stat:?}");
     assert!(
-        each < Duration::from_micros(10),
-        "a create costs {each:?} to look up, over {created} creates"
+        each < stat.saturating_mul(6),
+        "a lookup costs {each:?}, six times the {stat:?} a bare stat costs"
+    );
+    assert!(
+        each < Duration::from_millis(1),
+        "a lookup costs {each:?}, which is a walk or a listing per create"
     );
 }
