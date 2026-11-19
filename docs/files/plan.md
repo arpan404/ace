@@ -225,8 +225,9 @@ with no lost-events flag. `Watcher::focus(folders)` (ace-files op `focus { root,
 by the daemon's folder watch as the union of every client's `files.watch` set, at most 512, and
 sent again after an ace-files restart) names the open folders. The watcher keeps, for each of them
 and the root, a stamp (identity and mtime) and the names the caller has been told it holds: the
-listing when it was opened, updated by every delivered batch, re-read after a rescan covering it.
-Once a second it stats each folder; a folder whose stamp moved is listed and each name that
+listing when it was opened, updated by every delivered batch, and read again as a rescan covering
+it is delivered, before the caller hears it and walks the folder, so a name that lands after that
+walk is still news (one landing between the two reads is at worst reported twice). Once a second it stats each folder; a folder whose stamp moved is listed and each name that
 differs from what the caller knows becomes a change, so nothing is reported twice by the net and
 nothing an event missed stays missing. Names that went away are reported at once. A new name is
 reported at once only when its origin is known: it was born under 2 s ago and its status time is

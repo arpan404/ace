@@ -615,7 +615,7 @@ impl Worker {
     }
 
     fn deliver(&mut self, batch: Batch) {
-        self.net.delivered(&batch);
+        self.net.delivered(&self.root, &self.excluder, &batch);
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend

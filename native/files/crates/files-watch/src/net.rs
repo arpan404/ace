@@ -10,7 +10,9 @@
 //! batch delivered since. A folder whose stamp moved is listed again, and each name that differs
 //! from what the caller knows becomes a change, so a change no event reported is reported, and one
 //! an event already reported is not reported twice by the net. A batch that rescans a folder makes
-//! the net read it afresh, because the caller reads it afresh too.
+//! the net read it afresh as the batch is delivered, before the caller hears it and walks the
+//! folder itself: a name that lands after the caller's walk is then news to the next check, and
+//! one that lands between the two reads is at worst reported twice, never missed.
 //!
 //! A new name is only reported at once when its origin is known: it was created moments ago, or
 //! it is an entry (same inode) that just left another open folder, so both halves of the move are
@@ -105,8 +107,6 @@ struct Folder {
     /// The names the caller knows it holds, and whether each is a folder; `None` when there are
     /// too many to keep.
     known: Option<BTreeMap<String, Entry>>,
-    /// A batch rescanned this folder: read it afresh, reporting nothing.
-    stale: bool,
     /// An event named this folder or something in it since the last check.
     active: bool,
     /// When a check first found this folder's stamp moved while it could not be compared name by
@@ -187,8 +187,8 @@ impl Net {
         }
     }
 
-    /// What a delivered batch told the caller.
-    pub(crate) fn delivered(&mut self, batch: &Batch) {
+    /// What a delivered batch told the caller. Called before the caller hears it.
+    pub(crate) fn delivered(&mut self, root: &Root, excluder: &Excluder, batch: &Batch) {
         match batch {
             Batch::Changes(changes) => {
                 for change in changes {
@@ -225,7 +225,16 @@ impl Net {
                 let prefix = format!("{dir}/");
                 for (folder, held) in &mut self.folders {
                     if dir.is_empty() || folder == dir || folder.starts_with(&prefix) {
-                        held.stale = true;
+                        // The caller is about to walk this folder: what it holds now is the
+                        // least the walk will find, so anything that lands later is news.
+                        let (stamp, known) = read(root, excluder, folder, self.limit)
+                            .map_or((None, None), |(stamp, names)| (Some(stamp), names));
+                        *held = Folder {
+                            stamp,
+                            known,
+                            active: false,
+                            unsettled: None,
+                        };
                     }
                 }
             }
@@ -331,21 +340,20 @@ fn check_one(
     diff: &mut Diff,
 ) {
     let active = std::mem::take(&mut held.active);
-    let stale = std::mem::take(&mut held.stale);
     let Some(stamp) = stamp(root, folder) else {
         // Gone or unreadable: the folder holding it reports that. Start afresh if it comes back.
         held.stamp = None;
         held.known = None;
         return;
     };
-    if held.stamp == Some(stamp) && !stale {
+    if held.stamp == Some(stamp) {
         return;
     }
     let Some((stamp, names)) = read(root, excluder, folder, limit) else {
         return;
     };
     let read_before = held.stamp.is_some();
-    if stale || !read_before {
+    if !read_before {
         held.stamp = Some(stamp);
         held.known = names;
         held.unsettled = None;
@@ -639,7 +647,7 @@ mod tests {
         );
 
         // Once the batch is delivered the caller knows, and a later change reports only itself.
-        net.delivered(&as_batch(&found));
+        net.delivered(&tree.root, &tree.excluder, &as_batch(&found));
         std::fs::write(tree.path("src/later.txt"), b"x").unwrap();
         assert_eq!(
             tree.check(&mut net, NOW),
@@ -731,11 +739,15 @@ mod tests {
         let tree = Tree::new(|_| {});
         let mut net = tree.net(100, &[]);
         std::fs::write(tree.path("a.txt"), b"x").unwrap();
-        net.delivered(&Batch::Changes(vec![Change {
-            path: "a.txt".to_owned(),
-            kind: ChangeKind::Created,
-            directory: false,
-        }]));
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Changes(vec![Change {
+                path: "a.txt".to_owned(),
+                kind: ChangeKind::Created,
+                directory: false,
+            }]),
+        );
         assert!(tree.check(&mut net, NOW).is_empty());
     }
 
@@ -744,12 +756,37 @@ mod tests {
         let tree = Tree::new(|root| std::fs::create_dir(root.join("src")).unwrap());
         let mut net = tree.net(100, &["src"]);
         std::fs::write(tree.path("src/a.txt"), b"x").unwrap();
-        net.delivered(&Batch::Rescan {
-            dir: Some("src".to_owned()),
-        });
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Rescan {
+                dir: Some("src".to_owned()),
+            },
+        );
         assert!(
             tree.check(&mut net, NOW).is_empty(),
             "the caller lists the folder again for the rescan"
+        );
+    }
+
+    #[test]
+    fn a_name_that_appears_after_a_rescan_was_sent_is_still_reported() {
+        // The caller walks the folder after it hears the rescan. A name that lands after that walk
+        // and that no event reports must still reach it, so the net's baseline is what the folder
+        // held when the rescan was sent, not whatever it holds at the next check.
+        let tree = Tree::new(|root| std::fs::create_dir(root.join("src")).unwrap());
+        let mut net = tree.net(100, &["src"]);
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Rescan {
+                dir: Some("src".to_owned()),
+            },
+        );
+        std::fs::write(tree.path("src/late.txt"), b"x").unwrap();
+        assert_eq!(
+            tree.check(&mut net, NOW),
+            vec![change("src/late.txt", ChangeKind::Created, false)]
         );
     }
 
@@ -810,9 +847,13 @@ mod tests {
             vec!["big".to_owned()],
             "once they stop, the folder is walked: one of its changes was never described"
         );
-        net.delivered(&Batch::Rescan {
-            dir: Some("big".to_owned()),
-        });
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Rescan {
+                dir: Some("big".to_owned()),
+            },
+        );
         assert!(
             net.check(&tree.root, &tree.excluder, at(Duration::from_secs(2)))
                 .rescans
