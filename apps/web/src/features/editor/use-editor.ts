@@ -112,30 +112,33 @@ export function useEditorDocument(options: {
     options.onApplied,
   ]);
 
-  // The document lives as long as its text does: a renamed file (a pasted file renamed for its
-  // edit) keeps what was typed and its undo history; only its colours follow the new name.
+  // The document lives as long as the component does, not as long as one run of this effect: a
+  // tab hidden in `<Activity>` runs the cleanup and later the setup again while React keeps the
+  // document in state, so the setup takes back the one it made (its text and undo history intact)
+  // and the cleanup never frees it. A renamed file (a pasted file renamed for its edit) keeps the
+  // same document too; only its colours follow the new name. When the component really goes, the
+  // document is unreachable and its Wasm memory is freed at garbage collection.
+  const owned = useRef<EditorDocument>(undefined);
   useEffect(() => {
     let live = true;
-    let created: EditorDocument | undefined;
-    ensureEditorReady().then(
-      () => {
-        if (!live) return;
-        created = new EditorDocument(initial);
-        setDoc(created);
-        setSelections(created.selections());
-        setPrimary(created.primarySelection());
-      },
-      () => {
-        if (live) setFailed(true);
-      },
-    );
+    if (!owned.current)
+      ensureEditorReady().then(
+        () => {
+          if (!live || owned.current) return;
+          const created = new EditorDocument(initial);
+          owned.current = created;
+          setDoc(created);
+          setSelections(created.selections());
+          setPrimary(created.primarySelection());
+        },
+        () => {
+          if (live) setFailed(true);
+        },
+      );
     return () => {
       live = false;
-      if (created) {
-        // Before the document is freed: a tab that closes mid-typing still keeps its draft.
-        onTextDispose.current?.(created.text());
-        created.dispose();
-      }
+      // A tab that closes or hides mid-typing still keeps its draft.
+      if (owned.current) onTextDispose.current?.(owned.current.text());
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a retry (`attempt`) loads the document again.
   }, [initial, attempt]);
