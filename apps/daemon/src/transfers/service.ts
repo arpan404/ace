@@ -88,6 +88,7 @@ export function startTransfers(context: ServiceContext): void {
     direct: options.transfers?.transport ?? transferTransport,
     connections,
     links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
     now,
   });
 

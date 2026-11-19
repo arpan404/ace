@@ -248,6 +248,7 @@ export function startMachines(context: ServiceContext): void {
     direct: options.transfers?.transport ?? transferTransport,
     connections,
     links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
     now,
   });
   const directory = new MachineDirectory({

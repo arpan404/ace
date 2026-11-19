@@ -8,7 +8,14 @@ import type { HostChannel } from "@ace/relay";
 import type { MachineTarget } from "./machines/target.ts";
 import { laneOf } from "./machines/transport.ts";
 import type { PairedDevice } from "./devices.ts";
-import { answerTransfer, type TransferRequest, type TransferTarget } from "./transfers/serve.ts";
+import { TargetRefusal } from "./machines/target-refusal.ts";
+import { hostedRelayCarries, hostedRelayRefusal } from "./transfers/route-policy.ts";
+import {
+  answerTransfer,
+  refused,
+  type TransferRequest,
+  type TransferTarget,
+} from "./transfers/serve.ts";
 
 /** Calls answered at once on one stream; more wait for a free one. */
 const PARALLEL = 4;
@@ -29,6 +36,11 @@ export async function serveRelayMachineCalls(
     target(): Pick<MachineTarget, "handle"> | undefined;
     /** This machine's end of transfers; without it, the welcome doesn't offer them. */
     transfers?: (() => TransferTarget | undefined) | undefined;
+    /**
+     * The stream came through ace's hosted relay, by this machine's own settings: it takes only
+     * what that relay may carry (ADR 0192), whatever the sender decided.
+     */
+    hostedRelay?: boolean | undefined;
     device(): PairedDevice | undefined;
     deviceId: DeviceId;
     hostId: string;
@@ -112,9 +124,11 @@ export async function serveRelayMachineCalls(
         : { status: 503, body: { error: "unavailable" } };
     }
     const owner = options.transfers?.();
-    return owner
-      ? answerTransfer(owner, device, transferRequest(call))
-      : { status: 503, body: { error: "unavailable" } };
+    if (!owner) return { status: 503, body: { error: "unavailable" } };
+    const request = transferRequest(call);
+    if (options.hostedRelay && !hostedRelayCarries(request))
+      return refused(owner, device, new TargetRefusal("not_supported", hostedRelayRefusal, true));
+    return answerTransfer(owner, device, request);
   };
   /** A finished work slot goes to the next waiting call, or is given back. */
   function handOn() {

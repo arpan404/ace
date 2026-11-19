@@ -50,6 +50,8 @@ export async function startFilesRelay(
     machineCalls?: (() => Pick<MachineTarget, "handle"> | undefined) | undefined;
     /** Transfers from paired machines that reach this one only through the relay (ADR 0192). */
     transfers?: (() => TransferTarget | undefined) | undefined;
+    /** `url` is ace's hosted relay, by this machine's settings: transfers through it are bounded. */
+    hostedRelay?: boolean | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
     /**
@@ -253,6 +255,7 @@ export async function startFilesRelay(
             await serveRelayMachineCalls(channel, {
               target: options.machineCalls,
               transfers: options.transfers,
+              hostedRelay: options.hostedRelay,
               device: () =>
                 options.devices.current(device.id, device.generation, options.auth.now()),
               deviceId: device.id,

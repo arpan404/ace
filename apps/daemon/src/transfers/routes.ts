@@ -2,7 +2,12 @@ import { TransferChunkAck, transferRelayPieceBytes } from "@ace/protocol";
 import type { RemoteProfile } from "../cli/profiles.ts";
 import type { MachineRoute } from "../machines/link-routes.ts";
 import { MachineLink } from "../machines/machine-link.ts";
-import type { RelayLink, RelayTarget } from "../machines/relay-link.ts";
+import {
+  TransfersNotOffered,
+  transfersNotOffered,
+  type RelayLink,
+  type RelayTarget,
+} from "../machines/relay-link.ts";
 import {
   MachineFailure,
   MachineTimeout,
@@ -32,6 +37,11 @@ export interface TransferRoutesDeps {
   connections?: MachineTransportOptions["connections"];
   /** The shared routes, once parcels started; without them only the linked address is tried. */
   links(): MachineLinks | undefined;
+  /**
+   * Whether this pairing (its device and token there) is still saved, asked before each route:
+   * an unlinked or re-paired machine is sent nothing more on any of them.
+   */
+  current(profile: RemoteProfile): boolean;
   now(): number;
 }
 
@@ -47,7 +57,7 @@ export interface TransferRoutesDeps {
  */
 export function routedTransfers(deps: TransferRoutesDeps): TransferTransport {
   // Before parcels start there are no shared routes: the linked address only, unpreferred.
-  const alone = new MachineLink({ paths: () => [], now: deps.now });
+  const alone = new MachineLink({ paths: () => [], hosted: () => false, now: deps.now });
   return async (profile, request, options) => {
     const links = deps.links();
     const machines = links?.machines ?? alone;
@@ -83,7 +93,12 @@ export function routedTransfers(deps: TransferRoutesDeps): TransferTransport {
     } catch (error) {
       if (error instanceof MachineFailure && error.kind === "refused") throw error;
       if (options.signal?.aborted) throw error;
-      throw refuse() ?? error;
+      const refusal = refuse();
+      if (refusal) throw refusal;
+      // Only an older machine's relay was left: what to do is to update ace there.
+      if (error instanceof TransfersNotOffered)
+        throw new MachineFailure("refused", "not_supported", transfersNotOffered, true);
+      throw error;
     }
   };
 }
@@ -104,6 +119,8 @@ function once(
   send: TransferSend,
   options: MachineTransportOptions,
 ): Promise<unknown> {
+  if (!deps.current(profile))
+    throw new MachineUnpaired("offline", undefined, "Transfer call never sent: unpaired");
   if (route.kind === "direct") {
     const { connections: _connections, ...rest } = options;
     return deps.direct(

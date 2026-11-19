@@ -41,8 +41,15 @@ export function transferSend(request: PinnedRequest): TransferSend {
   return { kind: "call", call: JSON.parse(String(request.body)) as MachineTransferCall };
 }
 
-/** Whether `send` may go through ace's hosted relay. */
-export function hostedRelayCarries(send: TransferSend): boolean {
+/**
+ * Whether `send` may go through ace's hosted relay. The sender checks it before choosing a route,
+ * and the receiver again for a call that came in through ace's relay (ADR 0192).
+ */
+export function hostedRelayCarries(
+  send:
+    | { kind: "call" }
+    | { kind: "chunk"; offset: number; part: string; data: { length: number } },
+): boolean {
   if (send.kind === "call" || send.part === "final") return true;
   return send.offset + send.data.length <= HOSTED_RELAY_TRANSFER_BYTES;
 }

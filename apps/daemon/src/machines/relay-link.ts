@@ -7,7 +7,17 @@ import {
   type TransferRelayRequest,
 } from "@ace/protocol";
 import type { ClientChannel } from "@ace/relay";
-import { MachineFailure, MachineTimeout, MachineUnpaired } from "./transport.ts";
+import { MachineFailure, MachineNotSent, MachineTimeout, MachineUnpaired } from "./transport.ts";
+
+/**
+ * The machine's welcome on this relay didn't offer transfers (an older ace): nothing was sent,
+ * and another route may still take them (ADR 0192).
+ */
+export class TransfersNotOffered extends MachineNotSent {}
+
+/** What a person reads when no route but an older machine's relay was left. */
+export const transfersNotOffered =
+  "That machine's ace can't take projects and threads through a relay yet. Update ace there, or link it again where its address answers (LAN or Tailscale).";
 
 /** What opening a relay stream to a machine needs; `connect` is `connectClientViaRelay`. */
 export interface RelayLinkDeps {
@@ -77,7 +87,9 @@ export class RelayLink {
     this.deps = deps;
   }
   private key(target: RelayTarget) {
-    return `${target.url}\n${target.relayHostId}\n${target.deviceId}`;
+    // ace's hosted relay and the person's own get their own streams, so a route classified one
+    // way never reuses a stream opened the other way (with or without an account grant).
+    return `${target.hosted ? "hosted" : "own"}\n${target.url}\n${target.relayHostId}\n${target.deviceId}`;
   }
   private async open(target: RelayTarget): Promise<Stream> {
     // The deadline covers connecting and the hello only: an open stream outlives it.
@@ -205,12 +217,7 @@ export class RelayLink {
       options,
       (stream) => {
         if (!stream.transfers)
-          throw new MachineFailure(
-            "refused",
-            "not_supported",
-            "That machine's ace can't take projects and threads through a relay yet. Update ace there, or link it again where its address answers (LAN or Tailscale).",
-            true,
-          );
+          throw new TransfersNotOffered("offline", undefined, transfersNotOffered);
       },
     );
   }
@@ -231,6 +238,11 @@ export class RelayLink {
         : new MachineFailure("offline");
     }
     try {
+      // Set-up took time: a caller that gave up, or a pairing removed meanwhile, sends nothing.
+      if (options.signal?.aborted)
+        throw new MachineNotSent("offline", undefined, "Stopped before it was sent");
+      if (!this.deps.current(target))
+        throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
       admit?.(stream);
     } catch (error) {
       // Nothing was sent: an unused stream still closes when idle.
