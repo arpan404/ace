@@ -173,3 +173,54 @@ pub fn changes(batches: &[Batch]) -> Vec<Change> {
     }
     changes
 }
+
+/// Whether a rescan of `dir` covers `path`: the whole root, the folder `path` sits in, or a folder
+/// above that one.
+pub fn covers(dir: Option<&str>, path: &str) -> bool {
+    match dir {
+        None => true,
+        Some(dir) => {
+            path == dir
+                || path
+                    .strip_prefix(dir)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        }
+    }
+}
+
+/// The paths no batch accounts for.
+///
+/// A path is accounted for by a change naming it, by a change naming the folder that holds it (a
+/// folder change says "the contents of this folder changed", which a consumer answers by walking
+/// or listing it), or by a rescan of a folder that covers it. A burst may be delivered as change
+/// batches or as one rescan of its folder, so this is what a test asserts instead of picking one
+/// of them.
+pub fn unaccounted(batches: &[Batch], expected: &[String]) -> Vec<String> {
+    let reported = changes(batches);
+    let rescans: Vec<Option<&str>> = batches
+        .iter()
+        .filter_map(|batch| match batch {
+            Batch::Rescan { dir } => Some(dir.as_deref()),
+            _ => None,
+        })
+        .collect();
+    expected
+        .iter()
+        .filter(|path| {
+            let named = reported
+                .iter()
+                .any(|change| named_change_covers(change, path));
+            !named && !rescans.iter().any(|dir| covers(*dir, path))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether a change accounts for `path`: it names the path, or it is about the folder that holds
+/// it and says that folder's contents changed.
+fn named_change_covers(change: &Change, path: &str) -> bool {
+    change.path == path
+        || (change.directory
+            && !change.kind.eq(&ChangeKind::Deleted)
+            && covers(Some(&change.path), path))
+}

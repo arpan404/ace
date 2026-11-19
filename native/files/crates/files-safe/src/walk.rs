@@ -160,8 +160,23 @@ pub(crate) fn stored_path(root: &Root, rel: &str) -> Result<Vec<String>, Error> 
     walk.stored_components(leaf.as_deref())
 }
 
+/// Opens the folder that holds `rel`'s last name, without resolving the spelling the disk stores
+/// for any name on the way.
+///
+/// A caller that only asks whether one name is there needs no stored spellings, and a watcher asks
+/// about thousands of names inside the same folders: a walk that resolved them would list a folder
+/// for every path. Links are still followed the way [`crate::Root::open_dir`] follows them, and
+/// the names on the way are used as given, which is exactly how the kernel resolves them.
+pub(crate) fn open_folder_unstored(root: &Root, rel: &str) -> Result<Dir, Error> {
+    let rel = Root::check(rel)?;
+    let mut walk = Walk::start(root, rel, Last::Folder, Links::Follow)?;
+    walk.store_names = false;
+    walk.run(request_segments(rel))?;
+    walk.handle()
+}
+
 /// The parent half of a non-empty relative path and its leaf.
-fn split(rel: &str) -> Result<(&str, &str), Error> {
+pub(crate) fn split(rel: &str) -> Result<(&str, &str), Error> {
     match rel.rsplit_once('/') {
         Some(split) => Ok(split),
         // A name at the top of the checkout has the root itself as its folder.
@@ -186,6 +201,10 @@ struct Walk<'a> {
     current: Dir,
     /// The names of the folders above it, from the root down.
     names: Vec<OsString>,
+    /// Whether each name on the way is resolved to the spelling the disk stores. A walk that ends
+    /// in a folder a caller only reads one name from does not need it, and resolving it lists
+    /// folders that a burst would otherwise read once per path.
+    store_names: bool,
     /// What to do with the last name.
     last: Last,
     /// Whether a link on the way may be followed.
@@ -204,6 +223,7 @@ impl<'a> Walk<'a> {
             rel,
             current: root.dir().try_clone()?,
             names: Vec::new(),
+            store_names: true,
             last,
             follows,
             depth: 0,
@@ -267,12 +287,17 @@ impl<'a> Walk<'a> {
             return Err(Error::NotDirectory(self.rel.to_owned()));
         }
         let next = self.current.open_dir_nofollow(&name)?;
-        let stored = match names::from_handle(&next) {
-            Some(stored) => stored,
-            None => self.listed(&name, &metadata)?,
+        let held = if self.store_names {
+            match names::from_handle(&next) {
+                Some(stored) => stored,
+                None => self.listed(&name, &metadata)?,
+            }
+        } else {
+            // The name that reached the folder is the one that re-opens it; nothing is listed.
+            name
         };
         self.current = next;
-        self.names.push(stored);
+        self.names.push(held);
         Ok(None)
     }
 

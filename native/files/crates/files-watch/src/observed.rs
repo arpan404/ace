@@ -56,7 +56,11 @@ impl Observed {
     /// The change this path contributes, or `None` when the window's news cancels out.
     ///
     /// `look` answers whether the path exists now, and whether it is a directory.
-    pub(crate) fn resolve(&self, path: &str, look: &dyn Fn(&str) -> Presence) -> Option<Change> {
+    pub(crate) fn resolve(
+        &self,
+        path: &str,
+        look: &mut impl FnMut(&str) -> Presence,
+    ) -> Option<Change> {
         match look(path) {
             Presence::Here(directory) => {
                 // New: seen on disk, first heard of as a creation, never removed, and not a
@@ -143,9 +147,9 @@ mod tests {
         for (kind, rename, present) in kinds {
             observed.push(*kind, false, *rename, *present);
         }
-        let look = |_: &str| exists;
+        let mut look = |_: &str| exists;
         observed
-            .resolve("x", &look)
+            .resolve("x", &mut look)
             .map(|change| (change.kind, change.directory))
     }
 

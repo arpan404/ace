@@ -8,7 +8,7 @@ mod common;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use files_wire::{EventPayload, Op, Reply};
+use files_wire::{Op, Reply};
 
 use common::{Client, await_reported, checkout, watch, write_file};
 
@@ -22,12 +22,12 @@ const SET: usize = 1_000;
 /// How long the burst's rescan and its walk may take before the test calls it hung.
 const BURST_DEADLINE: Duration = Duration::from_secs(60);
 
-/// One quick-open query.
-fn index(client: &mut Client, root: u64, query: &str) -> files_wire::IndexResult {
+/// One quick-open query, at most `limit` hits.
+fn index(client: &mut Client, root: u64, query: &str, limit: u64) -> files_wire::IndexResult {
     let id = client.request(Op::IndexQuery {
         root,
         query: query.to_owned(),
-        limit: 10,
+        limit,
     });
     match client.reply(id) {
         Reply::Index(index) => index,
@@ -68,7 +68,7 @@ fn a_burst_of_twenty_thousand_files_ends_up_in_quick_open() {
 
     // The burst is a change on top of a finished walk, not part of the first one.
     let deadline = Instant::now() + BURST_DEADLINE;
-    while !index(&mut client, root, "a").ready {
+    while !index(&mut client, root, "a", 10).ready {
         assert!(
             Instant::now() < deadline,
             "the first index was not ready within {BURST_DEADLINE:?}"
@@ -80,7 +80,7 @@ fn a_burst_of_twenty_thousand_files_ends_up_in_quick_open() {
         fs::create_dir_all(checkout.path().join("burst").join(format!("set_{set:02}")))
             .expect("the burst folder");
     }
-    for file in 0..BURST - 1 {
+    for file in 0..BURST {
         let path = checkout
             .path()
             .join("burst")
@@ -95,43 +95,67 @@ fn a_burst_of_twenty_thousand_files_ends_up_in_quick_open() {
     )
     .expect("the marker file");
 
-    // The watcher cannot describe the burst change by change: it reports a rescan of the folder.
+    // The watcher may describe the burst as change batches or as one rescan of the folder it
+    // happened in; both are correct, and which one it picks depends on how fast the writes land.
+    // What matters is that quick open ends up holding every file: the files a batch names, and
+    // the ones only a walk would find. The subscription is read throughout, so a watcher with
+    // more news than the pipe holds is never stuck behind it.
+    let sets = BURST.div_ceil(SET);
+    let complete = (BURST + 1 + sets) as u64;
     let deadline = Instant::now() + BURST_DEADLINE;
+    let mut missing = Vec::new();
     loop {
-        match client.try_event(subscription, Duration::from_millis(500)) {
-            Some(EventPayload::Rescan { .. }) => break,
-            Some(_) => {}
-            None => assert!(
-                Instant::now() < deadline,
-                "the watcher never reported the burst within {BURST_DEADLINE:?}"
-            ),
-        }
-    }
-
-    // The rescan's walk runs after the burst goes quiet, so quick open ends up with every file,
-    // not the prefix a walk started mid-burst would have seen.
-    let deadline = Instant::now() + BURST_DEADLINE;
-    loop {
-        let burst = index(&mut client, root, "final_burst_marker");
-        if burst.ready
+        while client
+            .try_event(subscription, Duration::from_millis(2))
+            .is_some()
+        {}
+        let burst = index(&mut client, root, "final_burst_marker", 10);
+        let marker = burst.ready
             && burst
                 .hits
                 .iter()
-                .any(|hit| hit.path.ends_with("final_burst_marker.txt"))
-        {
-            assert_eq!(
-                burst.total,
-                (BURST + 1 + BURST.div_ceil(SET)) as u64,
-                "every burst file is in the index exactly once, beside the burst's own folders"
-            );
-            return;
+                .any(|hit| hit.path.ends_with("final_burst_marker.txt"));
+        // The count is a cheap gate; only when it looks complete is every file asked for by name,
+        // because a scoped walk that raced the writes can leave a hole the count cannot show.
+        if marker && burst.total >= complete {
+            missing = missing_burst_files(&mut client, root, sets);
+            if missing.is_empty() {
+                // The burst's own folder is part of the index only when a batch named its
+                // creation before a rescan of the folder replaced everything below it.
+                assert!(
+                    burst.total == complete || burst.total == complete + 1,
+                    "every burst file is in the index exactly once, beside the burst's own \
+                     folders, not {} paths",
+                    burst.total
+                );
+                return;
+            }
         }
         assert!(
             Instant::now() < deadline,
-            "quick open never found the burst within {BURST_DEADLINE:?}; {} paths indexed, hits {:?}",
+            "quick open never caught up with the burst within {BURST_DEADLINE:?}: {} paths \
+             indexed, {} files missing, first {:?}",
             burst.total,
-            burst.hits
+            missing.len(),
+            missing.first()
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Every burst file quick open does not return, one query per set of `SET` files.
+fn missing_burst_files(client: &mut Client, root: u64, sets: usize) -> Vec<String> {
+    let mut missing = Vec::new();
+    for set in 0..sets {
+        let found = index(client, root, &format!("set_{set:02}/burst_"), SET as u64);
+        let returned: std::collections::HashSet<&str> =
+            found.hits.iter().map(|hit| hit.path.as_str()).collect();
+        for file in 0..SET {
+            let path = format!("burst/set_{set:02}/burst_{:05}.txt", set * SET + file);
+            if !returned.contains(path.as_str()) {
+                missing.push(path);
+            }
+        }
+    }
+    missing
 }

@@ -18,6 +18,11 @@ mod support;
 
 use support::{Session, WAIT, changes, options};
 
+/// How long a burst the OS hands over slowly may take to be fully reported. A twenty-thousand
+/// create burst can dribble out of the OS for half a minute on a busy machine, and the watcher's
+/// own windows are counted from its events, so the completeness wait is generous.
+const BURST_WAIT: Duration = Duration::from_secs(60);
+
 /// Waits a quiet period and returns everything the sink saw.
 fn after_quiet(session: &Session) -> Vec<Batch> {
     std::thread::sleep(session.quiet());
@@ -121,7 +126,11 @@ fn many_writes_to_one_file_coalesce() {
 }
 
 #[test]
-fn burst_over_max_batch_becomes_rescan() {
+fn a_burst_over_max_batch_never_sends_an_oversized_batch() {
+    // A window over max_batch becomes one rescan of the folder holding the changes; a window that
+    // stays under it is sent as changes. Which one happens depends on how the OS delivers the
+    // writes, so the test holds the watcher to what either delivery promises: no batch is larger
+    // than the limit, and every create is reported or covered by a rescan.
     let session = Session::start(
         WatchOptions {
             max_batch: 5,
@@ -129,21 +138,31 @@ fn burst_over_max_batch_becomes_rescan() {
         },
         |root| std::fs::create_dir(root.join("burst")).unwrap(),
     );
-    for index in 0..20 {
-        std::fs::write(session.path(&format!("burst/file{index}.txt")), b"x").unwrap();
+    let expected: Vec<String> = (0..20)
+        .map(|index| format!("burst/file{index}.txt"))
+        .collect();
+    for path in &expected {
+        std::fs::write(session.path(path), b"x").unwrap();
     }
-    let dir = session.wait_for_rescan();
-    // A rescan of the root is also what FSEvents' own overflow asks for; both are correct.
+    let batches = session.settle();
+    for batch in &batches {
+        if let Batch::Changes(changes) = batch {
+            assert!(
+                changes.len() <= 5,
+                "no batch reports more changes than max_batch, saw {}",
+                changes.len()
+            );
+        }
+    }
+    let rescans = rescans(&batches);
+    assert!(rescans <= 1, "one rescan per burst window, saw {rescans}");
+    let unaccounted = support::unaccounted(&batches, &expected);
     assert!(
-        dir.is_none() || dir.as_deref() == Some("burst"),
-        "a burst over max_batch rescans the burst folder, got {dir:?}"
-    );
-    let batches = session.seen();
-    assert!(
-        batches
-            .iter()
-            .all(|batch| !matches!(batch, Batch::Changes(changes) if changes.len() > 5)),
-        "no batch reports more changes than max_batch, saw {batches:?}"
+        unaccounted.is_empty(),
+        "{} of {} creates were neither reported nor covered by a rescan, first {:?}",
+        unaccounted.len(),
+        expected.len(),
+        unaccounted.first()
     );
 }
 
@@ -269,10 +288,15 @@ fn a_symlink_is_one_file_change_and_its_tree_is_never_walked() {
 }
 
 #[test]
-fn a_burst_of_twenty_thousand_files_is_one_rescan() {
-    // A checkpoint comes after five max_wait periods; this window is far longer than the
-    // burst, so the test sees the burst's final rescan and not a mid-burst checkpoint (the
-    // checkpoint path has its own test).
+fn a_burst_of_twenty_thousand_files_is_never_more_than_one_rescan() {
+    // A burst may be described change by change when the OS hands the writes over in windows
+    // smaller than max_batch, and a window over max_batch becomes one rescan of its folder.
+    // Either delivery is right; the burst must be fully accounted for, and it may never cost
+    // more than one rescan.
+    //
+    // A checkpoint comes after five max_wait periods; this window is far longer than the burst,
+    // so a rescan here is the burst's own and not a mid-burst checkpoint (that path has its own
+    // test).
     let session = Session::start(
         WatchOptions {
             debounce: Duration::from_millis(3_000),
@@ -283,16 +307,36 @@ fn a_burst_of_twenty_thousand_files_is_one_rescan() {
             std::fs::create_dir(root.join("many")).unwrap();
         },
     );
-    for index in 0..20_000 {
-        std::fs::write(session.path(&format!("many/file{index}")), b"x").unwrap();
+    let expected: Vec<String> = (0..20_000)
+        .map(|index| format!("many/file{index}"))
+        .collect();
+    for path in &expected {
+        std::fs::write(session.path(path), b"x").unwrap();
     }
-    session.settle();
-    let rescans = session
-        .seen()
-        .iter()
-        .filter(|batch| matches!(batch, Batch::Rescan { .. }))
-        .count();
-    assert_eq!(rescans, 1, "one rescan per burst");
+
+    // The OS hands the writes over as fast as it can, and how long that takes is not the
+    // watcher's to decide: wait for every create to be accounted for, then judge the delivery.
+    let deadline = Instant::now() + BURST_WAIT;
+    let mut unaccounted = support::unaccounted(&session.seen(), &expected);
+    while !unaccounted.is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "{} of {} creates were neither reported nor covered by a rescan, first {:?} \
+             within {BURST_WAIT:?}",
+            unaccounted.len(),
+            expected.len(),
+            unaccounted.first()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+        unaccounted = support::unaccounted(&session.seen(), &expected);
+    }
+
+    let batches = session.seen();
+    let seen = rescans(&batches);
+    assert!(
+        seen <= 1,
+        "one rescan per burst window, saw {seen} in {batches:?}"
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -367,6 +411,28 @@ fn a_burst_that_never_goes_quiet_still_reports_rescans() {
         std::thread::sleep(Duration::from_millis(25));
     }
 
+    // The watch is still alive: either it names the new file, or it walks the folder again and
+    // the write is covered by that. Both mean the endless burst did not end the watch.
+    let before = session.seen().len();
     std::fs::write(session.path("endless/after.txt"), b"x").unwrap();
-    session.wait_for("endless/after.txt", ChangeKind::Created);
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let seen = session.seen();
+        let named = seen.iter().skip(before).any(|batch| {
+            matches!(batch, Batch::Changes(changes)
+                if changes.iter().any(|change| change.path == "endless/after.txt"))
+        });
+        let walked = seen.iter().skip(before).any(|batch| {
+            matches!(batch, Batch::Rescan { dir } if support::covers(dir.as_deref(), "endless/after.txt"))
+        });
+        if named || walked {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a write after the burst was neither reported nor covered by a rescan; saw {:?}",
+            &seen[before.min(seen.len())..]
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
