@@ -102,6 +102,7 @@ pub fn report_taken(from: &str, to: &str) -> Guard {
 }
 
 /// Whether a no-replace rename of `from` to `to` was told to report a taken destination.
+#[cfg(unix)]
 pub(crate) fn reports_taken(from: &str, to: &str) -> bool {
     let hooks = installed();
     let taken = hooks.taken.lock().unwrap_or_else(PoisonError::into_inner);
@@ -126,6 +127,7 @@ pub(crate) fn reached(step: Step, from: &str, to: &str) {
 }
 
 /// Whether an atomic exchange of the entry called `name` is available.
+#[cfg(unix)]
 pub(crate) fn may_exchange(name: &str) -> bool {
     let hooks = installed();
     let exchange = hooks

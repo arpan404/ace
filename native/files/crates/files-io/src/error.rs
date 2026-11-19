@@ -20,6 +20,10 @@ pub enum Error {
         /// The version that was found, or `None` when nothing was there.
         current: Option<String>,
     },
+    /// Another program holds an entry in a way that refuses the access this change needs, so
+    /// nothing was changed and the caller can try again.
+    #[error("busy: {0}")]
+    Busy(String),
     #[error("too much to walk: {0}")]
     LimitExceeded(String),
     #[error("invalid argument: {0}")]
@@ -53,6 +57,7 @@ impl Error {
             Error::Path(error) => error.code(),
             Error::NotFile(_) => "NOT_FILE",
             Error::Conflict { .. } => "CONFLICT",
+            Error::Busy(_) => "BUSY",
             // A preserved file is reported as a conflict: the save did not land, and the caller's
             // next attempt is guarded by what the path holds now.
             Error::Preserved { .. } => "CONFLICT",
