@@ -16,7 +16,7 @@ import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
 import { MarketAgent } from "../marketplace/market-agent.ts";
-import { hostMarketRefusal } from "../marketplace/fresh-sign-in.ts";
+import { hostMarketStanding } from "../marketplace/fresh-sign-in.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import type { ServiceContext } from "./types.ts";
@@ -120,15 +120,33 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       const { operation, thread } = message;
       const personGrant = thread ? undefined : message.personGrant;
       const agent = options.marketAgent;
-      const refusal = () =>
-        hostMarketRefusal({ operation, unproven: context.personProven?.() !== true });
-      const asPerson = async (market: MarketAgent) =>
-        refusal() ?? market.asPerson(operation, personGrant);
+      // A Suit or a Spade skill that runs nothing installs without the person, judged from the
+      // daemon's own review of the bytes, never from the request (ADR 0178 §12.8).
+      const contentOnly = () =>
+        operation.op === "install" &&
+        options.marketplace?.installIsContentOnly(operation.id, operation.hash) === true;
+      const standing = () =>
+        hostMarketStanding({
+          operation,
+          unproven: context.personProven?.() !== true,
+          contentOnly,
+        });
+      const asPerson = async (market: MarketAgent) => {
+        const decided = standing();
+        return "refusal" in decided
+          ? decided.refusal
+          : market.asPerson(operation, personGrant, decided.run);
+      };
       const run = agent
         ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
         : // A server started with the marketplace service alone (tests): as the person.
           options.marketplace && !thread
-          ? async () => refusal() ?? serviceAlone(options, operation, personGrant)
+          ? async () => {
+              const decided = standing();
+              return "refusal" in decided
+                ? decided.refusal
+                : serviceAlone(options, operation, personGrant, decided.run);
+            }
           : undefined;
       if (!run) {
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
@@ -158,11 +176,16 @@ function serviceAlone(
   options: SocketContext["options"],
   operation: MarketOperation,
   personGrant: string | undefined,
+  by: "person" | "without-person",
 ): Promise<MarketResult> {
   const { marketplace, machineAccount: account } = options;
   const grant = account ? () => account.marketGrant() : undefined;
+  const withoutPerson = by === "without-person";
   return (
-    marketplace?.request(operation, operation.op === "publish" ? { grant, personGrant } : {}) ??
+    marketplace?.request(
+      operation,
+      operation.op === "publish" ? { grant, personGrant } : { withoutPerson },
+    ) ??
     Promise.resolve({
       op: "error",
       code: "unavailable",

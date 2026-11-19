@@ -418,11 +418,22 @@ export class FakeMarketplaceWire {
         this.#changed();
         return { op: "done", installed: on };
       }
+      case "turnOnForBots": {
+        const item = this.#installed.get(key("spade-skill", operation.name));
+        if (!item) return { op: "error", code: "not_found", message: "That skill isn't installed" };
+        const approved: MarketInstalled = { ...item, botsApproved: true };
+        this.#installed.set(key(item.type, item.name), approved);
+        this.#changed();
+        return { op: "done", installed: approved };
+      }
       case "spadeSkills":
         return {
           op: "spadeSkills",
           skills: [...this.#installed.values()]
-            .filter((item) => item.type === "spade-skill" && item.state === "on")
+            .filter(
+              (item) =>
+                item.type === "spade-skill" && item.state === "on" && item.botsApproved !== false,
+            )
             .map((item) => ({
               name: item.name,
               version: item.version,

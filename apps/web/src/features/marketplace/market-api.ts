@@ -265,6 +265,20 @@ export function useTurnOn() {
   });
 }
 
+/**
+ * Turns an installed Spade skill on for the person's bots: exactly the version with `hash`
+ * (ADR 0178 §12.8). The person's to do; a credential that isn't theirs is asked to sign in.
+ */
+export function useTurnOnForBots() {
+  const client = useClient();
+  const forget = useForget();
+  return useMutation({
+    mutationFn: (input: { name: string; hash: string }) =>
+      market(client, { op: "turnOnForBots", name: input.name, hash: input.hash }, "done"),
+    onSettled: forget,
+  });
+}
+
 export function useRemove() {
   const client = useClient();
   const forget = useForget();

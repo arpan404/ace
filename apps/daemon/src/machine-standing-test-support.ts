@@ -147,12 +147,15 @@ export async function proves(client: Client, grant: string, proof: string): Prom
   return (await answer(client, "account.standing.result")).result.ok;
 }
 
-/** A daemon on ace's account backend, trusting the backend's keys as a build pins its own. */
-export async function daemon() {
+/**
+ * A daemon on ace's account backend, trusting the backend's keys as a build pins its own.
+ * `serverOptions` adds services a test needs beside it, such as a marketplace.
+ */
+export async function daemon(serverOptions: Parameters<typeof setup>[0] = {}) {
   let account: MachineAccount | undefined;
   let home = "";
   let settings: SettingsService | undefined;
-  const f = await setup({}, (store, dir) => {
+  const f = await setup(serverOptions, (store, dir) => {
     home = dir;
     settings = new SettingsService({
       dataDir: dir,
@@ -216,9 +219,9 @@ export async function daemon() {
 }
 
 /** The app signed in in the person's browser hands its daemon an enrollment ticket. */
-export async function signedInDaemon() {
+export async function signedInDaemon(serverOptions: Parameters<typeof setup>[0] = {}) {
   const session = await signInThroughWorker(worker.http, workos, person);
-  const machine = await daemon();
+  const machine = await daemon(serverOptions);
   await machine.account.load();
   const { ticket } = await accounts().machineEnrollment(session.token, machine.host, signal());
   await machine.account.handover(worker.http, { ticket });

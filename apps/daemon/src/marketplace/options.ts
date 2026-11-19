@@ -43,4 +43,9 @@ export interface MarketRequestPorts {
   names?: readonly string[] | undefined;
   /** A person's market grant the client sent for this request's one call (ADR 0190). */
   personGrant?: string | undefined;
+  /**
+   * The request runs on the content-only exemption, not on the person's standing (ADR 0178
+   * §12.8): a Spade skill it installs waits for the person to turn it on for their bots.
+   */
+  withoutPerson?: boolean | undefined;
 }

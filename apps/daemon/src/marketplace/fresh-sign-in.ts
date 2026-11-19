@@ -1,4 +1,4 @@
-import { isPersonOnlyAction } from "@ace/marketplace/person-only";
+import { isPersonOnlyAction, isPersonOnlyOperation } from "@ace/marketplace/person-only";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
 /*
@@ -14,24 +14,32 @@ export const reauthSentence =
   "This is yours to do: do it in the ace app signed in as you, or on a device you paired from it.";
 
 /**
- * Install, and the publish actions the market takes only from the person (`personOnlyActions`:
+ * The daemon's person-only operations (`personOnlyOperations`: install, turning a skill on for
+ * bots), and the publish actions the market takes only from the person (`personOnlyActions`:
  * withdraw, transfers and answering one, handle changes, deleting an entry and verification).
  */
 export function needsPerson(operation: MarketOperation): boolean {
-  if (operation.op === "install") return true;
+  if (isPersonOnlyOperation(operation.op)) return true;
   return operation.op === "publish" && isPersonOnlyAction(operation.request.action);
 }
 
 /**
- * The refusal for a person-only market request from a socket that hasn't proved the person's
- * standing, or undefined when it may run. `reauth`: the app answers it by signing in as the
- * person, after which its socket proves it.
+ * What a market request a socket makes without naming a thread may do (ADR 0190, ADR 0178 §12.8):
+ * run with the person's standing, run without it, or be refused. A socket that proved the person's
+ * standing runs anything. One that hasn't runs what isn't person-only, and installing or updating
+ * content only (a Suit or a Spade skill that runs nothing, read from the daemon's own review), as
+ * the `without-person` path: a Spade skill it installs reaches no bot until the person turns it
+ * on. Everything else person-only is refused with `reauth`. Pure.
  */
-export function hostMarketRefusal(input: {
+export function hostMarketStanding(input: {
   readonly operation: MarketOperation;
   /** The socket hasn't proved the person's standing (ADR 0190). */
   readonly unproven: boolean;
-}): MarketResult | undefined {
-  if (!input.unproven || !needsPerson(input.operation)) return undefined;
-  return { op: "error", code: "reauth", message: reauthSentence };
+  /** For an install: whether its review installs content only (`content-only.ts`). */
+  readonly contentOnly: () => boolean;
+}): { readonly run: "person" | "without-person" } | { readonly refusal: MarketResult } {
+  if (!input.unproven) return { run: "person" };
+  if (!needsPerson(input.operation)) return { run: "without-person" };
+  if (input.operation.op === "install" && input.contentOnly()) return { run: "without-person" };
+  return { refusal: { op: "error", code: "reauth", message: reauthSentence } };
 }

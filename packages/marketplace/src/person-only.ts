@@ -23,6 +23,18 @@ export function isPersonOnlyAction(action: MarketPublishAction["action"]): boole
   return Object.hasOwn(personOnlyActions, action);
 }
 
+/**
+ * The daemon's own market operations only the person takes (ADR 0190, ADR 0178 §12.8): installing,
+ * except the content-only install the daemon exempts, and turning an installed Spade skill on for
+ * the person's bots. Neither calls a market route, so neither is in `personOnlyActions`.
+ */
+export const personOnlyOperations: ReadonlySet<string> = new Set(["install", "turnOnForBots"]);
+
+/** Whether only the person runs the daemon market operation `op`. */
+export function isPersonOnlyOperation(op: string): boolean {
+  return personOnlyOperations.has(op);
+}
+
 /** The market routes (`Route["kind"]`) that need a person's grant for the exact request. */
 export const personOnlyRoutes: ReadonlySet<string> = new Set(
   Object.values(personOnlyActions).flat(),

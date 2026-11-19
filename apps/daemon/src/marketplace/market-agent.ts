@@ -66,8 +66,17 @@ export class MarketAgent {
     this.account = { account };
   }
 
-  /** `personGrant`: the person's own market grant for a sensitive action (ADR 0190). */
-  asPerson(operation: MarketOperation, personGrant?: string): Promise<MarketResult> {
+  /**
+   * `personGrant`: the person's own market grant for a sensitive action (ADR 0190). `by`: whose
+   * standing it runs on, the person's (a proven socket, or their answer to an agent's request), or
+   * the content-only exemption's, when a Spade skill it installs waits for the person (ADR 0178
+   * §12.8).
+   */
+  asPerson(
+    operation: MarketOperation,
+    personGrant?: string,
+    by: "person" | "without-person" = "person",
+  ): Promise<MarketResult> {
     const bound = this.account;
     const grant = bound ? () => bound.account.marketGrant() : undefined;
     // The signed-in person's name and email, for the privacy pass over what they publish.
@@ -77,7 +86,9 @@ export class MarketAgent {
       : [];
     return this.deps.marketplace.request(
       operation,
-      operation.op === "publish" ? { grant, names, personGrant } : { names },
+      operation.op === "publish"
+        ? { grant, names, personGrant }
+        : { names, withoutPerson: by === "without-person" },
     );
   }
 
