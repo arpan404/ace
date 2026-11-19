@@ -60,6 +60,30 @@ test("scrolled up, what arrives leaves the person where they are reading", async
   expect(scroller.scrollTop).toBe(200);
 });
 
+test("the smallest scroll up while a reply streams lets go of the end, so the reply never pulls back", async () => {
+  let api: FakeSpadeApi | undefined;
+  let bot: ReturnType<typeof garden> | undefined;
+  await spadeApp("/spade/garden", (spade) => {
+    api = spade;
+    bot = garden(spade);
+    spade.store(bot.conversation, { type: "user_message", text: "Plan the beds" });
+    spade.store(bot.conversation, { type: "reply_started", reply: "r9" });
+  });
+  const scroller = await tallScroller();
+  scrollTo(scroller, 2000);
+  // A nudge of a few pixels, well inside "near the end".
+  scrollTo(scroller, 1990);
+  await screen.findByRole("button", { name: "Scroll to end" });
+  if (api && bot)
+    api.store(bot.conversation, {
+      type: "reply_progress",
+      reply: "r9",
+      text: "The east bed first",
+    });
+  await screen.findByText("The east bed first");
+  expect(scroller.scrollTop).toBe(1990);
+});
+
 test("a message sent while scrolled up takes the conversation to its end, where it shows", async () => {
   await spadeApp("/spade/garden", garden);
   const scroller = await tallScroller();

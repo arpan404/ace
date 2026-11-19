@@ -62,6 +62,8 @@ export function Scroller(props: {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
+  /** Where the last scroll left it, to tell a move up from following. */
+  const lastTop = useRef({ top: 0, height: 0 });
   const [away, setAway] = useState(false);
   const pill = usePresence(away);
   const reportEnd = useMarkSeen(props.seen);
@@ -95,8 +97,15 @@ export function Scroller(props: {
         ref={scroller}
         onScroll={(event) => {
           const element = event.currentTarget;
+          // Any move up is the person's (following only ever moves down, and content that
+          // shrank moves it up only by getting shorter): it lets go of the end at once, however
+          // near it still is, so a reply growing never pulls them back down.
+          const movedUp =
+            element.scrollTop < lastTop.current.top - 1 &&
+            element.scrollHeight >= lastTop.current.height;
+          lastTop.current = { top: element.scrollTop, height: element.scrollHeight };
           atEnd.current =
-            element.scrollHeight - element.scrollTop - element.clientHeight < endSlack;
+            !movedUp && element.scrollHeight - element.scrollTop - element.clientHeight < endSlack;
           setAway(!atEnd.current);
           reportEnd(atEnd.current);
         }}
