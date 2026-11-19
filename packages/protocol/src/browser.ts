@@ -522,6 +522,16 @@ const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
   base.extend({ type: z.literal("browser.close") }),
+  /**
+   * Moves the thread's browser to another engine (ADR 0193). The daemon keeps the choice as the
+   * thread's `browser.backend` and, when a browser is open, closes it and opens it again there
+   * with its web pages loaded, one move per thread at a time. Answered with `BrowserEngineMoved`.
+   */
+  base.extend({
+    type: z.literal("browser.engine.move"),
+    workspaceId: WorkspaceId,
+    engine: z.enum(["embedded", "headless"]),
+  }),
   base.extend({ type: z.literal("browser.tabs.list") }),
   base.extend({ type: z.literal("browser.tabs.open"), url: z.string().max(8192).optional() }),
   base.extend({ type: z.literal("browser.tabs.switch"), tabId: short }),
@@ -611,6 +621,15 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.recording.stop") }),
 ]);
 export type BrowserClientMessage = z.infer<typeof BrowserClientMessage>;
+/**
+ * A finished engine move: the browser's state on the new engine (absent when the thread had no
+ * browser open, so the choice waits for its next one), and the pages that didn't load there.
+ */
+export const BrowserEngineMoved = z.object({
+  state: BrowserState.optional(),
+  failed: z.array(z.object({ url: z.string().max(8192), reason: z.string().max(2048) })).max(64),
+});
+export type BrowserEngineMoved = z.infer<typeof BrowserEngineMoved>;
 export const BrowserBackendLost = z.object({
   type: z.literal("browser.backend.lost"),
   threadId: ThreadId,
