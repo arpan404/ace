@@ -251,6 +251,7 @@ export function attachRelayService(
     tool: options.filesNative?.tool,
     folders: options.filesNative?.folders,
     push,
+    buffered: () => channel.bufferedBytes,
     ...(options.warn ? { warn: options.warn } : {}),
   });
   const chunks =

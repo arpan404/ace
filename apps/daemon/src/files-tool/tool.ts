@@ -10,11 +10,14 @@ import {
   type FilesClock,
   type FilesHost,
   type FilesLog,
+  type FilesSearchOptions,
   type FilesWatch,
   type FingerprintReply,
   type IndexReply,
   type PageReply,
   type ReadReply,
+  type SearchQuery,
+  type Summary,
   type VersionReply,
 } from "@ace/files-native";
 import type { FolderPage } from "@ace/protocol";
@@ -160,6 +163,7 @@ export type FilesToolClient = {
   remove(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<void>;
   indexQuery(root: number, query: string, limit: number): Promise<IndexReply>;
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch>;
+  search(root: number, query: SearchQuery, options: FilesSearchOptions): Promise<Summary>;
 };
 
 export type FilesToolOptions = {
@@ -349,6 +353,16 @@ export class FilesTool {
       paths: answer.ready ? answer.hits.map((hit) => hit.path) : [],
       ready: answer.ready,
     };
+  }
+
+  /**
+   * Search a checkout's file contents. Matches reach `onMatches` a file at a time as ace-files
+   * finds them; the summary resolves once it is done. The root is held for the whole search, and
+   * aborting `signal` stops it in ace-files and rejects with `CANCELLED`.
+   */
+  async search(path: string, query: SearchQuery, options: FilesSearchOptions): Promise<Summary> {
+    const client = await this.client();
+    return this.#rootBook().use(path, (root) => client.search(root, query, options));
   }
 
   /**
