@@ -55,7 +55,8 @@ private struct BarGlass<S: Shape>: ViewModifier {
     let shape: S
     /// How much of the page colour the glass carries: enough that a row's words behind it fade
     /// to a shape, not so much that it stops reading as glass.
-    private static var tint: Double { 0.72 }
+    private static var tint: Double { 0.8 }
+    private static var veil: Double { 0.6 }
     @Environment(\.aceSolidSurfaces) private var solid
 
     func body(content: Content) -> some View {
@@ -63,7 +64,10 @@ private struct BarGlass<S: Shape>: ViewModifier {
             content.background(AceTheme.Colours.card, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         } else if #available(iOS 26, *) {
-            content.glassEffect(.regular.tint(AceTheme.Colours.background.opacity(Self.tint)).interactive(), in: shape)
+            // The tint alone lets a dark page's words through; a veil of the page colour under
+            // the bar's glyphs holds them back in both themes.
+            content.background(AceTheme.Colours.background.opacity(Self.veil), in: shape)
+                .glassEffect(.regular.tint(AceTheme.Colours.background.opacity(Self.tint)).interactive(), in: shape)
         } else {
             content.background(.thickMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))

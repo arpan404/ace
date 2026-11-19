@@ -24,7 +24,6 @@ struct HomeBar: View {
                     places
                     if let compose { composeButton(compose) }
                 }
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, AceDesign.Space.margin)
                 .padding(.bottom, AceDesign.Space.tight)
             }
@@ -80,6 +79,9 @@ struct HomeBar: View {
         .accessibilityIdentifier("tab.\(HomeTabs.identifier(place))")
     }
 
+    /// The places capsule's height at the default text size: a tap-tall place inside its inset.
+    private static let height = AceDesign.Size.tap + 2 * AceDesign.Size.tabInset
+
     /// New thread, round, in its own capsule at the bar's end, as tall as the places beside it.
     private func composeButton(_ compose: @escaping () -> Void) -> some View {
         let title = tab == .chats ? "New chat" : "New thread"
@@ -89,8 +91,7 @@ struct HomeBar: View {
                 .scaledToFit()
                 .frame(width: AceDesign.Size.barIcon, height: AceDesign.Size.barIcon)
                 .foregroundStyle(AceDesign.Ink.primary)
-                .frame(maxHeight: .infinity)
-                .aspectRatio(1, contentMode: .fit)
+                .frame(width: Self.height, height: Self.height)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
