@@ -207,6 +207,10 @@
               },
               "maxItems": 50,
               "type": "array"
+            },
+            "ready": {
+              "default": true,
+              "type": "boolean"
             }
           },
           "required": [

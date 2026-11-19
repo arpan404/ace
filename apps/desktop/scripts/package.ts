@@ -5,7 +5,10 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
-import { smokeMedia, verifyMediaDesktop } from "@ace/release/media-smoke";
+import { smokeMedia } from "@ace/release/media-smoke";
+import { smokeFiles } from "@ace/release/files-smoke";
+import { aceFilesVersion } from "@ace/release/ace-files";
+import { verifyDesktopNatives } from "@ace/release/native-smoke";
 import { readScreenHelperIdentity } from "@ace/release/screen-identity";
 import { ReleaseTarget } from "@ace/protocol";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
@@ -112,7 +115,7 @@ await verifyNatives(arch);
 // Local packages may use the host's toolchain.
 if (full && process.platform === "linux")
   for (const known of await assertLinuxRuntimeFloor(
-    ["daemon", "bin", "helpers", "runtime", "spade", "media"]
+    ["daemon", "bin", "helpers", "runtime", "spade", "media", "files"]
       .map((d) => join(dist, d))
       .filter((path) => existsSync(path)),
   ))
@@ -157,6 +160,7 @@ const config: Configuration = {
     // Spade's server (ADR 0123), in every build; Settings › Beta hides it at run time (ADR 0139).
     { from: join(dist, "spade"), to: "spade" },
     { from: join(dist, "media"), to: "media" },
+    { from: join(dist, "files"), to: "files" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.
     {
       from: join(desktop, "resources"),
@@ -216,14 +220,14 @@ const config: Configuration = {
         ]
       : [{ target: "dmg", arch: [arch] }],
     hardenedRuntime: true,
-    binaries: ["Contents/Resources/media/ace-media"],
-    // Keep Electron's JIT entitlements off the media executable in the same signing pass.
+    binaries: ["Contents/Resources/media/ace-media", "Contents/Resources/files/ace-files"],
+    // Keep Electron's JIT entitlements off the Rust natives in the same signing pass.
     sign: async (options) => {
       const original = options.optionsForFile;
       await signAsync({
         ...options,
         optionsForFile: (file: string) =>
-          file.endsWith("/media/ace-media")
+          file.endsWith("/media/ace-media") || file.endsWith("/files/ace-files")
             ? { hardenedRuntime: true, entitlements: [] }
             : (original?.(file) ?? {}),
       });
@@ -355,17 +359,33 @@ const outputs = await build({
   projectDir: repo,
   publish: "never",
 });
-const mediaTarget = ReleaseTarget.parse(`${process.platform}-${arch}`);
-await verifyMediaDesktop(packedApp, mediaTarget, join(repo, "native/screen-helper/identity.txt"), {
-  production: signed && process.platform === "darwin",
-  authenticode: windowsSigningConfigured(authenticode),
-  ...(screenIdentity ? { screenIdentity } : {}),
-});
+const nativeTarget = ReleaseTarget.parse(`${process.platform}-${arch}`);
+await verifyDesktopNatives(
+  packedApp,
+  nativeTarget,
+  join(repo, "native/screen-helper/identity.txt"),
+  {
+    production: signed && process.platform === "darwin",
+    authenticode: windowsSigningConfigured(authenticode),
+    ...(screenIdentity ? { screenIdentity } : {}),
+  },
+);
+const runtime = join(
+  packedResources,
+  "runtime",
+  process.platform === "win32" ? "node.exe" : "bin/node",
+);
 await smokeMedia(
   packedResources,
-  mediaTarget,
+  nativeTarget,
   packagedAppVersion(process.env, appVersion()),
-  join(packedResources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
+  runtime,
+);
+await smokeFiles(
+  packedResources,
+  nativeTarget,
+  aceFilesVersion({ repo, target: nativeTarget }),
+  runtime,
 );
 if (process.platform === "linux")
   outputs.push(

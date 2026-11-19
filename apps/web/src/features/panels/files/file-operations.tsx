@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { checkoutError } from "./checkout-source.ts";
+import { checkoutChanged } from "./checkout-refresh.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
 import { fileManagement, type FileMutation } from "./file-management-source.ts";
 import { cleanPath, parentPath, type FileOperationDialog } from "./file-operation.ts";
@@ -43,7 +44,10 @@ export function FileOperations(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const manager = fileManagement(client, props.threadId);
-  const refresh = () => void queries.invalidateQueries({ queryKey: ["checkout"] });
+  const refresh = (paths: readonly (string | undefined)[]) => {
+    checkoutChanged(props.threadId, paths);
+    void queries.invalidateQueries({ queryKey: ["checkout"] });
+  };
   if (op.kind === "archive")
     return <ArchiveDialog threadId={props.threadId} path={original} onClose={props.onClose} />;
   if (op.kind === "trash")
@@ -79,7 +83,7 @@ export function FileOperations(props: {
           throw new Error("Keep the same folder when renaming. Use Move to change folders.");
       }
       const result = await manager.mutate(mutation);
-      refresh();
+      refresh([result.path, result.destination]);
       props.onChanged(result.path, result.destination);
       if (result.trashId) {
         const trashId = result.trashId;
@@ -90,7 +94,7 @@ export function FileOperations(props: {
             onClick: () => {
               void manager.mutate({ op: "restore", trashId, path: original, expected: null }).then(
                 () => {
-                  refresh();
+                  refresh([original]);
                   props.onChanged(original);
                 },
                 (failure: unknown) =>

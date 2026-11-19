@@ -408,7 +408,7 @@ export class FakeDaemon implements Host {
   /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
   get checkouts(): Pick<
     import("./files-wire.ts").FakeFilesWire,
-    "seed" | "seedBytes" | "seedProject" | "seedLinked"
+    "seed" | "seedBytes" | "seedProject" | "seedLinked" | "overwrite"
   > {
     return this.servicesWire.files;
   }

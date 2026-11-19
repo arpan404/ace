@@ -7,6 +7,8 @@ import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { decodeFileFrame, CHUNK_SIZE } from "./index.ts";
 import { fixture, isolated } from "./test-support.ts";
+import { SafeRoot } from "@ace/workspace";
+import { localFilesIo } from "./local-io.ts";
 import { createReadStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
@@ -347,3 +349,44 @@ it.runIf(windows)(
   },
   600_000,
 );
+
+it("refuses a file that changed while the folder's version looked unchanged", async () => {
+  // A folder digest is read once, at each end of the archive; a file that changes in between is
+  // caught by the version the preview recorded for it, before its header is written.
+  const io = localFilesIo((root) => SafeRoot.create(root));
+  let frozen: string | undefined;
+  const workspaceIo = {
+    ...io,
+    async describe(
+      root: string,
+      path: string,
+      options?: Parameters<typeof io.describe>[2],
+    ): ReturnType<typeof io.describe> {
+      const found = await io.describe(root, path, options);
+      if (path !== "" || found === null) return found;
+      frozen ??= found.version;
+      return { ...found, version: frozen };
+    },
+  };
+  const f = await fixture({ workspaceIo });
+  cleanup.push(() => f.close());
+  await writeFile(join(f.root, "a.md"), "before\n");
+  const preview = z.object({ previewId: z.string() }).parse(
+    await f.service.request("writer", {
+      op: "archive.preview",
+      path: "",
+      includeIgnored: false,
+    }),
+  );
+  await writeFile(join(f.root, "a.md"), "after\n");
+
+  const download = await f.service.download("writer", {
+    op: "archive.download",
+    previewId: preview.previewId,
+  });
+  const failure = (async () => {
+    // The archive fails before it can be read to the end, so the loop never finishes.
+    for await (const chunk of download.chunks) void chunk;
+  })();
+  await expect(failure).rejects.toMatchObject({ code: "CONFLICT" });
+});

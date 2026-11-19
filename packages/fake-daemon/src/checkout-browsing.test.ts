@@ -46,6 +46,7 @@ test("a checkout file the thread's project holds downloads with its text, and se
     expect(completion.result).toEqual({
       kind: "completion",
       paths: ["apps/web/src/relay/outbox.ts"],
+      ready: true,
     });
     const chunks: Uint8Array[] = [];
     for await (const chunk of client.downloadFile({

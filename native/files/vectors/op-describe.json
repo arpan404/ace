@@ -1,0 +1,13 @@
+{
+  "json": {
+    "id": 7,
+    "op": {
+      "op": "describe",
+      "root": 1,
+      "path": "src/main.ts"
+    },
+    "type": "request"
+  },
+  "text": "{\"type\":\"request\",\"id\":7,\"op\":{\"op\":\"describe\",\"root\":1,\"path\":\"src/main.ts\"}}",
+  "frame": "4f000000017b2274797065223a2272657175657374222c226964223a372c226f70223a7b226f70223a226465736372696265222c22726f6f74223a312c2270617468223a227372632f6d61696e2e7473227d7d"
+}

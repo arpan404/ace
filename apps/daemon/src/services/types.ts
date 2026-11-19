@@ -146,6 +146,8 @@ export interface Services {
   files?: FilesService;
   supportFiles?: FilesService;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
+  /** The daemon's ace-files and its folder watches (ADR 0178); present without a binary too. */
+  filesNative?: import("../files-tool/wiring.ts").FilesNative;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   agentRegistry?: import("@ace/agent-registry").AgentRegistry;

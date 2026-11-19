@@ -5,15 +5,17 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { folderFixture } from "./folders-test-support.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
 async function openThread() {
   const app = harness();
+  const folders = folderFixture(app.client, "thread-cold-start");
   app.play(coldStartReplay()).runThrough("turn-2");
   const view = await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  return { app, view };
+  return { app, view, folders };
 }
 
 const panel = () => screen.findByRole("region", { name: "Thread panel" });
@@ -28,8 +30,12 @@ async function quickOpen(text: string) {
 /** Folders start folded: open each of `folders` in `tree` so a nested file shows. */
 async function reveal(tree: HTMLElement, folders: readonly string[]) {
   for (const folder of folders) {
-    const row = tree.querySelector(`[data-path="${folder}"]`);
-    if (row?.getAttribute("aria-expanded") === "false") await userEvent.click(row as HTMLElement);
+    const row = await waitFor(() => {
+      const found = tree.querySelector<HTMLElement>(`[data-path="${folder}"]`);
+      if (!found) throw new Error(`${folder} is not listed yet`);
+      return found;
+    });
+    if (row.getAttribute("aria-expanded") !== "true") await userEvent.click(row);
   }
 }
 
@@ -212,6 +218,26 @@ test("find in file counts matches and steps through them", async () => {
   expect(within(side).queryByRole("textbox", { name: "Find in file" })).toBeNull();
 });
 
+test("find in a read-only file takes its own row above the source, never over its first lines", async () => {
+  await openThread();
+  await quickOpen("outbox");
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  const source = await within(side).findByRole("region", {
+    name: "Source of apps/web/src/relay/outbox.ts",
+  });
+  await userEvent.click(within(side).getByRole("button", { name: "Find in file" }));
+  const bar = within(side).getByRole("textbox", { name: "Find in file" }).closest("search");
+  expect(bar).toBeTruthy();
+  // A row of its own: not floated over the source, and the source scrolls in the space below it.
+  expect(bar?.className).not.toMatch(/\babsolute\b/);
+  expect(bar?.contains(source)).toBe(false);
+  const below = bar?.nextElementSibling;
+  expect(below?.contains(source)).toBe(true);
+  expect(below?.className).toMatch(/\bflex-1\b/);
+  expect(below?.className).not.toMatch(/\bh-full\b/);
+});
+
 test("an upload lands in the checkout and opens; an existing name asks before replacing it", async () => {
   const { app } = await openThread();
   await quickOpen("socket");
@@ -358,30 +384,76 @@ test("a source file offers only installed editors and opens its checkout path", 
   }
 });
 
-test("a checkout of hundreds of files mounts only the tree rows near the view, and search finds any", async () => {
-  // jsdom applies no stylesheet: give scrollers the overflow their classes set.
-  const style = document.createElement("style");
-  style.textContent = ".overflow-y-auto, .overflow-auto { overflow-y: auto; }";
-  document.head.append(style);
-  try {
-    const { app } = await openThread();
-    for (let n = 0; n < 400; n++)
-      app.daemon.checkouts.seed("thread-cold-start", `pkg/part-${n % 20}/case-${n}.ts`, "x\n");
-    await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
-    const side = await panel();
-    await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
-    const tools = await within(side).findByRole("list", { name: "Tools" });
-    await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
-    const tree = await within(side).findByRole("tree", { name: "Checkout files" });
-    await waitFor(() => expect(within(tree).getAllByRole("treeitem").length).toBeGreaterThan(0));
-    expect(within(tree).getAllByRole("treeitem").length).toBeLessThan(60);
-    await userEvent.type(
-      within(side).getByRole("searchbox", { name: "Find files in the checkout" }),
-      "case-399",
-    );
-    const found = await within(side).findByRole("tree", { name: "Matching files" });
-    expect(await within(found).findByRole("treeitem", { name: "case-399.ts" })).toBeTruthy();
-  } finally {
-    style.remove();
-  }
+test("a checkout of hundreds of files lists one folder at a time, and search finds any", async () => {
+  const { app } = await openThread();
+  for (let n = 0; n < 400; n++)
+    app.daemon.checkouts.seed("thread-cold-start", `pkg/part-${n % 20}/case-${n}.ts`, "x\n");
+  await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
+  const side = await panel();
+  await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
+  const tools = await within(side).findByRole("list", { name: "Tools" });
+  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  const tree = await within(side).findByRole("tree", { name: "Checkout files" });
+  // The root lists the checkout's top folders only: nothing below is asked for until it opens.
+  const pkg = await within(tree).findByRole("treeitem", { name: "pkg" });
+  expect(within(tree).queryByRole("treeitem", { name: "part-0" })).toBeNull();
+  await reveal(tree as HTMLElement, ["pkg/", "pkg/part-0/"]);
+  expect(await within(tree).findByRole("treeitem", { name: "case-0.ts" })).toBeTruthy();
+  await userEvent.type(
+    within(side).getByRole("searchbox", { name: "Find files in the checkout" }),
+    "case-399",
+  );
+  const found = await within(side).findByRole("tree", { name: "Matching files" });
+  expect(await within(found).findByRole("treeitem", { name: "case-399.ts" })).toBeTruthy();
+  expect(pkg.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("an open file shows what another program wrote to it, once the watcher names its folder", async () => {
+  const { app, folders } = await openThread();
+  await quickOpen("sock");
+  await screen.findByRole("option", { name: /socket\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  const source = await within(side).findByRole("region", {
+    name: "Source of apps/web/src/relay/socket.ts",
+  });
+  await waitFor(() => expect(source.textContent).toContain("export class RelaySocket {"));
+  // The daemon only names folders a client watches: the open file's folder is one of them.
+  await waitFor(() => expect(folders.watches.at(-1)).toContain("apps/web/src/relay"));
+
+  app.daemon.checkouts.overwrite(
+    "thread-cold-start",
+    "apps/web/src/relay/socket.ts",
+    "export const fromDisk = 1;\n",
+  );
+  folders.changed(["apps/web/src/relay"]);
+  await waitFor(() =>
+    expect(
+      within(side).getByRole("region", { name: "Source of apps/web/src/relay/socket.ts" })
+        .textContent,
+    ).toContain("fromDisk"),
+  );
+});
+
+test("a write that lands after the file was read but before its folder is watched still shows", async () => {
+  const { app, folders } = await openThread();
+  const path = "apps/web/src/relay/socket.ts";
+  let readFirst = false;
+  // The shell writes in the gap: the file was already read, the daemon is not watching yet.
+  folders.onWatch((watched) => {
+    if (readFirst || !watched.includes("apps/web/src/relay")) return;
+    readFirst = document.body.textContent?.includes("export class RelaySocket {") ?? false;
+    app.daemon.checkouts.overwrite("thread-cold-start", path, "export const fromDisk = 1;\n");
+  });
+  await quickOpen("sock");
+  await screen.findByRole("option", { name: /socket\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  await waitFor(() => expect(readFirst).toBe(true));
+  // No change notice comes for that write: the watch went in after it.
+  await waitFor(() =>
+    expect(within(side).getByRole("region", { name: `Source of ${path}` }).textContent).toContain(
+      "fromDisk",
+    ),
+  );
 });

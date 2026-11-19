@@ -10,7 +10,7 @@ import {
   WarningCircleIcon,
   WifiSlashIcon,
 } from "@ace/icons";
-import { fileLanguage, isMarkdownPath, pathParts, type LineMark } from "@ace/ui-core";
+import { isMarkdownPath, pathParts, type LineMark } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatLimit } from "@/components/attachment-kind.ts";
@@ -20,9 +20,10 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
+import { CodeEditor } from "@/features/editor";
 import { keymap } from "@/lib/keymap.ts";
 import { mediaOf, mediaViewLimit, viewLimit, type FileContent } from "./checkout-source.ts";
-import { SourceView, type FindHit } from "./source-view.tsx";
+import type { FindHit } from "./find-hits.ts";
 import { formatBytes } from "./use-file-actions.ts";
 
 /** Lines of grey shaped like source while the file loads. */
@@ -133,16 +134,22 @@ export function FileViewer(props: {
   path: string;
   content: FileContent | undefined;
   error: Error | null;
-  wrap: boolean;
   source: boolean;
+  /** Long lines wrap at the editor's width. */
+  wrap: boolean;
+  /** Alt+Z in the source view: the Files tab's wrap preference flips. */
+  onToggleWrap(): void;
   find: { query: string; hit: FindHit | undefined } | undefined;
   line: number | undefined;
+  /** The 0-based UTF-16 column on `line` to bring into view. */
+  column?: number | undefined;
   /** Lines changed since the last commit. */
   marks?: ReadonlyMap<number, LineMark> | undefined;
   onMention?: ((mention: import("@ace/protocol").Mention) => void) | undefined;
   onRetry(): void;
   onDownload(): void;
   onFind(): void;
+  onOverflowEnd?(overflow: boolean): void;
 }) {
   const online = useConnectionState() === "ready";
   const name = pathParts(props.path).name;
@@ -234,15 +241,19 @@ export function FileViewer(props: {
           />
         );
       const source = (
-        <SourceView
+        <CodeEditor
           key={props.path}
           text={content.text}
-          lang={fileLanguage(props.path)}
+          path={props.path}
+          readOnly
           wrap={props.wrap}
+          onToggleWrap={props.onToggleWrap}
           find={props.find}
           line={props.line}
+          column={props.column}
           marks={props.marks}
           label={`Source of ${props.path}`}
+          onHorizontalOverflow={props.onOverflowEnd}
         />
       );
       return props.onMention ? (

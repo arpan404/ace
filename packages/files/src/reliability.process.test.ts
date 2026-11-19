@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { afterEach, expect, test } from "vitest";
@@ -203,15 +203,19 @@ test.each(["archive.preview", "delete"] as const)(
     await writeFile(join(f.root, "dir", "file"), "bytes");
     const expected = await version(f, "dir");
     const original = filesystem.realpath;
+    // The checkout sits under a folder macOS reaches through a link, so the stop names the
+    // resolved folder, never the spelling the test made it with.
+    const stopped = join(await original(f.root), "dir");
     runtime.filesystem = {
       ...filesystem,
       async realpath(path) {
-        if (path === join(f.root, "dir") && !blocked) {
+        const resolved = await original(path);
+        if (resolved === stopped && !blocked) {
           blocked = true;
           entered.resolve();
           await gate.promise;
         }
-        return original(path);
+        return resolved;
       },
     };
     // SafeRoot captured its filesystem object, so intercept the same I/O object.
@@ -285,7 +289,10 @@ test("directory deletion rechecks agent edits after a failed queued write", asyn
   expect(await readFile(join(f.root, "dir", "file"), "utf8")).toBe("agent edit");
 });
 
-test("directory deletion refuses a descendant edit made while its preflight finishes", async () => {
+test("directory deletion refuses a descendant edit made after its digest was read", async () => {
+  // The guard is the whole tree: an edit that lands between preparation and the queued move
+  // changes the digest, so the delete is refused and the folder stays where the person can see
+  // it rather than travelling into the trash unguarded.
   let edit = false;
   let path = "";
   const f = await setup({
@@ -303,10 +310,18 @@ test("directory deletion refuses a descendant edit made while its preflight fini
   await writeFile(path, "before");
   const expected = await version(f, "dir");
   edit = true;
-  await expect(
-    f.service.request("writer", { op: "delete", path: "dir", expected }),
-  ).rejects.toMatchObject({ code: "CONFLICT" });
+
+  const refused = await f.service.request("writer", { op: "delete", path: "dir", expected }).then(
+    () => ({ ok: true as const }),
+    (error: unknown) => ({
+      ok: false as const,
+      code: error instanceof Error && "code" in error ? String(error.code) : "UNKNOWN",
+    }),
+  );
+
+  expect(refused).toMatchObject({ ok: false, code: "CONFLICT" });
   expect(await readFile(path, "utf8")).toBe("provider edit");
+  expect(await readdir(join(f.root, "dir"))).toEqual(["file"]);
 });
 
 test.runIf(process.platform === "win32")(

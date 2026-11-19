@@ -18,7 +18,6 @@ export async function* tree(
     exclude?: (path: string) => boolean;
   },
 ): AsyncGenerator<Entry> {
-  ignore = ignore.traversal();
   const entryLimit = integer(options.entryLimit ?? TREE_CAP, "entryLimit", 1, 1_000_000);
   let visited = 0;
   const excluded = options.exclude ?? internal;

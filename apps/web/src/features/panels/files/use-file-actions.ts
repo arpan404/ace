@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 import { checkoutError, fromCode, type CheckoutError } from "./checkout-source.ts";
+import { checkoutChanged } from "./checkout-refresh.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
 
 /** A file going up to the checkout, as the tree's status line shows it. */
@@ -86,6 +87,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
         controller.signal,
       );
       setUpload(undefined);
+      checkoutChanged(threadId, [path]);
       void queries.invalidateQueries({ queryKey: ["checkout"] });
       onUploaded(path);
       return true;

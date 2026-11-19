@@ -1,14 +1,15 @@
 # Files on the phone: bridge contract
 
-What the SwiftUI Files screens send the bridge and what comes back, for four things: saving a
-file or a folder to the phone, sending picked files into a checkout, quick open, and the recent
-and open files that stand in for tabs. The older Files requests (tree, read, write, rename, …)
-are unchanged and live in `checkout-request.ts`.
+What the SwiftUI Files screens send the bridge and what comes back, for five things: saving a
+file or a folder to the phone, sending picked files into a checkout, quick open, the recent and
+open files that stand in for tabs, and the live tree that lists a folder at a time. The other
+Files requests (read, write, rename, …) are unchanged and live in `checkout-request.ts`.
 
 Code: `checkout-request.ts` (request schemas), `checkout-files.ts` (requests),
-`checkout-downloads.ts`, `checkout-uploads.ts`, `checkout-memory.ts` (actions),
-`checkout-actions.ts` (routing). Shared rules come from `@ace/ui-core`
-(`checkout-quick-open.ts`, `checkout-transfer-words.ts`), which the web uses too.
+`checkout-tree-live.ts` (the live tree), `checkout-downloads.ts`, `checkout-uploads.ts`,
+`checkout-memory.ts` (actions), `checkout-actions.ts` (routing). Shared rules come from
+`@ace/ui-core` (`folder-tree.ts`, `checkout-quick-open.ts`, `checkout-transfer-words.ts`), which
+the web uses too.
 
 Two ways in:
 
@@ -201,6 +202,68 @@ uploaded (`upload.begin` with `expected: version`) a 64 KiB chunk at a time; the
 twice, to hash and to send, and are never held whole. Answers `{ version }` once saved, or
 `{ conflict: <current version> }` when the file changed since the part was read (nothing is
 written; the phone reads the file again). Over 64 MiB is refused with the shared sentence.
+
+## 3c. The live tree
+
+The Files tree lists one folder at a time and follows changes. The bridge holds the pages it has
+listed and the folders the person opened; Swift draws the rows it sends (`FileTree` in
+`ThreadFilesModel.swift`). Actions, each answering in a `files.tree` patch:
+
+```json
+{ "type": "files.tree.show",    "scope": <Scope> }
+{ "type": "files.tree.hide",    "scope": <Scope> }
+{ "type": "files.tree.opened",  "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.closed",  "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.more",    "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.retry",   "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.refresh", "scope": <Scope> }
+```
+
+- `show` when the screen appears or comes back from the foreground. The first show for a scope
+  lists the root and every visible folder from its first page, and opens the folders holding an
+  uncommitted change, as the web's tree opens them. A show within five seconds of a hide lists
+  only the visible folders that went stale (a page that never arrived, or a folder a change named
+  while hidden), each at the size it already shows; after a longer hide every visible folder
+  lists again.
+- `hide` when the app goes to the background. It decrements this scope's visibility count; a
+  second Files screen showing the same scope keeps the tree alive. At zero the runs stop and
+  `files.watch` sends `[]` at once. The pages of the three most recently hidden trees are kept;
+  a fourth drops the oldest, which lists from the start when shown again.
+- `opened` lists the folder and any open folder under it that just became visible; `closed` stops
+  them and hides their rows. A folder counts as visible only while every folder above it is open:
+  a folded parent's descendants keep their pages but are not listed, watched or re-listed.
+- `more` asks for the next page (`nextCursor`). `retry` asks for the page that failed: a failed
+  Show more re-asks that page, and a failed first page starts over. `refresh` lists every visible
+  folder again after a change made from the phone.
+- A re-list keeps the pages already listed, asking for the number of entries it shows (at least
+  500, at most 5,000), so its rows stay put. A change that arrives while a folder is being listed
+  waits for that page and lists once when it ends; it never aborts and restarts in a loop.
+- At most four folder listings are on their way at once. The queue starts visible folders before
+  hidden ones, shallower before deeper, then by path.
+- Visible thread folders are watched with `files.watch`, sent 150 ms after the set settles and
+  naming the root and every visible open folder. A `files.folders_changed` lists the folders it
+  names again (every visible folder on `rescan`); a reconnected socket re-sends the set and lists
+  the visible folders again. A thread's `files.changed` lists only the parent folders of its
+  `path` and `destination`; a project's own folder has no watcher and follows
+  `workspace.files_changed` for that project.
+
+Patch, key `files.tree:<key>`:
+
+```json
+{
+  "type": "files.tree",
+  "key": "thread:<id>" | "project:<id>",
+  "rows": [
+    { "key": "src/", "kind": "folder", "name": "src", "depth": 0,
+      "expanded": true, "ignored": false, "mark": "M", "markLabel": "Modified" }
+  ]
+}
+```
+
+`kind` is `file`, `folder`, `loading`, `more` or `error`. Entry rows carry the checkout path in
+`key` (folders end in "/"); `ignored` marks a gitignored entry, drawn dimmed; `mark` and
+`markLabel` are the web's git letter and word. A `loading`, `more` or `error` row names its
+`folder` (`""` for the root), and an error row also carries `error`, the sentence to show.
 
 ## 4. Recent and open files (in place of tabs)
 

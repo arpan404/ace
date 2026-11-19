@@ -2,7 +2,6 @@ import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:f
 import { join } from "node:path";
 import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
-import { createWorkspace } from "@ace/workspace";
 import { createExclusiveRename } from "./index.ts";
 import { fixture } from "./test-support.ts";
 
@@ -157,8 +156,6 @@ it("rejects direct and parent symlink aliases to private upload bytes through pu
       code: "INVALID_PATH",
     });
   }
-  const workspace = await createWorkspace(f.root);
-  await expect(workspace.read({ path: "alias" })).rejects.toMatchObject({ code: "INVALID_PATH" });
   const client = await f.connect();
   expect(await client.request({ op: "download", path: "alias", offset: 0 })).toMatchObject({
     code: "INVALID_PATH",

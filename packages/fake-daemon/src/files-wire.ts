@@ -9,6 +9,7 @@ import {
 import type { FakeServiceContext } from "./service-context.ts";
 import { FakeCheckout, type CheckoutFile } from "./fake-checkout.ts";
 import { UploadReceipts } from "./upload-receipts.ts";
+import { searchCheckout } from "./file-search.ts";
 
 type File = CheckoutFile;
 type Upload = {
@@ -67,6 +68,17 @@ export class FakeFilesWire {
         this.checkout.apply(threadId, { op: "mkdir", path: folder, expected: null });
     }
     this.checkout.apply(threadId, { op: "create", path, expected: null, text });
+  }
+  /**
+   * Replace a checkout file's text as a program outside ace would: a new version on disk and no
+   * message about it; only the watcher (a test's `files.folders_changed`) tells a client.
+   */
+  overwrite(threadId: string, path: string, text: string): void {
+    const key = this.key(threadId, path);
+    const file = this.files.get(key);
+    if (!file) throw new Error("NOT_FOUND");
+    const bytes = new TextEncoder().encode(text);
+    this.files.set(key, { ...file, bytes, version: `outside-${++this.sequence}` });
   }
   /**
    * Put a file of raw bytes (and its folders) in a thread's checkout: images, or noise that
@@ -263,6 +275,8 @@ export class FakeFilesWire {
             return;
           }
           if (message.type === "files.credit") throw new Error("INVALID_MESSAGE");
+          // The fake serves no watcher: a test drives files.folders_changed itself.
+          if (message.type === "files.watch") return;
           if (message.type === "files.pull" || message.type === "files.chunk") {
             const channel = channels.get(message.channel);
             if (!channel) throw new Error("NOT_FOUND");
@@ -378,6 +392,19 @@ export class FakeFilesWire {
           }
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
           const threadId = message.threadId;
+          if (op.op === "search") {
+            // As the daemon: one matches message per file, then the summary ends the request.
+            const found = searchCheckout(
+              this.checkout.paths(threadId, op.includeIgnored),
+              (path) => this.files.get(this.key(threadId, path))?.bytes,
+              op,
+            );
+            if ("error" in found) throw new Error(found.error);
+            for (const file of found.files)
+              emit({ type: "files.search.matches", searchId: message.requestId, files: [file] });
+            emit({ type: "files.result", requestId: message.requestId, value: found.summary });
+            return;
+          }
           if (op.op === "link.download") {
             // Not a checkout path, so pulls skip the checkout re-check (as support reads do).
             read(op, "", linkedKey(threadId, op.itemId, op.reference), message.requestId);

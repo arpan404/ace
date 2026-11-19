@@ -18,52 +18,12 @@ const cases = [
     behavior: "lossless version bits",
   },
   {
-    name: "Remove autonomous cache retry",
-    file: "workspace-cache.ts",
-    before: "return entry.task.then(flush);",
-    after: "return Promise.resolve();",
-    test: "workspace-review.test.ts",
-    behavior: "transient ignore update failure",
-  },
-  {
-    name: "Ignore watcher errors",
-    file: "workspace-cache.ts",
-    before: 'source.on("error", () => {',
-    after: 'source.on("error", () => { return;',
-    test: "workspace-review.test.ts",
-    behavior: "watcher errors recover",
-  },
-  {
-    name: "Bypass retry backoff during churn",
-    file: "workspace-cache.ts",
-    before: "entry.cancelRetry ||",
-    after: "",
-    test: "workspace-review.test.ts",
-    behavior: "watcher errors recover",
-  },
-  {
-    name: "Leak retry timer after close",
-    file: "workspace-cache.ts",
-    before: "for (const entry of this.cache.values()) {\n      entry.cancelRetry?.();",
-    after: "for (const entry of this.cache.values()) {",
-    test: "workspace-review.test.ts",
-    behavior: "watcher errors recover",
-  },
-  {
     name: "Mask cancelled partial Git frames",
     file: "git-process.ts",
     before: "throw failure ?? error;",
     after: "throw error;",
     test: "workspace-review.test.ts",
     behavior: "cancelling an incomplete Git listing",
-  },
-  {
-    name: "Make cache hits await updates",
-    file: "workspace-cache.ts",
-    before: "if (cached?.ready) {",
-    after: "if (cached?.ready) { await cached.task;",
-    test: "workspace-review.test.ts",
-    behavior: "published index during an unfinished",
   },
   {
     name: "Omit delivered message context",
@@ -106,14 +66,6 @@ const cases = [
     behavior: "provider consumption retains",
   },
   {
-    name: "Remove lease admission cap",
-    file: "blob-leases.ts",
-    before: "this.active < 128",
-    after: "true",
-    test: "service.test.ts",
-    behavior: "lease admission stays bounded",
-  },
-  {
     name: "Omit preparation failure cleanup",
     file: "service.ts",
     before: "lease.release();\n      throw error;",
@@ -137,22 +89,9 @@ const cases = [
     test: "uploads.test.ts",
     behavior: "WebP frame dimensions",
   },
-  {
-    name: "Omit subtree ignore filtering",
-    file: "git-workspace.ts",
-    before: '["--cached", "--ignored", "--exclude-standard", "--", path]',
-    after: '["--deleted", "--", path]',
-    test: "workspace-review.test.ts",
-    behavior: "subtree reconciliation removes",
-  },
-  {
-    name: "Omit subtree deletion filtering",
-    file: "git-workspace.ts",
-    before: 'await this.listing(["--deleted", "--", path], (child) => next.update(child, false));',
-    after: "",
-    test: "workspace-review.test.ts",
-    behavior: "subtree reconciliation removes",
-  },
 ];
+
+// The path index, its watcher cache and its retries moved to ace-files; their mutations are bench
+// cases inside native/files now, not TypeScript ones here.
 const filter = process.argv[2];
 await checkMutations(cases.filter((mutation) => !filter || new RegExp(filter).test(mutation.name)));

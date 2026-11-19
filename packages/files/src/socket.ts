@@ -78,6 +78,9 @@ export function attachFilesChannel(
       ...(error instanceof FileError && error.current !== undefined
         ? { current: error.current }
         : {}),
+      ...(error instanceof FileError && typeof error.recovery === "string"
+        ? { recovery: error.recovery }
+        : {}),
     });
   const stop = async (id: number) => {
     const state = outgoing.get(id);
@@ -180,7 +183,8 @@ export function attachFilesChannel(
     if (
       message.type === "files.abort" ||
       message.type === "files.pull" ||
-      message.type === "files.chunk"
+      message.type === "files.chunk" ||
+      message.type === "files.watch"
     )
       throw new FileError("INVALID_MESSAGE", "Chunk requests require thread scope");
     const operation = message.operation;

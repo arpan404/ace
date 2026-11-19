@@ -171,6 +171,7 @@ async function build(version: string): Promise<void> {
           ? {
               ...process.env,
               ACE_MEDIA_BIN: join(packagedMac, "Contents/Resources/media/ace-media"),
+              ACE_FILES_BIN: join(packagedMac, "Contents/Resources/files/ace-files"),
             }
           : process.env,
       );

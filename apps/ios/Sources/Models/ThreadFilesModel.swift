@@ -23,27 +23,74 @@ struct FilesFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// The checkout as rows in tree order (`bridge/checkout-tree.ts`); folders end in "/".
-struct FileTree: Decodable, Sendable {
+/// How a screen waits for a checkout whose path index is still building: one deadline, and every
+/// request and sleep after it takes only what the deadline has left. A slow answer therefore
+/// cannot outlast the wait, and one query's wait never spends another's.
+struct IndexWait {
+    /// The instant the wait runs out.
+    let deadline: ContinuousClock.Instant
+    private let now: () -> ContinuousClock.Instant
+
+    /// A wait of `seconds` starting when it is made.
+    init(
+        seconds: TimeInterval = 8,
+        now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }
+    ) {
+        self.init(deadline: now().advanced(by: .seconds(seconds)), now: now)
+    }
+
+    /// A wait to an instant, with the clock it reads; tests name both.
+    init(deadline: ContinuousClock.Instant, now: @escaping () -> ContinuousClock.Instant) {
+        self.deadline = deadline
+        self.now = now
+    }
+
+    /// What is left of the wait, zero or negative once it has run out.
+    var remaining: Duration { now().duration(to: deadline) }
+
+    /// The pause before asking again, or nil when there is nothing left to wait for.
+    func pause(upTo interval: Duration = .milliseconds(300)) -> Duration? {
+        let left = remaining
+        guard left > .zero else { return nil }
+        return min(interval, left)
+    }
+}
+
+/// The checkout as the bridge lists it (`bridge/checkout-tree-live.ts`): only the folders the
+/// person opened, a page at a time.
+struct FileTree: Decodable, Sendable, Equatable {
+    /// The scope the tree belongs to, as `FilesScope.memoryKey` names it.
+    let key: String
     let rows: [FileTreeRow]
-    /// Folders that start open: the ones holding an uncommitted change.
-    let open: [String]
-    /// The computer listed only the first 1,000 entries.
-    let truncated: Bool
 }
 struct FileTreeRow: Decodable, Sendable, Identifiable, Hashable {
-    let path: String
+    /// The entry's checkout path (folders end in "/"), or a synthetic key for a status row.
+    let key: String
+    /// "file", "folder", "loading", "more" or "error".
+    let kind: String
     let name: String
     let depth: Int
-    let folder: Bool
+    /// A folder row only: whether its children show.
+    let expanded: Bool
+    /// Listed but excluded by the checkout's gitignore rules: shown, dimmed.
+    let ignored: Bool
     /// The web's git letter ("M", "A", "D", "R", "U") and its word.
     let mark: String?
     let markLabel: String?
-    var id: String { path }
+    /// The folder a loading, Show more or error row belongs to.
+    let folder: String?
+    /// What an error row says.
+    let error: String?
+    var id: String { key }
+    var isFolder: Bool { kind == "folder" }
+    var isFile: Bool { kind == "file" }
+    var isEntry: Bool { isFolder || isFile }
 }
 struct FileSearch: Decodable, Sendable {
     let query: String
     let rows: [FileSearchRow]
+    /// False while the checkout's index is still building; the list keeps its skeleton.
+    let ready: Bool
 }
 struct FileSearchRow: Decodable, Sendable, Identifiable, Hashable {
     let path: String
@@ -179,6 +226,8 @@ struct QuickOpen: Decodable, Sendable {
     let text: String
     let query: String
     let line: Int?
+    /// False while the checkout's index is still building; the list keeps its skeleton.
+    let ready: Bool?
     let rows: [Row]
 }
 /// A folder's archive before it is saved (`archive` request).
@@ -191,13 +240,14 @@ struct ArchivePreview: Decodable, Sendable, Equatable {
     let leavesOut: String
 }
 
-/// Files screens read again when the computer says any checkout changed; saves, uploads and the
-/// recent and open files arrive as their own patches.
+/// Files screens read again when the computer says any checkout changed; saves, uploads, the
+/// recent and open files, and the live tree arrive as their own patches.
 enum FilesPatch: Decodable, Sendable {
     case changed(Int)
     case download(FileDownload)
     case upload(FileUpload)
     case memory(FileMemory)
+    case tree(FileTree)
     private enum Keys: String, CodingKey { case type, seq }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -206,27 +256,84 @@ enum FilesPatch: Decodable, Sendable {
         case "files.download": self = .download(try FileDownload(from: decoder))
         case "files.upload": self = .upload(try FileUpload(from: decoder))
         case "files.memory": self = .memory(try FileMemory(from: decoder))
+        case "files.tree": self = .tree(try FileTree(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown files patch")
         }
     }
 }
 
+/// One scope's live tree, observable on its own so a patch for one Files screen doesn't redraw
+/// every other Files view.
+@MainActor @Observable final class FilesTreeModel {
+    var tree: FileTree?
+    /// Counts the patches applied to this scope.
+    private(set) var revision = 0
+    @ObservationIgnored private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    func apply(_ next: FileTree) {
+        tree = next
+        revision += 1
+        let waiting = waiters
+        waiters.removeAll()
+        for (_, waiter) in waiting { waiter.resume() }
+    }
+
+    /// Settles after the next patch for this scope, or ten seconds, so pull to refresh always ends.
+    func nextPatch(after revision: Int) async {
+        if self.revision > revision { return }
+        let id = UUID()
+        let timeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            self?.resumeWaiter(id)
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiters[id] = continuation
+        }
+        timeout.cancel()
+    }
+
+    private func resumeWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
+    }
+}
+
 /// How many times the computer said files changed (screens read again when it moves), and the
-/// saves, uploads and remembered files the bridge reports.
+/// saves, uploads, remembered files and live trees the bridge reports.
 @MainActor @Observable final class ThreadFilesModel {
     var revision = 0
     var downloads: [String: FileDownload] = [:]
     var uploads: [String: FileUpload] = [:]
     var memory: [String: FileMemory] = [:]
+    @ObservationIgnored private var scopeTrees: [String: FilesTreeModel] = [:]
+    /// Bumped only when a scope's tree first appears, so each view re-reads its own model once.
+    private(set) var treesRevision = 0
     func apply(_ patch: FilesPatch) {
         switch patch {
         case .changed(let seq): revision = seq
         case .download(let download): downloads[download.id] = download
         case .upload(let upload): uploads[upload.id] = upload
         case .memory(let memory): self.memory[memory.key] = memory
+        case .tree(let tree): self.tree(tree.key).apply(tree)
         }
     }
-    func reset() { revision = 0; downloads = [:]; uploads = [:]; memory = [:] }
+    /// The tree for `key`, made on first use.
+    @discardableResult func tree(_ key: String) -> FilesTreeModel {
+        if let known = scopeTrees[key] { return known }
+        let made = FilesTreeModel()
+        scopeTrees[key] = made
+        treesRevision += 1
+        return made
+    }
+    /// The tree for `key` if this phone has seen it; reading it in a view observes that scope only.
+    func existingTree(_ key: String) -> FilesTreeModel? { scopeTrees[key] }
+    func reset() {
+        revision = 0
+        downloads = [:]
+        uploads = [:]
+        memory = [:]
+        scopeTrees.removeAll()
+        treesRevision += 1
+    }
 }
 
 extension FilesScope {
@@ -240,9 +347,10 @@ extension FilesScope {
 }
 
 extension ClientModel {
-    /// One Files request (`bridge/checkout-files.ts`); a refusal throws its sentence.
-    func files<T: Decodable>(_ scope: FilesScope, _ operation: [String: Any], as type: T.Type) async throws -> T {
-        let value = try await service(["type": "native.files", "scope": scope.wire, "operation": operation], as: ServiceValue.self)
+    /// One Files request (`bridge/checkout-files.ts`); a refusal throws its sentence. `timeout`
+    /// bounds the wait, so a caller spending a deadline asks for no more than it has left.
+    func files<T: Decodable>(_ scope: FilesScope, _ operation: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
+        let value = try await service(["type": "native.files", "scope": scope.wire, "operation": operation], as: ServiceValue.self, timeout: timeout)
         if case .object(let fields) = value, case .bool(false) = fields["ok"] {
             var code = "failed"
             var message = "Couldn't reach the files. Try again."
@@ -263,4 +371,14 @@ extension ClientModel {
         try data.write(to: url, options: .atomic)
         return url
     }
+
+    /// The live Files tree (`bridge/checkout-tree-live.ts`): list what the screen shows, expand a
+    /// folder, ask for its next page, or read everything open again after a change from the phone.
+    func showFilesTree(_ scope: FilesScope) { action(["type": "files.tree.show", "scope": scope.wire]) }
+    func hideFilesTree(_ scope: FilesScope) { action(["type": "files.tree.hide", "scope": scope.wire]) }
+    func openFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.opened", "scope": scope.wire, "path": path]) }
+    func closeFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.closed", "scope": scope.wire, "path": path]) }
+    func moreFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.more", "scope": scope.wire, "path": path]) }
+    func retryFilesFolder(_ scope: FilesScope, _ path: String) { action(["type": "files.tree.retry", "scope": scope.wire, "path": path]) }
+    func refreshFilesTree(_ scope: FilesScope) { action(["type": "files.tree.refresh", "scope": scope.wire]) }
 }

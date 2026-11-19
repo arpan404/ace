@@ -26,6 +26,8 @@ const sharing: [KeymapId, KeymapId, string][] = [
   ["findInThread", "findInTerminal", "the terminal takes ⌘F only while it has focus"],
   ["fullView", "findInTerminal", "off Apple the terminal takes Ctrl+Shift+F while focused"],
   ["panel.closeTab", "files.delete", "a tab and a file in the tree never have focus together"],
+  ["fullView", "files.search", "a Files tab takes ⌘⇧F only while focus is inside it"],
+  ["findInTerminal", "files.search", "a terminal and a Files tab never have focus together"],
   ["files.move", "devices", "off Apple the file tree takes Ctrl+Shift+M only on a focused file"],
   [
     "followUpOther",

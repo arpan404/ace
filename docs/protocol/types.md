@@ -11317,7 +11317,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"context.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"draft"},"draftId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"}},"required":["kind","draftId"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/ContextErrorCode.json"},"message":{"type":"string"}},"required":["kind","code","message"]},{"type":"object","properties":{"kind":{"type":"string","const":"upload"},"uploadId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"},"offset":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["kind","uploadId","offset","bytes"]},{"type":"object","properties":{"kind":{"type":"string","const":"attachment"},"attachment":{"$ref":"https://ace.local/protocol/v1/Attachment.json"}},"required":["kind","attachment"]},{"type":"object","properties":{"kind":{"type":"string","const":"attachment.data"},"sha256":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"},"variant":{"type":"string","enum":["original","thumbnail"]},"mimeType":{"type":"string","maxLength":128},"offset":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"data":{"type":"string","maxLength":87384},"eof":{"type":"boolean"}},"required":["kind","sha256","variant","mimeType","offset","bytes","data","eof"]},{"type":"object","properties":{"kind":{"type":"string","const":"attachments"},"attachments":{"maxItems":256,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Attachment.json"}},"nextCursor":{"$ref":"https://ace.local/protocol/v1/AttachmentListCursor.json"}},"required":["kind","attachments"]},{"type":"object","properties":{"kind":{"type":"string","const":"mentions"},"entries":{"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ResolvedMention.json"}},"diagnostics":{"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ContextDiagnostic.json"}}},"required":["kind","entries","diagnostics"]},{"type":"object","properties":{"kind":{"type":"string","const":"completion"},"paths":{"maxItems":50,"type":"array","items":{"type":"string"}}},"required":["kind","paths"]},{"type":"object","properties":{"kind":{"type":"string","const":"ok"}},"required":["kind"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"draft"},"draftId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"}},"required":["kind","draftId"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/ContextErrorCode.json"},"message":{"type":"string"}},"required":["kind","code","message"]},{"type":"object","properties":{"kind":{"type":"string","const":"upload"},"uploadId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"},"offset":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["kind","uploadId","offset","bytes"]},{"type":"object","properties":{"kind":{"type":"string","const":"attachment"},"attachment":{"$ref":"https://ace.local/protocol/v1/Attachment.json"}},"required":["kind","attachment"]},{"type":"object","properties":{"kind":{"type":"string","const":"attachment.data"},"sha256":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"},"variant":{"type":"string","enum":["original","thumbnail"]},"mimeType":{"type":"string","maxLength":128},"offset":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"data":{"type":"string","maxLength":87384},"eof":{"type":"boolean"}},"required":["kind","sha256","variant","mimeType","offset","bytes","data","eof"]},{"type":"object","properties":{"kind":{"type":"string","const":"attachments"},"attachments":{"maxItems":256,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Attachment.json"}},"nextCursor":{"$ref":"https://ace.local/protocol/v1/AttachmentListCursor.json"}},"required":["kind","attachments"]},{"type":"object","properties":{"kind":{"type":"string","const":"mentions"},"entries":{"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ResolvedMention.json"}},"diagnostics":{"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ContextDiagnostic.json"}}},"required":["kind","entries","diagnostics"]},{"type":"object","properties":{"kind":{"type":"string","const":"completion"},"paths":{"maxItems":50,"type":"array","items":{"type":"string"}},"ready":{"default":true,"type":"boolean"}},"required":["kind","paths"]},{"type":"object","properties":{"kind":{"type":"string","const":"ok"}},"required":["kind"]}]} |
 
 Example:
 
@@ -14910,6 +14910,25 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"list.folder"` |  |
+| path | yes | string | {"maxLength":4096} |
+| limit | no | integer | {"default":500,"minimum":1,"maximum":5000} |
+| cursor | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "limit": 4,
+  "op": "list.folder",
+  "path": "example"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"stat"` |  |
 | path | yes | string | {"maxLength":4096} |
 
@@ -14922,7 +14941,7 @@ Example:
 }
 ```
 
-### Variant 3
+### Variant 4
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -14939,12 +14958,11 @@ Example:
 ```json
 {
   "op": "read",
-  "path": "example",
-  "validator": "example"
+  "path": "example"
 }
 ```
 
-### Variant 4
+### Variant 5
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -14957,12 +14975,14 @@ Example:
 
 ```json
 {
+  "offset": 4,
   "op": "download",
-  "path": "example"
+  "path": "example",
+  "validator": "example"
 }
 ```
 
-### Variant 5
+### Variant 6
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -14977,14 +14997,13 @@ Example:
 ```json
 {
   "itemId": "example",
-  "offset": 4,
   "op": "link.download",
   "reference": "example",
   "validator": "example"
 }
 ```
 
-### Variant 6
+### Variant 7
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -14998,12 +15017,11 @@ Example:
 ```json
 {
   "artifactId": "example",
-  "op": "artifact.download",
-  "validator": "example"
+  "op": "artifact.download"
 }
 ```
 
-### Variant 7
+### Variant 8
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15020,7 +15038,7 @@ Example:
 }
 ```
 
-### Variant 8
+### Variant 9
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15036,7 +15054,7 @@ Example:
 }
 ```
 
-### Variant 9
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15049,14 +15067,14 @@ Example:
 
 ```json
 {
-  "expected": null,
+  "expected": "example",
   "op": "upload.begin",
   "path": "example",
-  "size": 8
+  "size": 6
 }
 ```
 
-### Variant 10
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15072,7 +15090,7 @@ Example:
 }
 ```
 
-### Variant 11
+### Variant 12
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15085,12 +15103,12 @@ Example:
 ```json
 {
   "op": "upload.commit",
-  "sha256": "88d706ea654b4bea6110356a1af728912c72d4ac284b2dffa250960ac7d878ad",
+  "sha256": "c056173555f6bb0b644201ad2a11099daf635452fcc925bccf2700a0d840314b",
   "uploadId": "example"
 }
 ```
 
-### Variant 12
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15106,7 +15124,7 @@ Example:
 }
 ```
 
-### Variant 13
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15126,7 +15144,7 @@ Example:
 }
 ```
 
-### Variant 14
+### Variant 15
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15141,11 +15159,12 @@ Example:
 {
   "expected": null,
   "op": "create",
-  "path": "example"
+  "path": "example",
+  "text": "example"
 }
 ```
 
-### Variant 15
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15163,7 +15182,7 @@ Example:
 }
 ```
 
-### Variant 16
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15178,14 +15197,14 @@ Example:
 ```json
 {
   "destination": "example",
-  "destinationExpected": null,
-  "expected": "example",
+  "destinationExpected": "example",
+  "expected": null,
   "op": "rename",
   "path": "example"
 }
 ```
 
-### Variant 17
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15207,7 +15226,7 @@ Example:
 }
 ```
 
-### Variant 18
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15225,7 +15244,7 @@ Example:
 }
 ```
 
-### Variant 19
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15245,7 +15264,7 @@ Example:
 }
 ```
 
-### Variant 20
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15259,7 +15278,7 @@ Example:
 }
 ```
 
-### Variant 21
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15274,7 +15293,7 @@ Example:
 }
 ```
 
-### Variant 22
+### Variant 23
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15290,7 +15309,7 @@ Example:
 }
 ```
 
-### Variant 23
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15306,7 +15325,7 @@ Example:
 }
 ```
 
-### Variant 24
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15318,12 +15337,11 @@ Example:
 
 ```json
 {
-  "after": "example",
   "op": "trash.list"
 }
 ```
 
-### Variant 25
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15336,11 +15354,11 @@ Example:
 ```json
 {
   "op": "forge.media.download",
-  "sha256": "f4c09a6228c3ef6e4e6ba477b055ffeb450c7b3ccb6e7084bf332db3dfd064f1"
+  "sha256": "cc41881737187f5e4b39e833a04b1eefc11b0b86f8e088c6a26ca32cde69aa53"
 }
 ```
 
-### Variant 26
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15352,9 +15370,9 @@ Example:
 
 ```json
 {
-  "maxBytes": 5,
+  "maxBytes": 3,
   "op": "attachment.download",
-  "sha256": "cc41881737187f5e4b39e833a04b1eefc11b0b86f8e088c6a26ca32cde69aa53"
+  "sha256": "65bead180a18c19f53cf4c0eef79b2e46cee7a98626a710efad111dff2b0e72d"
 }
 ```
 
@@ -15457,14 +15475,34 @@ Example:
 ```json
 {
   "operation": {
+    "destination": "example",
+    "destinationExpected": null,
     "expected": "example",
-    "op": "delete",
+    "op": "move",
     "path": "example"
   },
   "requestId": "example",
   "threadId": "example",
   "type": "files.request",
   "workspaceId": "example"
+}
+```
+
+### files.watch
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"files.watch"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| folders | yes | array | {"maxItems":512,"items":{"type":"string","maxLength":4096}} |
+
+Example:
+
+```json
+{
+  "folders": [],
+  "threadId": "example",
+  "type": "files.watch"
 }
 ```
 
@@ -15480,8 +15518,8 @@ Example:
 
 ```json
 {
-  "channel": 1,
-  "credits": 8,
+  "channel": 9,
+  "credits": 6,
   "type": "files.credit"
 }
 ```
@@ -15497,7 +15535,7 @@ Example:
 
 ```json
 {
-  "channel": 9,
+  "channel": 7,
   "type": "files.cancel"
 }
 ```
@@ -15575,6 +15613,7 @@ Example:
 | code | yes | string |  |
 | message | yes | string |  |
 | current | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/FileVersion.json"},{"type":"null"}]} |
+| recovery | no | string | {"maxLength":4096} |
 
 Example:
 
@@ -15582,6 +15621,7 @@ Example:
 {
   "code": "example",
   "message": "example",
+  "recovery": "example",
   "requestId": "example",
   "type": "files.error"
 }
@@ -15678,6 +15718,26 @@ Example:
 }
 ```
 
+### files.folders_changed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"files.folders_changed"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| folders | yes | array | {"maxItems":512,"items":{"type":"string","maxLength":4096}} |
+| rescan | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "folders": [],
+  "rescan": true,
+  "threadId": "example",
+  "type": "files.folders_changed"
+}
+```
+
 ## FileVersion
 
 [JSON Schema](schema/FileVersion.json), input validation.
@@ -15758,6 +15818,54 @@ Example:
     "kind": "pairingCancelled"
   },
   "type": "fleet.result"
+}
+```
+
+## FolderEntry
+
+[JSON Schema](schema/FolderEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":1024} |
+| path | yes | string | {"maxLength":4096} |
+| kind | yes | ["file","directory","symlink","other"] |  |
+| target | no | ["file","directory","other"] |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| mtimeMs | yes | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| ignored | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "ignored": false,
+  "kind": "other",
+  "mtimeMs": 4,
+  "name": "example",
+  "path": "example",
+  "size": 0,
+  "target": "other"
+}
+```
+
+## FolderPage
+
+[JSON Schema](schema/FolderPage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"maxItems":5000,"items":{"$ref":"https://ace.local/protocol/v1/FolderEntry.json"}} |
+| nextCursor | yes | union | {"anyOf":[{"type":"string","maxLength":512},{"type":"null"}]} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "nextCursor": null,
+  "total": 7
 }
 ```
 

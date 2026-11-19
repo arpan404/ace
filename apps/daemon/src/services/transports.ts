@@ -44,6 +44,9 @@ export async function startRelayTransport(
     get threadFiles() {
       return options.threadFiles;
     },
+    get filesNative() {
+      return options.filesNative;
+    },
     get appDevices() {
       return options.devices;
     },

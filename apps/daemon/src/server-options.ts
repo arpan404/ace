@@ -112,6 +112,8 @@ export interface ServerOptions {
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
+  /** The daemon's ace-files and its folder watches (ADR 0178). */
+  filesNative?: import("./files-tool/wiring.ts").FilesNative;
   relay?: { url: string; keys: KeyPair } | undefined;
   /** Set by `startServer`: serves a relayed main channel with the main-socket handler. */
   relayMain?: ((entry: import("./relay-socket.ts").RelayedMain) => void) | undefined;

@@ -1,22 +1,29 @@
 import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { GitDiffIcon, PencilSimpleIcon } from "@ace/icons";
 import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
-import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useScrollEdges } from "@/lib/edge-fade.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
+import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import {
   useScopeWorkspace,
   useWorkspaceActions,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
+import { ContentSearch } from "./content-search.tsx";
+import {
+  contentSearchStore,
+  retainContentSearch,
+  useContentSearch,
+} from "./content-search-store.ts";
 import { FileToolbar } from "./file-toolbar.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { FileViewer, NoFile } from "./file-viewer.tsx";
@@ -25,7 +32,6 @@ import {
   treeLayout,
   useFilePrefs,
   useFilesMemory,
-  useRecentFiles,
   useRecentFilesStore,
 } from "./files-state.ts";
 import { openFile } from "./open-file.ts";
@@ -33,11 +39,12 @@ import { quickOpen } from "./quick-open-store.ts";
 import { useFindHits } from "./use-find-hits.ts";
 import { FindBar } from "./find-bar.tsx";
 import { useChangeMarks } from "./use-change-marks.ts";
-import { useEditedPaths, useFileContent } from "./use-checkout.ts";
+import { useFileContent } from "./use-checkout.ts";
+import { useOpenFileFollow } from "./use-open-file-follow.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
-const TextEditor = lazy(() =>
-  import("./text-editor.tsx").then((module) => ({ default: module.TextEditor })),
+const FileEditor = lazy(() =>
+  import("./file-editor.tsx").then((module) => ({ default: module.FileEditor })),
 );
 const FileOperations = lazy(() =>
   import("./file-operations.tsx").then((module) => ({ default: module.FileOperations })),
@@ -45,6 +52,11 @@ const FileOperations = lazy(() =>
 import type { FileOperationDialog } from "./file-operation.ts";
 
 const findChord = parseChord("mod+f");
+const searchChord = parseChord(keymap["files.search"].keys);
+const sides = [
+  { value: "files", label: "Files" },
+  { value: "search", label: "Search" },
+] as const;
 const fadeRight = { background: "linear-gradient(to left, var(--background), transparent)" };
 
 /** The upload line under the tree: progress, a conflict to confirm, or what went wrong. */
@@ -97,8 +109,11 @@ export function FileTab(props: TabViewProps) {
               (event) =>
                 event.threadId === threadId && event.payload.type === "workspace.files_changed",
             ))
-        )
+        ) {
+          // The lazy tree follows agents through files.folders_changed; this only refreshes
+          // the open file's content.
           void queries.invalidateQueries({ queryKey: ["checkout"] });
+        }
       }),
     [client, queries, threadId],
   );
@@ -111,10 +126,9 @@ export function FileTab(props: TabViewProps) {
   const online = useConnectionState() === "ready";
   const memory = useFilesMemory();
   const [prefs] = useFilePrefs();
-  const recent = useRecentFiles(threadId);
-  const edited = useEditedPaths(threadId);
-  const known = [...new Set([...(path ? [path] : []), ...recent, ...edited])];
+  const recentStore = useRecentFilesStore();
   const content = useFileContent(threadId, path);
+  useOpenFileFollow(threadId, path);
   const [operation, setOperation] = useState<FileOperationDialog>();
   const query = data.query ?? "";
   const find = data.find;
@@ -131,8 +145,15 @@ export function FileTab(props: TabViewProps) {
   const layout = treeLayout(width, treeWidth, { file: !!path, chosen: data.tree });
   const treeShown = !data.draft && layout !== "hidden";
   const over = layout === "over";
-  const viewer = useRef<HTMLDivElement>(null);
-  const edges = useScrollEdges(viewer);
+  const [overflow, setOverflow] = useState<{ path: string | undefined; end: boolean }>({
+    path: undefined,
+    end: false,
+  });
+  const overflowEnd = overflow.path === path && overflow.end;
+  const onOverflowEnd = (end: boolean) =>
+    setOverflow((previous) =>
+      previous.path === path && previous.end === end ? previous : { path, end },
+    );
   const open = (target: string, keep: boolean) =>
     openFile(workspace, actions, target, {
       keep,
@@ -141,7 +162,6 @@ export function FileTab(props: TabViewProps) {
     });
   const fileActions = useFileActions(threadId, (uploaded) => open(uploaded, true));
 
-  const recentStore = useRecentFilesStore();
   useEffect(() => {
     if (path) recentStore.remember(threadId, path);
   }, [recentStore, threadId, path]);
@@ -160,7 +180,25 @@ export function FileTab(props: TabViewProps) {
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
   const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });
+  useEffect(() => retainContentSearch(client, threadId), [client, threadId]);
+  const searchStore = useMemo(() => contentSearchStore(client, threadId), [client, threadId]);
+  const searchState = useContentSearch(searchStore);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const side = data.side ?? "files";
+  // ⌘⇧F asks for the field; it is focused once the Search side has rendered.
+  const [focusSearch, setFocusSearch] = useState(0);
+  useEffect(() => {
+    if (!focusSearch) return;
+    searchInput.current?.focus();
+    searchInput.current?.select();
+  }, [focusSearch]);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (matchesChord(event.nativeEvent, searchChord)) {
+      event.preventDefault();
+      update({ side: "search", ...(treeShown ? {} : { tree: true }) });
+      setFocusSearch((value) => value + 1);
+      return;
+    }
     if (readable && matchesChord(event.nativeEvent, findChord)) {
       event.preventDefault();
       setFind(find ?? { query: "", index: 0 });
@@ -234,6 +272,7 @@ export function FileTab(props: TabViewProps) {
           finding={find !== undefined}
           treeOpen={treeShown}
           readable={readable}
+          editing={data.draft !== undefined}
           online={online}
           actions={fileActions}
           line={find?.query && hits[hitIndex] ? (hits[hitIndex]?.line ?? 0) + 1 : data.line}
@@ -249,7 +288,9 @@ export function FileTab(props: TabViewProps) {
         />
       )}
       <div className="relative flex min-h-0 flex-1">
-        <div className={cn("relative min-w-0 flex-1", !path && treeShown && "hidden")}>
+        <div
+          className={cn("relative flex min-w-0 flex-1 flex-col", !path && treeShown && "hidden")}
+        >
           {find && (
             <FindBar
               query={find.query}
@@ -262,19 +303,23 @@ export function FileTab(props: TabViewProps) {
               onClose={() => setFind(undefined)}
             />
           )}
-          <div ref={viewer} className="relative h-full overflow-auto" tabIndex={-1}>
+          <div className="relative min-h-0 flex-1 overflow-auto" tabIndex={-1}>
             {path && data.draft ? (
               <Suspense fallback={null}>
-                <TextEditor
+                <FileEditor
+                  key={path}
                   threadId={threadId}
                   path={path}
                   draft={data.draft}
+                  wrap={prefs.wrap}
+                  onToggleWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
                   onChange={(draft) => update({ draft })}
                   onClose={() => update({ draft: undefined })}
                   onSaved={() => {
                     update({ draft: undefined });
                     void content.refetch();
                   }}
+                  onOverflowEnd={onOverflowEnd}
                 />
               </Suspense>
             ) : path ? (
@@ -282,22 +327,25 @@ export function FileTab(props: TabViewProps) {
                 path={path}
                 content={content.data}
                 error={content.error}
-                wrap={prefs.wrap}
                 source={data.source === true}
+                wrap={prefs.wrap}
+                onToggleWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
                 find={find?.query ? { query: find.query, hit: hits[hitIndex] } : undefined}
                 line={data.line}
+                column={data.column}
                 marks={marks}
                 onMention={(mention) => mentionInComposer(threadId, mention)}
                 onRetry={() => void content.refetch()}
                 onDownload={() => void fileActions.save(path)}
                 onFind={() => quickOpen.set(() => threadId)}
+                onOverflowEnd={onOverflowEnd}
               />
             ) : (
               <NoFile onSearch={() => quickOpen.set(() => threadId)} />
             )}
           </div>
-          {/* Lines run on past the right edge: a fade says so (wrap lines to see them whole). */}
-          {edges.end && (
+          {/* Lines run on past the right edge: a fade says so; the editor scrolls sideways. */}
+          {overflowEnd && (
             <span
               aria-hidden
               className="pointer-events-none absolute inset-y-0 right-0 w-6"
@@ -332,29 +380,53 @@ export function FileTab(props: TabViewProps) {
                 onResizeEnd={(next) => memory.setPrefs({ treeWidth: next })}
               />
             )}
-            <FileTree
-              threadId={threadId}
-              onOperation={setOperation}
-              known={known}
-              current={path}
-              query={query}
-              onQuery={setQuery}
-              collapsed={data.collapsed}
-              onCollapsed={(collapsed) => update({ collapsed })}
-              scrollTop={data.treeScroll ?? 0}
-              onScroll={(treeScroll) => update({ treeScroll })}
-              onOpen={open}
-              onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
-              footer={
-                fileActions.upload && (
-                  <UploadStatus
-                    state={fileActions.upload}
-                    onReplace={fileActions.replace}
-                    onDismiss={fileActions.dismissUpload}
-                  />
-                )
-              }
+            <WordChoice
+              label="Files or search"
+              value={side}
+              options={sides}
+              onValueChange={(next) => update({ side: next })}
+              className="shrink-0 gap-0.5 px-2 pt-1.5 pb-1"
             />
+            {side === "search" ? (
+              <ContentSearch
+                store={searchStore}
+                state={searchState}
+                ref={searchInput}
+                onClose={() => update({ side: "files" })}
+                onOpen={(target, line, column, keep) =>
+                  openFile(workspace, actions, target, {
+                    keep,
+                    from: props.tab.key,
+                    line,
+                    column,
+                    tree: over ? undefined : data.tree,
+                  })
+                }
+              />
+            ) : (
+              <FileTree
+                threadId={threadId}
+                onOperation={setOperation}
+                current={path}
+                query={query}
+                onQuery={setQuery}
+                expanded={data.expanded}
+                onExpanded={(expanded) => update({ expanded })}
+                scrollTop={data.treeScroll ?? 0}
+                onScroll={(treeScroll) => update({ treeScroll })}
+                onOpen={open}
+                onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
+                footer={
+                  fileActions.upload && (
+                    <UploadStatus
+                      state={fileActions.upload}
+                      onReplace={fileActions.replace}
+                      onDismiss={fileActions.dismissUpload}
+                    />
+                  )
+                }
+              />
+            )}
           </aside>
         )}
       </div>
