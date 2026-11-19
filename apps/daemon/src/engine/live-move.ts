@@ -122,6 +122,15 @@ export function runningShells(repo: EngineRepository, id: ThreadId): string[] {
     .slice(0, 32);
 }
 
+/**
+ * The provider's last close went unconfirmed (ADR 0052's Stop gave up waiting on it), so its
+ * process, and any shell under it, may still run. Ordinary status reads the thread stopped; a
+ * move doesn't. A new session clears it.
+ */
+export function unconfirmedExit(repo: EngineRepository, id: ThreadId): boolean {
+  return repo.state(id)?.processExit?.unconfirmed === true;
+}
+
 /** The engine's live-move surface (ADR 0191), bound to its repository and clock. */
 export function api(
   repo: () => EngineRepository,
@@ -136,6 +145,7 @@ export function api(
       adoptCarriedSession(repo(), id, session),
     dropSession: (id: ThreadId) => dropCarriedSession(repo(), id),
     shells: (id: ThreadId) => runningShells(repo(), id),
+    unconfirmedExit: (id: ThreadId) => unconfirmedExit(repo(), id),
     released: host.released,
   };
 }

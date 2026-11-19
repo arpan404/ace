@@ -58,6 +58,14 @@ own): the move builds no stop machinery. Once the target holds the bulk, the sou
      reads done by design (ADR 0116), so status alone never shows it ended. The list is the one
      the whole-thread Stop stops (`stoppableTasks`, `engine/stop-scope.ts`), read for the root
      and every child here;
+   - every provider close in the tree confirmed. Amended 2026-11-19 (post-merge review): when
+     both the shell stop and the provider's close time out, ADR 0052's Stop still ends the
+     session and the thread reads stopped, its shells `unknown`; that stays, so the person's
+     Stop always settles. The provider's exit fact now says so (`process.exited` with
+     `unconfirmed`, kept on `processExit` until a new session starts), and the move reads it as
+     not stopped: the old process, and a shell under it, may still write. It fails the move
+     before the hand-over (`process_unconfirmed`). A confirmed close ended the process group,
+     shells included, so their `unknown` counts as ended;
    - no terminal of the tree open. One still open (opened before a restart, whose hold was
      lost) is stopped and the tree looked at again, so the record below never holds a thread
      with a terminal running;

@@ -79,7 +79,8 @@ export interface ThreadState {
   rootKey?: Key;
   /** Consumed on first apply, so initialization needs neither time nor ids. */
   initialRoot?: RootAgentInit;
-  processExit?: { deliberate: boolean; message?: string; unsettled?: Key[] };
+  /** `unconfirmed`: the provider never confirmed its close; its process may still run. */
+  processExit?: { deliberate: boolean; message?: string; unsettled?: Key[]; unconfirmed?: true };
   lastTransportSignalAt?: number;
   /** Last clock at which derived statuses were observed, including ticks and control facts. */
   statusObservedAt?: number;

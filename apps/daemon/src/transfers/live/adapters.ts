@@ -94,6 +94,10 @@ export function liveSourcePorts(
       tree(context, threadId)
         .flatMap((owner) => engineOf(context).liveMove.shells(owner))
         .slice(0, 32),
+    unconfirmedExits: (threadId) =>
+      tree(context, threadId)
+        .filter((owner) => engineOf(context).liveMove.unconfirmedExit(owner))
+        .map((owner) => (store.getThread(owner)?.title ?? owner).slice(0, 256)),
     terminals: (threadId) =>
       tree(context, threadId).flatMap((owner) =>
         (services.workspaceActions?.listTerminals(owner) ?? [])

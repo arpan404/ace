@@ -73,6 +73,7 @@ async function source(over: Partial<LiveSourcePorts>) {
     stop: () => undefined,
     atRest: () => true,
     shells: () => [],
+    unconfirmedExits: () => [],
     holdTerminals: () => () => undefined,
     terminals: () => [],
     stopTerminals: async () => undefined,
@@ -125,6 +126,18 @@ it("fails before the hand-over when a child on another machine never confirmed i
     remoteChildren: () => ({ running: [], unconfirmed: ["reviewer"] }),
   });
   await expect(stop()).rejects.toMatchObject({ code: "remote_child_unconfirmed" });
+  expect(ownership.get("t-1")).toBeUndefined();
+});
+
+it("fails before the hand-over when a provider never confirmed its close", async () => {
+  let checks = 0;
+  const { stop, ownership } = await source({
+    // The Stop's close gives up waiting on the second look; status reads the tree stopped and
+    // every shell ended (`unknown`), but the old process may still run.
+    unconfirmedExits: () => (++checks >= 2 ? ["Write the tests"] : []),
+    remoteChildren: () => ({ running: checks < 2 ? ["reviewer"] : [], unconfirmed: [] }),
+  });
+  await expect(stop()).rejects.toMatchObject({ code: "process_unconfirmed" });
   expect(ownership.get("t-1")).toBeUndefined();
 });
 

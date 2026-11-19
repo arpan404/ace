@@ -75,6 +75,8 @@ test("a provider that never answers its interrupt is closed within the bound, an
   await turns();
   expect(closes).toEqual(["user"]);
   expect(live).not.toContain(h.store.getThread(id)?.status.state);
+  // Its close was confirmed: nothing of it may still run, so a live move may hand it over.
+  expect(h.engine.liveMove.unconfirmedExit(id)).toBe(false);
 }, 15_000);
 
 test("a provider that hangs on both interrupt and close is still stopped once the bound passes, saying it didn't confirm", async () => {
@@ -99,4 +101,6 @@ test("a provider that hangs on both interrupt and close is still stopped once th
     .itemOrder.map((key) => h.store.snapshotThread(id).items[key])
     .flatMap((item) => (item?.type === "notice" ? [item.text] : []));
   expect(notices.join("\n")).toContain("didn't confirm");
+  // Ordinary status settles it; a live move still reads that its process may run (ADR 0191).
+  expect(h.engine.liveMove.unconfirmedExit(id)).toBe(true);
 }, 15_000);

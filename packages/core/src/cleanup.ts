@@ -104,10 +104,15 @@ export function exitProcess(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
-  if (state.processExit) return;
+  if (state.processExit) {
+    // Already ended; a close that went unconfirmed since still says its process may run.
+    if (fact.unconfirmed) state.processExit.unconfirmed = true;
+    return;
+  }
   state.processExit = {
     deliberate: fact.deliberate,
     ...(fact.message === undefined ? {} : { message: fact.message }),
+    ...(fact.unconfirmed ? { unconfirmed: true as const } : {}),
     unsettled: Object.entries(state.agents)
       .filter(([, record]) => !record.externalStatus && !isSettled(record.agent.status))
       .map(([key]) => key),

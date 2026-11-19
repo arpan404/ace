@@ -95,6 +95,7 @@ const snapshot = z.object({
       deliberate: z.boolean(),
       message: z.string().optional(),
       unsettled: z.array(z.string()).optional(),
+      unconfirmed: z.literal(true).optional(),
     })
     .optional(),
   lastTransportSignalAt: Timestamp.optional(),

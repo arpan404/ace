@@ -654,7 +654,7 @@ export class Sessions {
               complete: true,
             },
           },
-          { type: "process.exited", deliberate: true, message: text },
+          { type: "process.exited", deliberate: true, message: text, unconfirmed: true },
           { type: "queue.changed", source: "provider", count: 0 },
         ],
         at,

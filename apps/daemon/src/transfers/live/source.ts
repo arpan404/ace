@@ -36,6 +36,11 @@ export interface LiveSourcePorts {
    */
   shells(threadId: string): string[];
   /**
+   * Threads of the tree whose provider never confirmed its close, by title: a Stop that gave up
+   * waiting reads them stopped, but the process and its shells may still run.
+   */
+  unconfirmedExits(threadId: string): string[];
+  /**
    * Refuses new terminals in the thread's tree until the returned release: from the start of
    * the stop, before the ownership record holds the thread.
    */
@@ -161,6 +166,13 @@ export class LiveSource {
             0,
             512,
           ),
+        );
+      // Only a close its provider confirmed counts: a process that may still run stays here.
+      const exits = ports.unconfirmedExits(threadId);
+      if (exits.length)
+        throw new TransferError(
+          "process_unconfirmed",
+          `${exits[0]} didn't confirm it stopped, so the thread stayed here.`.slice(0, 512),
         );
       // Read in the same step as the hold below: a terminal still open here (one an earlier
       // run of this stop, before a restart, didn't hold) is stopped and looked at again.
