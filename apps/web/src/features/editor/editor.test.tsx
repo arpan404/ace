@@ -314,3 +314,22 @@ test("Ctrl+Alt+Down adds a cursor below off macOS", async () => {
   await userEvent.keyboard("{Control>}{Alt>}{ArrowDown}{/Alt}{/Control}");
   expect(ref.current?.selections()).toEqual([caret(0, 1), caret(1, 1)]);
 });
+
+test("the find bar takes its own row above the text, so it never covers the first lines", async () => {
+  const { box } = await openEditor({ text: "first line\nsecond line" });
+
+  await userEvent.keyboard("{Meta>}f{/Meta}");
+  const find = await screen.findByRole("textbox", { name: "Find in file" });
+  const bar = find.closest("search");
+  const scroller = document.querySelector("[data-editor-scroller]");
+  expect(bar).toBeTruthy();
+  expect(scroller).toBeTruthy();
+  // Not drawn over the scroller: a sibling row above it, out of the text's own box.
+  expect(bar?.className).not.toMatch(/\babsolute\b/);
+  expect(bar?.contains(scroller)).toBe(false);
+  expect(bar?.parentElement?.contains(box)).toBe(true);
+  expect(bar?.parentElement?.contains(scroller)).toBe(true);
+  const box2 = scroller?.parentElement;
+  expect(box2?.contains(bar)).toBe(false);
+  expect(box2?.contains(box)).toBe(true);
+});
