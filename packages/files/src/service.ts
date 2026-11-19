@@ -512,9 +512,10 @@ export class FilesService {
       for (const record of this.catalog.list("trash")) {
         signal?.throwIfAborted();
         const trash = TrashRecord.parse(record);
-        // A receipt whose move is still unknown never expires: the bytes it names may be the only
-        // copy, and the next start reconciles it back into an ordinary entry.
-        if (trash.pending) continue;
+        // A receipt whose move is still unknown, or whose entry was located but never verified,
+        // never expires: the bytes it names may be the only copy, and the next start reconciles
+        // the pending one back into an ordinary entry.
+        if (trash.pending || trash.stranded) continue;
         if (trash.expires <= this.options.now()) await this.mutations.expire(trash);
       }
       this.previews.sweep();

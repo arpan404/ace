@@ -310,12 +310,12 @@ export class Mutations {
   /**
    * Settles the receipts an interrupted change left behind, at start.
    *
-   * A delete's receipt is settled only when the entry it names is proven to be where the receipt
-   * says: the generated trash endpoint is probed through the daemon's own op and compared with
-   * the identity recorded before the delete. A path that cannot be read, an endpoint another
-   * entry occupies, or a receipt whose identity cannot be proven keeps the receipt pending, and a
-   * pending receipt never expires, so the bytes it names are never swept before someone can
-   * restore them.
+   * A delete's receipt is settled only when the entry it names is located by identity at its
+   * generated trash endpoint *and* what it holds is proven to be the version the delete was
+   * guarded by. Retention starts only after that recorded verification; an entry that is located
+   * but not proven is stranded, which means restorable and never expiring, so the bytes it names
+   * are never swept before someone can look at them. A path that cannot be read, or a receipt
+   * whose identity cannot be proven, keeps the receipt pending.
    *
    * A journaled case-only rename is finished: the entry is found at its old spelling, its new one
    * or the private staging name the journal recorded, and a start puts it where the client asked
@@ -324,24 +324,31 @@ export class Mutations {
   async reconcile(): Promise<void> {
     for (const row of this.catalog.list("trash")) {
       const record = TrashRecord.parse(row);
-      if (record.pending) await this.resolve(record);
+      if (record.pending || record.stranded) await this.resolve(record);
     }
     for (const row of this.catalog.list("move")) {
       await this.finish(MoveRecord.parse(row));
     }
   }
   /**
-   * Settles one pending delete receipt when its entry can be proven to be somewhere.
+   * Settles one unresolved delete receipt when its entry can be proven to be somewhere.
    *
-   * The trash endpoint is probed first: an entry there with the identity the receipt recorded is
-   * the one the delete moved, whatever now holds the old path. A receipt whose entry is still at
-   * its path, with that identity, names a move that never happened, so it goes. Everything else
-   * is ambiguous and stays pending.
+   * The trash endpoint is probed first. An entry there with the identity the receipt recorded is
+   * the one the delete moved, whatever now holds the old path; it starts retention only when its
+   * version is also the one the delete was guarded by, and is kept stranded otherwise. A receipt
+   * whose entry is still at its path, with that identity, names a move that never happened, so it
+   * goes. Everything else is ambiguous and stays as it is.
    */
   private async resolve(receipt: TrashRecord): Promise<void> {
-    if (await this.parked(receipt)) {
-      this.settle(receipt);
-      return;
+    switch (await this.parked(receipt)) {
+      case "verified":
+        this.settle(receipt);
+        return;
+      case "stranded":
+        this.strand(receipt);
+        return;
+      case "unknown":
+        return;
     }
     if (await this.atPath(receipt.path, receipt.identity)) this.catalog.delete(receipt.id);
   }
@@ -351,7 +358,8 @@ export class Mutations {
    * A refusal the port reports before it moves anything leaves the entry at its path, so the
    * receipt goes and the caller sees the reason. Anything else may be a move that landed, and is
    * proved the same way a start proves it; when nothing can be proved the receipt stays pending,
-   * which is what keeps a delete whose rollback failed restorable and exempt from expiry.
+   * and an entry that is located but not verified stays stranded, both of which keep a delete
+   * whose rollback failed restorable and exempt from expiry.
    */
   private async abandon(receipt: TrashRecord, error: unknown): Promise<unknown> {
     if (refused(error)) {
@@ -366,20 +374,30 @@ export class Mutations {
     if (!identity) return false;
     try {
       const found = await this.io.shallow(this.root(), path);
-      return found !== null && sameIdentity(found.version, identity);
+      return found !== null && sameEntry(found.version, identity);
     } catch {
       return false;
     }
   }
-  /** Whether the receipt's generated endpoint holds the entry the receipt moved. */
-  private async parked(receipt: TrashRecord): Promise<boolean> {
-    if (!receipt.location || !receipt.identity) return false;
+  /**
+   * Whether the receipt's generated endpoint holds the entry the receipt moved, and whether what
+   * it holds is proven to be the version the delete was guarded by.
+   *
+   * `unknown` means the endpoint could not be read at all: nothing is proven either way, so the
+   * receipt is left as it is. A folder's digest records the path it is read at, so a folder at an
+   * endpoint is located but never verified there; it stays stranded until it is restored.
+   */
+  private async parked(receipt: TrashRecord): Promise<"verified" | "stranded" | "unknown"> {
+    if (!receipt.location || !receipt.identity) return "unknown";
     try {
       const found = await this.io.internal.describe(this.root(), receipt.location);
-      if (found === null) return false;
-      return sameIdentity(found.ownVersion ?? found.version, receipt.identity);
+      if (found === null) return "unknown";
+      if (!sameEntry(found.ownVersion ?? found.version, receipt.identity)) return "unknown";
+      return !receipt.version.startsWith("tree:") && sameIdentity(found.version, receipt.version)
+        ? "verified"
+        : "stranded";
     } catch {
-      return false;
+      return "unknown";
     }
   }
   /**
@@ -464,10 +482,28 @@ export class Mutations {
       ...receipt,
       expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
       pending: false,
+      stranded: false,
+    });
+  }
+  /**
+   * Keeps a receipt whose entry is located but not verified, with no expiry at all.
+   *
+   * Nothing has proved what the entry holds, so it is never swept: it stays restorable until a
+   * verification succeeds or someone restores it.
+   */
+  private strand(receipt: TrashRecord): void {
+    this.catalog.settleTrash({
+      ...receipt,
+      expires: Number.MAX_SAFE_INTEGER,
+      pending: false,
+      stranded: true,
     });
   }
   /** Forget a trash entry: delete the bytes it kept, then its row. */
   async expire(record: TrashRecord): Promise<void> {
+    // A stranded entry is never swept: nothing verified what it holds, so its bytes may be the
+    // only copy of a version nobody has seen.
+    if (record.stranded) return;
     if (record.location) await this.io.internal.remove(this.root(), record.location);
     else await this.legacyRemove(record.id);
     this.catalog.delete(record.id);
@@ -509,6 +545,19 @@ export class Mutations {
 function sameIdentity(left: string | null | undefined, right: string | null | undefined): boolean {
   if (!left || !right || left.startsWith("tree:") || right.startsWith("tree:")) return false;
   return left.slice(0, left.lastIndexOf(":")) === right.slice(0, right.lastIndexOf(":"));
+}
+
+/**
+ * Whether two versions name the same entry whatever has been written to it.
+ *
+ * A version is `dev:ino:size:mtime:ctime`; the device and the inode survive a write in place, so
+ * they locate an entry whose bytes have changed. A receipt uses this to find what its delete
+ * moved, and the whole version to prove that what it found is the version the delete was guarded
+ * by. A tree digest carries no identity to compare.
+ */
+function sameEntry(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right || left.startsWith("tree:") || right.startsWith("tree:")) return false;
+  return left.split(":", 2).join(":") === right.split(":", 2).join(":");
 }
 
 /** The folder part of a path, with its trailing separator; empty at the root. */
