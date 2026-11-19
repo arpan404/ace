@@ -108,19 +108,23 @@ export function useAnnouncement(): {
  */
 export function useRevealJump(options: {
   line: number | undefined;
+  column?: number | undefined;
   hit: { line: number; column: number } | undefined;
   reveal(position: Position, side: boolean): void;
   announce(position: Position): void;
 }): void {
   const { line, hit, reveal, announce } = options;
-  const jumpedTo = useRef<number | undefined>(undefined);
+  const column = Math.max(0, options.column ?? 0);
+  const jumpedTo = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!line || line <= 0 || jumpedTo.current === line) return;
-    jumpedTo.current = line;
-    const position = { line: line - 1, column: 0 };
+    if (!line || line <= 0) return;
+    const request = `${line}:${column}`;
+    if (jumpedTo.current === request) return;
+    jumpedTo.current = request;
+    const position = { line: line - 1, column };
     reveal(position, false);
     announce(position);
-  }, [line, reveal, announce]);
+  }, [line, column, reveal, announce]);
 
   const hitLine = hit?.line;
   const hitColumn = hit?.column;

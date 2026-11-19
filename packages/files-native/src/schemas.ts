@@ -70,6 +70,8 @@ export const searchQuerySchema = z.object({
 /** One matching line: a 1-based line number, a bounded preview and byte ranges inside it. */
 export const lineMatchSchema = z.object({
   line: u64,
+  /** UTF-16 code units of the line before `preview`: 0 unless a long line was cut. */
+  column: u64.default(0),
   preview: z.string(),
   ranges: z.array(z.tuple([u64, u64])),
 });

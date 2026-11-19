@@ -1,6 +1,9 @@
 import type { ClientMessage, FilesServerMessage, ThreadId } from "@ace/protocol";
 import type { FolderWatch, FolderWatchClient, FoldersChanged } from "./folder-watch.ts";
+import { systemFilesClock } from "@ace/files-native";
+import { contentSearches, searchRequest } from "./content-search.ts";
 import { listFolderPage, type ListingScope } from "./list-folder.ts";
+import type { WatchClock } from "./watch-fanout.ts";
 import { filesErrorCode, type FilesTool } from "./tool.ts";
 
 /** At most this many folder listings run at once on one relay channel. */
@@ -18,11 +21,14 @@ export type RelayFilesOptions = {
   folders: FolderWatch | undefined;
   /** One bounded control push on the channel. */
   push(message: FilesServerMessage): void;
+  /** Bytes queued on the channel; search batches wait while it is long. */
+  buffered?(): number;
+  clock?: WatchClock | undefined;
   warn?(message: string, fields: object): void;
 };
 
 export type RelayFiles = {
-  /** True when the message was a folder watch or a folder listing this channel owns. */
+  /** True when the message was a folder watch, listing, search or search abort this channel owns. */
   accept(message: ClientMessage): boolean;
   /** Drop this channel's watches; queued work finishes on its own. */
   close(): void;
@@ -68,8 +74,23 @@ export function relayFiles(options: RelayFilesOptions): RelayFiles {
       if (options.authorize("read") && options.threadAccess(message.threadId)) push(message);
     },
   };
+  const searches = contentSearches({
+    resolve: options.resolve,
+    tool: options.tool,
+    clock: options.clock ?? systemFilesClock,
+    push,
+    buffered: () => options.buffered?.() ?? 0,
+    replyAllowed,
+    run,
+  });
   return {
     accept(message) {
+      const search = message.type === "files.request" ? searchRequest(message) : undefined;
+      if (search) {
+        searches.start(search);
+        return true;
+      }
+      if (message.type === "files.abort") return searches.abort(message.sourceRequestId);
       if (message.type === "files.watch") {
         if (!options.authorize("read") || !options.folders) return true;
         const threadId = message.threadId;
@@ -136,6 +157,7 @@ export function relayFiles(options: RelayFilesOptions): RelayFiles {
     },
     close() {
       closed = true;
+      searches.close();
       if (options.folders)
         void options.folders
           .disconnect(options.clientId)

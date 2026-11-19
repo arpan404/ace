@@ -141,6 +141,8 @@ export function FileViewer(props: {
   onToggleWrap(): void;
   find: { query: string; hit: FindHit | undefined } | undefined;
   line: number | undefined;
+  /** The 0-based UTF-16 column on `line` to bring into view. */
+  column?: number | undefined;
   /** Lines changed since the last commit. */
   marks?: ReadonlyMap<number, LineMark> | undefined;
   onMention?: ((mention: import("@ace/protocol").Mention) => void) | undefined;
@@ -248,6 +250,7 @@ export function FileViewer(props: {
           onToggleWrap={props.onToggleWrap}
           find={props.find}
           line={props.line}
+          column={props.column}
           marks={props.marks}
           label={`Source of ${props.path}`}
           onHorizontalOverflow={props.onOverflowEnd}

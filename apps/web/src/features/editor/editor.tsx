@@ -174,7 +174,13 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onScroll: setScroll,
   });
 
-  useRevealJump({ line: props.line, hit: props.find?.hit, reveal, announce });
+  useRevealJump({
+    line: props.line,
+    column: props.column,
+    hit: props.find?.hit,
+    reveal,
+    announce,
+  });
 
   useEffect(() => {
     if (props.text === seenText.current) return;

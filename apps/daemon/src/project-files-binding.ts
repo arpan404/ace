@@ -3,7 +3,14 @@ import type { FileOperation, WorkspaceId } from "@ace/protocol";
 import type { FilesWorkspaces } from "./files-workspaces.ts";
 
 /** What a device may do in a project's folder before any thread exists: read, nothing else. */
-const reads: ReadonlySet<string> = new Set(["list", "list.folder", "stat", "read", "download"]);
+const reads: ReadonlySet<string> = new Set([
+  "list",
+  "list.folder",
+  "search",
+  "stat",
+  "read",
+  "download",
+]);
 
 /**
  * A `files.request` binding for a registered project's own folder. Read-only: listing, stat, read and

@@ -227,6 +227,13 @@ export const keymap = {
   },
   // The file tree, on a focused file.
   "files.rename": { keys: "f2", label: "Rename the focused file", scope: "files", fixed: true },
+  // Inside a Files tab; elsewhere the same keys are Full view.
+  "files.search": {
+    keys: "shift+mod+f",
+    label: "Search file contents",
+    scope: "files",
+    fixed: true,
+  },
   "files.delete": { keys: "delete", label: "Delete the focused file", scope: "files", fixed: true },
   "files.move": {
     keys: "shift+mod+m",

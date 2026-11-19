@@ -154,6 +154,9 @@ pub struct FileMatches {
 pub struct LineMatch {
     /// 1-based line number.
     pub line: u64,
+    /// UTF-16 code units of the line before `preview` starts: 0 unless a long line was cut.
+    #[serde(default)]
+    pub column: u64,
     /// At most 400 bytes around the match, lossy UTF-8.
     pub preview: String,
     /// Byte ranges inside `preview` to highlight.

@@ -2,6 +2,8 @@ import { startSupportFiles } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
 import { filesScope } from "../files-scope.ts";
 import { listFolderPage } from "../files-tool/list-folder.ts";
+import { contentSearches, searchRequest } from "../files-tool/content-search.ts";
+import { systemFilesClock } from "@ace/files-native";
 import type { FolderWatchClient, FoldersChanged } from "../files-tool/folder-watch.ts";
 import type { ThreadId } from "@ace/protocol";
 import { FilesWorkspaces } from "../files-workspaces.ts";
@@ -263,6 +265,21 @@ export function createFilesSession(context: SocketContext): SocketService {
       })(),
     );
   };
+  /** Content searches on this socket, streamed to it in bounded batches. */
+  const searches = contentSearches({
+    resolve,
+    tool: native?.tool,
+    clock: systemFilesClock,
+    push: (message) => {
+      if (context.connected()) context.send(message);
+    },
+    buffered: () => context.socket.bufferedAmount,
+    replyAllowed: (threadId) =>
+      context.connected() &&
+      context.authorize("read") &&
+      (threadId === undefined || threadAccess(threadId)),
+    run: background,
+  });
   /**
    * Replace this client's watched folders of a thread. A socket that may not read the thread, or
    * a machine without ace-files, is simply not watching: the message carries no request id, and
@@ -298,6 +315,7 @@ export function createFilesSession(context: SocketContext): SocketService {
       chunks?.close();
       for (const controller of aborting.values()) controller.abort();
       aborting.clear();
+      searches.close();
       if (native) {
         const dropping = native.folders.disconnect(context.sessionId).catch((error: unknown) => {
           context.options.log?.(error);
@@ -321,13 +339,21 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (!message.type.startsWith("files.")) return false;
-      if (message.type === "files.abort") aborting.get(message.sourceRequestId)?.abort();
+      if (message.type === "files.abort") {
+        aborting.get(message.sourceRequestId)?.abort();
+        if (searches.abort(message.sourceRequestId)) return true;
+      }
       if (message.type === "files.watch") {
         watchFolders(message);
         return true;
       }
       if (message.type === "files.request" && message.operation.op === "list.folder") {
         listFolder(message);
+        return true;
+      }
+      const search = message.type === "files.request" ? searchRequest(message) : undefined;
+      if (search) {
+        searches.start(search);
         return true;
       }
       const attachment =

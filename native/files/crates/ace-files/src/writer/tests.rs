@@ -201,6 +201,7 @@ fn an_oversize_event_with_no_split_is_dropped_with_a_warning() {
         lines: (0..40_000)
             .map(|index| LineMatch {
                 line: index,
+                column: 0,
                 preview: "x".repeat(400),
                 ranges: vec![(0, 1)],
             })

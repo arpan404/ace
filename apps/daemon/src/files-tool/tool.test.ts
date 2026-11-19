@@ -47,6 +47,10 @@ class FakeClient implements FilesToolClient {
     return Promise.resolve(1);
   }
 
+  search(): Promise<never> {
+    return Promise.reject(new Error("no search in this fake"));
+  }
+
   closeRoot(): Promise<void> {
     return Promise.resolve();
   }

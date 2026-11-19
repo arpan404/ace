@@ -171,9 +171,10 @@ impl Sink for FileSink<'_> {
         if scanned.is_err() || spans.is_empty() {
             return Ok(refused == 0);
         }
-        let (text, ranges) = preview::preview(bytes, &spans);
+        let (text, column, ranges) = preview::preview(bytes, &spans);
         self.lines.push(LineMatch {
             line,
+            column,
             preview: text,
             ranges,
         });

@@ -196,6 +196,8 @@ fn long_line_preview_is_bounded() -> TestResult {
     assert_eq!(found.ranges.len(), 1);
     let (start, end) = found.ranges[0];
     assert_eq!(&found.preview[start as usize..end as usize], "needle");
+    // The match sits 5000 characters into the line, wherever the preview was cut.
+    assert_eq!(found.column + start as u64, 5000);
     Ok(())
 }
 
@@ -214,6 +216,9 @@ fn long_multibyte_line_preview_is_bounded() -> TestResult {
     assert_eq!(found.ranges.len(), 1);
     let (start, end) = found.ranges[0];
     assert_eq!(&found.preview[start as usize..end as usize], "needle");
+    // Each "é" is one UTF-16 unit and two bytes: the column counts what an editor counts.
+    let before: String = found.preview[..start as usize].to_owned();
+    assert_eq!(found.column + before.encode_utf16().count() as u64, 3000);
     Ok(())
 }
 
