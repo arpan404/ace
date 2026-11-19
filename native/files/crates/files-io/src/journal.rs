@@ -204,11 +204,25 @@ pub fn reconcile_saves(root: &Root) -> Result<Vec<SaveRecovery>, Error> {
     let journals = journal_names(dir)?;
     let mut outcomes = Vec::new();
     for name in journals {
-        match resolve(root, &name) {
-            Ok(outcome) => {
-                if !matches!(outcome, SaveRecovery::Unresolved { .. }) {
-                    let _ = dir.remove_file(&name);
-                }
+        let outcome = match resolve(root, &name) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                outcomes.push(SaveRecovery::Unresolved {
+                    path: name,
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        if matches!(outcome, SaveRecovery::Unresolved { .. }) {
+            outcomes.push(outcome);
+            continue;
+        }
+        // The recovery must be durable before the record that names it goes, so a crash in
+        // between replays it instead of losing both.
+        match handle::sync(dir) {
+            Ok(()) => {
+                let _ = dir.remove_file(&name);
                 outcomes.push(outcome);
             }
             Err(error) => outcomes.push(SaveRecovery::Unresolved {
@@ -316,6 +330,11 @@ fn settle(root: &Root, record: &Record) -> Result<SaveRecovery, Error> {
     // removed rather than offered as a version of the file.
     if ours {
         remove_if_present(dir, &record.staging)?;
+    }
+    // The renames and removals in this folder, and the root that holds the record, must be
+    // durable before the record is retired.
+    if !left_hidden {
+        handle::sync(dir)?;
     }
     Ok(if left_hidden {
         SaveRecovery::Unresolved {

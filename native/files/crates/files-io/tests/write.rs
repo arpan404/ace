@@ -434,3 +434,58 @@ fn a_start_keeps_an_entry_the_record_cannot_prove_under_a_visible_name() {
     );
     assert_eq!(fixture.read("unknown.md"), b"the bytes that landed\n");
 }
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_save_that_cannot_clean_up_keeps_its_record() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use files_io::test_hooks::{Step, watch};
+
+    let fixture = Fixture::new();
+    fixture.write("busy/keep.md", b"the caller's version\n");
+    let version = fixture.version("busy/keep.md");
+    let folder = fixture.dir().join("busy");
+    let locked = folder.clone();
+    // The exchange commits, then the folder refuses the cleanup of the entry it displaced.
+    let _hook = watch(move |step, from, _| {
+        if step == Step::AfterSaveSwap && from == "busy/keep.md" {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500))
+                .expect("lock the folder");
+        }
+    });
+
+    let saved = write(
+        fixture.root(),
+        "busy/keep.md",
+        b"the new bytes\n",
+        Some(&version),
+    )
+    .expect("the save is committed");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).expect("unlock");
+
+    let private = private_names(fixture.dir());
+    assert!(
+        private
+            .iter()
+            .any(|name| name.starts_with(".ace-upload-journal-")),
+        "the record stays while the displaced entry is hidden: {private:?}"
+    );
+    assert!(
+        matches!(saved.warning, Some(files_io::SaveWarning::NotCleanedUp(_))),
+        "the save reports the cleanup it could not finish: {saved:?}"
+    );
+
+    // The next start is what makes the displaced entry visible.
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    let Some(files_io::SaveRecovery::Preserved { at, .. }) = outcomes.first() else {
+        panic!("the displaced entry is kept visible: {outcomes:?}");
+    };
+    assert_eq!(fixture.read(at), b"the caller's version\n");
+    assert_eq!(fixture.read("busy/keep.md"), b"the new bytes\n");
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "{:?}",
+        private_names(fixture.dir())
+    );
+}
