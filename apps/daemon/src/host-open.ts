@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import type { InstalledEditor } from "@ace/protocol";
+import { appLaunch, isAppBundle, openApp, type AppLaunch } from "@ace/ui-core/open-apps";
 import {
   HostOpenError,
   expandHostPath,
@@ -20,17 +21,19 @@ import {
  * target is only ever opened or revealed, never run.
  */
 
-export type HostApp = { kind: "editor"; editorId: string } | { kind: "files" };
+export type HostApp =
+  | { kind: "editor"; editorId: string }
+  | { kind: "terminal"; terminalId: string }
+  | { kind: "files" };
 
 /** The process to start: a launcher and its arguments, never a shell line. */
-export interface HostLaunch {
-  command: string;
-  args: string[];
-}
+export type HostLaunch = AppLaunch;
 
 /**
  * The launch that opens `target` (a file or folder, absolute) with `app` on `platform`. An
- * editor opens at `line` where it takes one; the file manager shows a file inside its folder.
+ * editor opens at `line` where it takes one; a terminal starts in the folder (a file's folder,
+ * never the file, which it might run); the file manager shows a file inside its folder. The
+ * launcher is `editor`, the one discovery found for the app on this machine.
  */
 export function hostLaunch(input: {
   platform: NodeJS.Platform;
@@ -38,6 +41,7 @@ export function hostLaunch(input: {
   target: string;
   isFile: boolean;
   line?: number | undefined;
+  /** The installed editor or terminal `app` names, as discovery found it. */
   editor?: InstalledEditor | undefined;
   /** Windows' system folder (`%SystemRoot%`); its own `explorer.exe` is the file manager. */
   systemRoot?: string | undefined;
@@ -54,25 +58,19 @@ export function hostLaunch(input: {
     }
     return { command: "xdg-open", args: [isFile ? dirname(target) : target] };
   }
+  const id = input.app.kind === "editor" ? input.app.editorId : input.app.terminalId;
   const editor = input.editor;
-  if (!editor || editor.id !== input.app.editorId) return undefined;
-  // Windows starts only an editor's own executable: never a .cmd or .bat launcher, which only
-  // a shell runs. Discovery yields only .exe files; this refuses anything else regardless.
+  const app = openApp(id);
+  if (!editor || editor.id !== id || !app || app.kind !== input.app.kind) return undefined;
+  // Windows starts only an app's own executable: never a .cmd or .bat launcher, which only a
+  // shell runs. Discovery yields only .exe files; this refuses anything else regardless.
   if (platform === "win32" && !(isAbsolute(editor.command) && /\.exe$/i.test(editor.command)))
     return undefined;
-  const at = isFile && line ? line : undefined;
-  switch (editor.id) {
-    case "code":
-    case "cursor":
-      return { command: editor.command, args: at ? ["-g", `${target}:${at}`] : [target] };
-    case "zed":
-    case "subl":
-      return { command: editor.command, args: [at ? `${target}:${at}` : target] };
-    case "idea":
-      return { command: editor.command, args: at ? ["--line", String(at), target] : [target] };
-    default:
-      return { command: editor.command, args: [target] };
-  }
+  // Only macOS opens a bundle; elsewhere a path that looks like one is not run as one.
+  if (isAppBundle(editor.command) && platform !== "darwin") return undefined;
+  if (app.kind === "terminal")
+    return appLaunch(app, editor.command, { path: isFile ? dirname(target) : target });
+  return appLaunch(app, editor.command, { path: target, line: isFile ? line : undefined });
 }
 
 /** A folder macOS may treat as a bundle it runs: any whose name has an extension. */
@@ -145,6 +143,8 @@ export async function openOnHost(input: {
   platform: NodeJS.Platform;
   /** This machine's editors, found on demand. */
   editors: () => Promise<readonly InstalledEditor[]>;
+  /** This machine's terminals, found on demand; none when absent. */
+  terminals?: () => Promise<readonly InstalledEditor[]>;
   spawn: HostSpawner;
   /** Whether the caller may still act with `scope`: connected, that scope, the thread. */
   allowed: (scope: HostScope) => boolean;
@@ -159,7 +159,11 @@ export async function openOnHost(input: {
   const editor =
     app.kind === "editor"
       ? (await input.editors()).find((entry) => entry.id === app.editorId)
-      : undefined;
+      : app.kind === "terminal"
+        ? (await (input.terminals?.() ?? Promise.resolve([]))).find(
+            (entry) => entry.id === app.terminalId,
+          )
+        : undefined;
   const launch = hostLaunch({
     platform: input.platform,
     app,

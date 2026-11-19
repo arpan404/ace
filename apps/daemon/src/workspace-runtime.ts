@@ -53,7 +53,7 @@ import {
   type WorkspaceActionResult,
 } from "@ace/protocol";
 import { listScripts, shellQuote } from "./workspace-scripts.ts";
-import { editorLocations, installedEditors, registryAppPath } from "./installed-editors.ts";
+import { editorLocations, installedApps, registryAppPath } from "./installed-editors.ts";
 import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./host-open.ts";
 import { openableProjectFolders } from "./host-open-places.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
@@ -110,6 +110,8 @@ export interface WorkspaceRuntimeOptions {
   home?: string;
   /** Finds `host.open`'s editors; this machine's installed ones by default. */
   hostEditors?: () => Promise<readonly InstalledEditor[]>;
+  /** Finds `host.open`'s terminals; this machine's installed ones by default. */
+  hostTerminals?: () => Promise<readonly InstalledEditor[]>;
   /** Launcher folders searched after PATH; the platform's usual ones by default. */
   editorLocations?: readonly string[];
   platform?: NodeJS.Platform;
@@ -509,19 +511,23 @@ export class WorkspaceRuntime {
     this.terminals.delete(id);
   }
   /**
-   * This machine's editors: on PATH and the usual launcher folders, or on Windows only each
-   * editor's own .exe from App Paths and its standard install folders.
+   * This machine's editors and terminals: on PATH and the usual app folders, or on Windows only
+   * each app's own .exe from App Paths and its standard install folders.
    */
-  #editors() {
+  #apps() {
     const platform = this.options.platform ?? process.platform;
-    return installedEditors(
-      this.options.editorPath ?? process.env.PATH,
+    return installedApps({
+      paths: this.options.editorPath ?? process.env.PATH,
       platform,
-      this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
-      platform === "win32"
-        ? { env: process.env, appPath: registryAppPath(process.env) }
-        : { env: {} },
-    );
+      locations: this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
+      windows:
+        platform === "win32"
+          ? { env: process.env, appPath: registryAppPath(process.env) }
+          : { env: {} },
+    });
+  }
+  async #editors() {
+    return (await this.#apps()).editors;
   }
   async read(
     request: WorkspaceActionRequest,
@@ -638,12 +644,15 @@ export class WorkspaceRuntime {
         this.writing.delete(lifetime);
       }
     }
-    if (op.op === "editors.list")
+    if (op.op === "editors.list") {
+      const apps = await this.#apps();
       return wrap({
         kind: "editors",
         fileManager: fileManagerName(this.options.platform ?? process.platform),
-        editors: await this.#editors(),
+        editors: apps.editors,
+        terminals: apps.terminals,
       });
+    }
     if (op.op === "host.open") {
       const named = [op.threadId, op.workspaceId, op.hostPath].filter((at) => at !== undefined);
       if (named.length !== 1 || (op.hostPath !== undefined && op.path !== undefined))
@@ -670,6 +679,7 @@ export class WorkspaceRuntime {
         app: op.app,
         platform,
         editors: this.options.hostEditors ?? (() => this.#editors()),
+        terminals: this.options.hostTerminals ?? (async () => (await this.#apps()).terminals),
         spawn: this.options.hostSpawn ?? spawnDetached,
         systemRoot: process.env.SystemRoot,
         allowed: still ?? (() => true),
