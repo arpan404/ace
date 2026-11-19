@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { PinnedDirectory } from "@ace/workspace";
 import { Device, HostId, WorkspaceId, type TransferBegin } from "@ace/protocol";
 import { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
@@ -46,13 +47,17 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
-/** A dependency each test reaches only where it says; anything else waits on `gate` and fails. */
-function held<T extends object>(gate: Promise<void>, own: Partial<T> = {}): T {
+/**
+ * A dependency each test reaches only where it says; anything else waits on `gate` and fails.
+ * `reached` names what was called that way.
+ */
+function held<T extends object>(gate: Promise<void>, own: Partial<T> = {}, reached?: string[]): T {
   return new Proxy(own as T, {
     get: (given, name) =>
       name in given
         ? Reflect.get(given, name)
         : async () => {
+            reached?.push(String(name));
             await gate;
             throw new Error(`Not reached in this test: ${String(name)}`);
           },
@@ -78,25 +83,30 @@ const bytes = Buffer.from("bundle bytes");
 const file = { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 
 /** The receiving side, with its Git and landing held until `release` is called. */
-async function target() {
+async function target(
+  options: { projects?: (root: string) => Partial<TargetProjects>; clock?: { at: number } } = {},
+) {
+  const clock = options.clock ?? { at: 2 };
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-incoming-races-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const store = new Store(join(root, "events.sqlite"));
   cleanup.push(async () => store.close());
   const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   const workspaceId = WorkspaceId.parse("workspace-held");
+  const reached: string[] = [];
   const incoming = new IncomingTransfers({
     store,
     directory: join(root, "incoming"),
-    git: held<TransferGit>(gate),
+    git: held<TransferGit>(gate, {}, reached),
+    gitPolicy: { validateUrl: () => {} },
     archive: held<TransferArchive>(gate),
-    projects: held<TargetProjects>(gate, { list: () => [] }),
+    projects: held<TargetProjects>(gate, { list: () => [], ...options.projects?.(root) }),
     threads: held(gate),
     // The sender's project is registered here already, so commit reads that checkout first.
     identities: held<TransferIdentities>(gate, {
       holders: () => [{ workspaceId, path: root }],
     }),
-    now: () => 2,
+    now: () => clock.at,
     log: () => {},
   });
   cleanup.push(() => incoming.close());
@@ -113,6 +123,7 @@ async function target() {
     incoming,
     release,
     stored,
+    reached,
     part: (id: string) => join(root, "incoming", `${id}.part`),
   };
 }
@@ -201,7 +212,9 @@ it("a cancel during a damaged upload's clean-up answers with what the transfer e
   const cancelled = await incoming.call(device, { op: "cancel", transferId: "t-ended" });
   removing.release();
   await bad;
-  expect(cancelled.state).toBe(stored("t-ended").state);
+  // The damaged upload claimed the failure first: the cancel comes too late and says so.
+  expect(cancelled.state).toBe("failed");
+  expect(stored("t-ended").state).toBe("failed");
 });
 
 it("closing waits for a cancel still undoing its transfer", async () => {
@@ -221,4 +234,83 @@ it("closing waits for a cancel still undoing its transfer", async () => {
   expect(undone).toBe(true);
   await expect(stat(part("t-close"))).rejects.toThrow();
   await cancelling;
+});
+
+/**
+ * A target whose clone of the sender's origin fails, so a transfer by origin lands nowhere and
+ * is reopened for the whole repository as a bundle.
+ */
+const cloneFails = (root: string): Partial<TargetProjects> => ({
+  parent: async (requested) => {
+    const handle = PinnedDirectory.open(requested ?? root);
+    return { path: requested ?? root, handle, close: async () => handle.close() };
+  },
+  clone: async () => {
+    throw new Error("origin unreachable");
+  },
+});
+const byOrigin = (transferId: string): TransferBegin => ({
+  ...begin(transferId),
+  method: "remote",
+  remote: { url: "https://git.example.com/app.git", normalized: "git.example.com/app" },
+});
+const stateOf = async (incoming: IncomingTransfers, transferId: string) =>
+  (await incoming.call(device, { op: "status", transferId })).state;
+
+it("a transfer reopened for the whole repository says receiving only once its old upload is gone", async () => {
+  const { incoming, reached } = await target({ projects: cloneFails });
+  await incoming.call(device, byOrigin("t-reopen"));
+  const removing = holdRemoval();
+  await incoming.call(device, { op: "commit", transferId: "t-reopen" });
+  await removing.reached;
+  // Still landing its first attempt: no upload may start yet.
+  expect(await stateOf(incoming, "t-reopen")).toBe("importing");
+  removing.release();
+  await vi.waitFor(async () => expect(await stateOf(incoming, "t-reopen")).toBe("receiving"));
+  // The whole repository then comes, and its import starts.
+  await incoming.chunk(device, "t-reopen", 0, bytes);
+  await expect(
+    incoming.call(device, { op: "commit", transferId: "t-reopen", file }),
+  ).resolves.toMatchObject({ state: "importing" });
+  await vi.waitFor(() => expect(reached.length).toBeGreaterThan(0));
+});
+
+it("a commit checked against an upload that was reopened meanwhile never claims the new one", async () => {
+  const { incoming, release, stored } = await target({ projects: cloneFails });
+  await incoming.call(device, byOrigin("t-stale"));
+  // A copy of the commit names the sender's project, so it reads that checkout and waits there.
+  const stale = incoming.call(device, {
+    op: "commit",
+    transferId: "t-stale",
+    identity: { id: "6f1d2a4e-8b3c-4d5e-9f60-718293a4b5c6", aliases: [] },
+  });
+  await settle();
+  // The other copy lands nothing (origin is unreachable) and the transfer is reopened.
+  await incoming.call(device, { op: "commit", transferId: "t-stale" });
+  await vi.waitFor(async () => expect(await stateOf(incoming, "t-stale")).toBe("receiving"));
+  release();
+  await expect(stale).resolves.toMatchObject({ state: "receiving" });
+  expect(stored("t-stale").state).toBe("receiving");
+});
+
+it("the retention sweep and a commit that comes while it removes files agree on the transfer", async () => {
+  const clock = { at: 2 };
+  const { incoming, stored } = await target({ clock });
+  await incoming.call(device, begin("t-sweep"));
+  await incoming.chunk(device, "t-sweep", 0, bytes);
+  // Days later the next begin sweeps, and holds while removing the first transfer's files.
+  clock.at = 3 * 24 * 60 * 60 * 1000;
+  const removing = holdRemoval();
+  const sweeping = incoming.call(device, begin("t-next"));
+  await removing.reached;
+  const committed = await incoming
+    .call(device, { op: "commit", transferId: "t-sweep", file })
+    .then((view) => view.state)
+    .catch(() => "refused");
+  removing.release();
+  await sweeping;
+  // The sweep claimed it first: the commit is refused, and the transfer is gone. Never a commit
+  // told it is importing a transfer whose row and files the sweep then removes.
+  expect(committed).toBe("refused");
+  expect(stored("t-sweep").rows).toBe(0);
 });

@@ -257,6 +257,16 @@ export class IncomingRows {
       .run(...columns.map(([, value]) => value as string | number | null), transferId, ...from);
     return Number(done.changes);
   }
+  /**
+   * Deletes the row only while it is still in `state` and unchanged since `updatedAt`, as the
+   * sweep read it, and says whether it did (ADR 0192).
+   */
+  expire(transferId: string, state: IncomingTransferState, updatedAt: number): boolean {
+    const done = this.store
+      .statement("DELETE FROM transfer_incoming WHERE transfer_id=? AND state=? AND updated_at=?")
+      .run(transferId, state, updatedAt);
+    return Number(done.changes) > 0;
+  }
   delete(transferId: string): void {
     this.store.statement("DELETE FROM transfer_incoming WHERE transfer_id=?").run(transferId);
   }

@@ -107,6 +107,8 @@ export class IncomingTransfers {
   private past = new Set<string>();
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
+  /** Uploads begun again per transfer since this start (`reopen`); none is the first. */
+  private uploads = new Map<string, number>();
   /** Cancels still undoing their transfer, so a copy of one answers when it is done. */
   private cancels = new Map<string, Promise<IncomingTransfer>>();
   private held = new Set<string>();
@@ -323,6 +325,8 @@ export class IncomingTransfers {
   private async commit(device: Device, call: TransferCommit): Promise<IncomingTransfer> {
     const record = this.owned(device, call.transferId);
     if (record.state !== "receiving") return this.view(record);
+    // What it checks below is this upload's; one reopened meanwhile is another (`reopen`).
+    const upload = this.upload(call.transferId);
     const file = this.file(call.transferId);
     if (call.file) {
       const bytes = await fileBytes(file);
@@ -354,30 +358,63 @@ export class IncomingTransfers {
       ? await this.identityLanding(record, call.identity)
       : undefined;
     // Awaited above: a cancel, or another copy of this commit, may have moved it on meanwhile.
-    // Only a transfer still receiving is claimed, so only one copy ever claims it.
-    const claimed = this.rows.claim(
-      call.transferId,
-      ["receiving"],
-      { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
-      this.deps.now(),
-    );
+    // Only a transfer still receiving the upload it checked is claimed, so only one copy ever
+    // claims it. Nothing is awaited between the upload check and the claim.
+    const claimed =
+      this.upload(call.transferId) === upload &&
+      this.rows.claim(
+        call.transferId,
+        ["receiving"],
+        { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
+        this.deps.now(),
+      );
     if (!claimed) return this.view(this.owned(device, call.transferId));
     const importing = this.owned(device, call.transferId);
     this.import(importing);
     return this.view(importing);
   }
   private import(record: IncomingRecord): void {
-    if (this.running.has(record.transferId) || this.closed) return;
+    const { transferId } = record;
+    if (this.running.has(transferId) || this.closed) return;
     const controller = new AbortController();
-    this.running.set(record.transferId, controller);
-    const flight = this.run(record, controller.signal).finally(() => {
-      this.running.delete(record.transferId);
-      this.imports.delete(record.transferId);
-      this.past.delete(record.transferId);
+    this.running.set(transferId, controller);
+    const flight: Promise<void> = (async () => {
+      let again = false;
+      try {
+        again = await this.run(record, controller.signal);
+      } finally {
+        this.running.delete(transferId);
+        this.past.delete(transferId);
+      }
+      // Reopened only once this import has left: the next commit's import can start.
+      if (again) await this.reopen(transferId);
+    })().finally(() => {
+      if (this.imports.get(transferId) === flight) this.imports.delete(transferId);
     });
-    this.imports.set(record.transferId, flight);
+    this.imports.set(transferId, flight);
   }
-  private async run(record: IncomingRecord, signal: AbortSignal): Promise<void> {
+  /**
+   * Origin's history isn't usable here: the sender sends the whole repository instead. The old
+   * upload goes first; then a new upload starts (`uploads`), so a commit validated against the
+   * old one never claims it.
+   */
+  private async reopen(transferId: string): Promise<void> {
+    await removeQuietly(this.file(transferId));
+    if (this.closed) return;
+    this.uploads.set(transferId, this.upload(transferId) + 1);
+    this.rows.claim(
+      transferId,
+      ["importing"],
+      { state: "receiving", method: "bundle", hasOrigin: false, commit: undefined },
+      this.deps.now(),
+    );
+  }
+  /** Which upload of the transfer a commit validates; a reopened transfer starts the next. */
+  private upload(transferId: string): number {
+    return this.uploads.get(transferId) ?? 0;
+  }
+  /** Lands the work; true when it must be sent again as a full bundle (`reopen`). */
+  private async run(record: IncomingRecord, signal: AbortSignal): Promise<boolean> {
     const file = this.file(record.transferId);
     const hasFile = Boolean(record.commit?.file);
     const ignored = record.commit?.ignored ? this.ignoredFile(record.transferId) : undefined;
@@ -438,25 +475,15 @@ export class IncomingTransfers {
       // otherwise the row stays importing and the next start finishes it.
       if (current.result) {
         await this.complete(current, current.result);
-        return;
+        return false;
       }
       // Landing undid what it made; a crash mid-way is undone by the next start.
       await this.rollback(current);
       // Shutting down: the row stays importing, and the next start runs it again.
-      if (this.closed) return;
+      if (this.closed) return false;
       // Each outcome is claimed from the row as it is now, not as it was before the rollback: a
       // cancel that came meanwhile stands.
-      if (error instanceof NeedsFullBundle && current.method === "remote") {
-        // Origin's history isn't usable here: the sender sends the whole repository instead.
-        const reopened = this.rows.claim(
-          record.transferId,
-          ["importing"],
-          { state: "receiving", method: "bundle", hasOrigin: false, commit: undefined },
-          this.deps.now(),
-        );
-        if (reopened) await removeQuietly(file);
-        return;
-      }
+      if (error instanceof NeedsFullBundle && current.method === "remote") return true;
       const failed = this.rows.claim(
         record.transferId,
         ["importing"],
@@ -467,6 +494,7 @@ export class IncomingTransfers {
     } finally {
       for (const path of mine) this.held.delete(path);
     }
+    return false;
   }
   /** `finish`, keeping the row importing (for the next start) when the setup fails again. */
   private async complete(
@@ -500,8 +528,9 @@ export class IncomingTransfers {
     // The row and the record of where the project landed commit together.
     const complete = () =>
       this.deps.store.atomic(() => {
-        this.rows.update(
+        this.rows.claim(
           record.transferId,
+          ["importing"],
           {
             state: "completed",
             result,
@@ -635,8 +664,9 @@ export class IncomingTransfers {
   /** Settled rows and their files go after 24 hours. */
   private async sweep(): Promise<void> {
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
+      // Claimed before its files go: a row a commit or cancel moved on meanwhile stays.
+      if (!this.rows.expire(record.transferId, record.state, record.updatedAt)) continue;
       await this.removeFiles(record.transferId);
-      this.rows.delete(record.transferId);
     }
   }
 }
