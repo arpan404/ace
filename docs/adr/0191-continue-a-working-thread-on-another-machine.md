@@ -177,11 +177,17 @@ carried session) and a short continue message. The target:
 5. watches the turn start on the continue message itself (`live/turn-start.ts`, pure), read by
    its command id through the engine's `inputFate`, never on the thread's status. A turn the
    person starts there would change the status too, while the continue message still waits.
-   Running means a run took it (`delivered` with its run id), or it is uncertain, which the
-   person settles as on any thread. Taken from the queue with no run yet is not: an open that
-   fails then puts it back. Waiting in the queue is not either, however long it waits. Waiting in a queue paused on a failure (`not_sent`,
-   `model_unavailable`), or failed, means it was held unsent. A message the person sent again or
-   took out leaves the thread to them. There is exactly
+   Running means only that a run took that exact message (`delivered` with its run id). Taken
+   from the queue with no run yet is not: an open that fails then puts it back. Waiting in the
+   queue is not either, however long it waits. Waiting in a queue paused on a failure
+   (`not_sent`, `model_unavailable`), or failed, means it was held unsent. Amended 2026-11-19
+   (post-merge review): the person's own act on it is a defined outcome, not a start. Waiting in
+   a queue the person's Stop paused (`stopped`, kept across restarts), taken out (`removed`) or
+   sent again (`replaced`) ends the start as not started, with why ("the person stopped it"),
+   and no line on the thread, which already shows what they did. The target owns the thread
+   from its cutoff, so the sender is answered and the source settles as moved. An `uncertain`
+   message (it may have reached its run) is read again every half second for up to 10 minutes,
+   then the start gives up as not started, said on the thread. There is exactly
    one continue message, ever. A resumed native session that fails to open leaves that message
    held unsent; the carried session is dropped, the handoff goes in front, and the same message
    is sent again with the person's own "Try again" (`queue.resume`). A turn that still fails is

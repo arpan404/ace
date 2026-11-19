@@ -194,6 +194,8 @@ export function liveTargetPorts(
       return {
         fate: engine.inputFate(id(threadId), CommandIdSchema.parse(commandId)),
         held: queue.paused && (queue.reason === "not_sent" || queue.reason === "model_unavailable"),
+        // The person's Stop there paused the queue with the message in it (kept across restarts).
+        stopped: queue.paused && queue.reason === "stopped",
       };
     },
     adoptSession: (threadId, session) =>
