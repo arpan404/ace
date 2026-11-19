@@ -1,0 +1,29 @@
+---
+/*
+ * The few app glyphs the Spade drawings need that the site's Icon set doesn't carry: Phosphor,
+ * regular weight, as Spade draws them. Inlined so they take currentColor.
+ */
+import arrowUp from "@phosphor-icons/core/regular/arrow-up.svg?raw";
+import share from "@phosphor-icons/core/regular/export.svg?raw";
+import gear from "@phosphor-icons/core/regular/gear-six.svg?raw";
+import search from "@phosphor-icons/core/regular/magnifying-glass.svg?raw";
+import mic from "@phosphor-icons/core/regular/microphone.svg?raw";
+import plus from "@phosphor-icons/core/regular/plus.svg?raw";
+import waveform from "@phosphor-icons/core/regular/waveform.svg?raw";
+import close from "@phosphor-icons/core/regular/x.svg?raw";
+
+const glyphs = { "arrow-up": arrowUp, close, gear, mic, plus, search, share, waveform };
+
+interface Props {
+  name: keyof typeof glyphs;
+  size?: number;
+}
+
+const { name, size = 16 } = Astro.props;
+const svg = glyphs[name].replace(
+  "<svg ",
+  `<svg width="${size}" height="${size}" aria-hidden="true" focusable="false" `,
+);
+---
+
+<Fragment set:html={svg} />

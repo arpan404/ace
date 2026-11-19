@@ -336,6 +336,20 @@ html[data-theme="light"] .ace {
   line-height: 18px;
 }
 
+/* A project's mark: its glyph in the project's tint, or its own icon, in the app's 20 × 16 tile. */
+.ace .chip.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+}
+
+.ace .chip .ace-logo {
+  background: var(--a-fg);
+  color: var(--a-frame);
+}
+
 .ace .project {
   color: var(--a-muted);
   font-size: 13px;

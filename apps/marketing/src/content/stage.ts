@@ -49,13 +49,13 @@ export const scenes: Scene[] = [
   {
     id: "fleet",
     title: "Every machine works at once",
-    body: "The soak test runs on the build server while your Mac keeps going. Threads from every machine share one list, wherever you open ace.",
+    body: "The soak test runs on omarchy, your Linux machine, while your Mac keeps going. Threads from every machine share one list, wherever you open ace.",
     href: "/features/fleet/",
   },
   {
     id: "devices",
     title: "Devices go where the agent is",
-    body: "An agent on the build server has no iPhone, so it borrows the Simulator on your Mac. You allow it once and can take over at any time.",
+    body: "An agent on your Linux machine has no iPhone, so it borrows the Simulator on your Mac. You allow it once and can take over at any time.",
     href: "/features/devices/",
   },
   {
@@ -136,6 +136,20 @@ export interface ThreadRow {
   /** Uses a device: a simulator, or a browser. */
   device?: "phone" | "browser";
 }
+
+/**
+ * Each project's mark in the thread list, as the app draws one: the glyph the person chose for
+ * it, or, for ace itself, the icon found in its own folder.
+ */
+export const projectMarks: Record<string, string> = {
+  ace: "ace",
+  "ace-mobile": "project-phone",
+  api: "project-plugs",
+  "billing-api": "project-card",
+  "docs-site": "project-book",
+  relay: "project-broadcast",
+  web: "project-globe",
+};
 
 export const rows: ThreadRow[] = [
   {
@@ -285,7 +299,7 @@ export const rows: ThreadRow[] = [
 /** The machines on the account, as the thread list's filter names them. */
 export const machines = [
   { id: "this-mac", name: "This Mac", note: "macOS", threads: 7, locked: false },
-  { id: "build-server", name: "build-server", note: "Linux", threads: 4, locked: false },
+  { id: "build-server", name: "omarchy", note: "Linux", threads: 4, locked: false },
   { id: "workstation", name: "workstation", note: "Windows", threads: 1, locked: true },
 ] as const;
 

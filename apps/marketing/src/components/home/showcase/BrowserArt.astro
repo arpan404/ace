@@ -1,0 +1,165 @@
+---
+/* ace's browser, with Claude paying at a checkout: its pointer arrives and presses Pay. */
+import AgentPointer from "./AgentPointer.astro";
+import UsingStrip from "./UsingStrip.astro";
+---
+
+<div class="win browser">
+  <div class="chrome">
+    <span class="dots">
+      <i></i>
+      <i></i>
+      <i></i>
+    </span>
+    <span class="url">localhost:5173/checkout</span>
+  </div>
+  <div class="site">
+    <div class="order">
+      <b>Your order</b>
+      <span>
+        Pro plan <em>$20.00</em>
+      </span>
+      <span>
+        3 extra seats <em>$60.00</em>
+      </span>
+      <span class="total">
+        Total <em>$80.00</em>
+      </span>
+    </div>
+    <div class="pay">
+      <span class="field">4242 4242 4242 4242</span>
+      <span class="row">
+        <span class="field">12 / 28</span>
+        <span class="field">123</span>
+      </span>
+      <span class="button">Pay $80.00</span>
+      <AgentPointer name="Claude" />
+    </div>
+  </div>
+  <UsingStrip who="Claude" what="this tab" />
+</div>
+
+<style>
+  .browser {
+    bottom: -40px;
+  }
+
+  .browser :global(.using) {
+    bottom: 40px;
+  }
+
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 40px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dots {
+    display: flex;
+    gap: 6px;
+  }
+
+  .dots i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border-strong);
+  }
+
+  .url {
+    flex: 1;
+    padding: 5px 12px;
+    border-radius: 8px;
+    background: var(--raised);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .site {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px 28px;
+    padding: 22px 24px;
+  }
+
+  /* A narrow tile shows only the payment the agent is making. */
+  @media (max-width: 519px) {
+    .site .order {
+      display: none;
+    }
+  }
+
+  .order {
+    display: grid;
+    align-content: start;
+    gap: 9px;
+  }
+
+  .order b {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .order span {
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted);
+  }
+
+  .order em {
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .order .total {
+    padding-top: 9px;
+    border-top: 1px solid var(--border);
+    color: var(--foreground);
+    font-weight: 600;
+  }
+
+  .pay {
+    position: relative;
+    display: grid;
+    align-content: start;
+    gap: 8px;
+  }
+
+  .pay :global(.pointer) {
+    right: 18px;
+    bottom: -8px;
+  }
+
+  .field {
+    display: block;
+    padding: 8px 11px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .button {
+    display: grid;
+    place-items: center;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-weight: 600;
+  }
+
+  :global(html.motion .piece.is-in) .button {
+    animation: press 0.3s var(--ease-out) 1.65s both;
+  }
+</style>

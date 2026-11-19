@@ -5,6 +5,7 @@
  * schema.org nodes; the site, page and breadcrumb nodes are added here.
  */
 import Breadcrumbs from "../components/site/Breadcrumbs.astro";
+import Backdrop from "../components/site/Backdrop.astro";
 import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
 import {
@@ -47,6 +48,7 @@ const data = graph([
   ogType={path === "/" ? "website" : "article"}
   markdown={markdownPath(path)}
 >
+  <Backdrop />
   <Nav />
   {path !== "/" && <Breadcrumbs path={path} />}
   <main>
