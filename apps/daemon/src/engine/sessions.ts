@@ -1,4 +1,5 @@
 import { interruptedNotice } from "./thread-liveness.ts";
+import { SessionFenced } from "./session-fenced.ts";
 import { homeWaitText } from "@ace/accounts/home-wait";
 import { spadeBotAceTools } from "../spade/brain-tools.ts";
 import { lostWork } from "./lost-work.ts";
@@ -49,6 +50,8 @@ interface SessionDependencies {
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
+  /** The thread is moving or moved to another machine (ADR 0191): no provider opens for it. */
+  fenced?(id: ThreadId): boolean;
   wake(id: ThreadId): void;
   openFailed?(
     id: ThreadId,
@@ -73,9 +76,14 @@ interface SessionDependencies {
 export class Sessions {
   private dependencies: SessionDependencies;
   private closing = new Set<ThreadId>();
+
   private turnPermissions = new Map<ThreadId, number>();
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
+  }
+
+  private assertUnfenced(id: ThreadId): void {
+    if (this.dependencies.fenced?.(id)) throw new SessionFenced();
   }
   constructor(dependencies: SessionDependencies) {
     this.dependencies = dependencies;
@@ -85,6 +93,7 @@ export class Sessions {
       throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
     if (this.dependencies.repo.cleaning(actor.id)) throw new Error("Thread is being deleted");
+    this.assertUnfenced(actor.id);
     const stateBefore = this.dependencies.repo.requireState(actor.id);
     if (actor.session && this.turnPermissions.get(actor.id) === actor.generation) return;
     // A prepared root is starting before its first turn, not a pinned live policy.
@@ -225,6 +234,8 @@ export class Sessions {
       if (lifetime.signal.aborted || this.dependencies.repo.cleaning(actor.id))
         throw new Error("Thread is being deleted");
       await this.assertWorkspaceAvailable(metadata.cwd, actor.id);
+      // Last word before the provider starts: the move may have fenced it during the awaits above.
+      this.assertUnfenced(actor.id);
       const codexContext = {
         resetPermissions:
           mode === null && this.dependencies.repo.permissions.effective(actor.id) !== null,
@@ -438,6 +449,11 @@ export class Sessions {
         await session.close("shutdown");
         throw new Error("Provider session closed while opening");
       }
+      // Fenced while the provider opened (ADR 0191): it ends at once and runs nothing.
+      if (this.dependencies.fenced?.(actor.id)) {
+        await session.close("shutdown");
+        throw new SessionFenced();
+      }
       actor.session = session;
       if (state.config.provider === "codex" && this.turnPermissions.get(actor.id) !== generation)
         this.dependencies.repo.permissions.applied(actor.id, access, this.dependencies.clock.now());
@@ -493,39 +509,42 @@ export class Sessions {
               detail: original.detail,
             })
           : original;
-      try {
-        const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
-        const routeField = (value: string | undefined): string | null =>
-          value === undefined
-            ? null
-            : scrub(
-                errorSecrets.reduce(
-                  (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
-                  value,
-                ),
-              ).slice(0, 256);
-        const model = routeField(openingModel);
-        const instance = routeField(openingInstance);
-        const backend = this.dependencies.repo.backend(actor.id);
-        const diagnostic = this.dependencies.openFailed?.(
-          actor.id,
-          {
-            provider: stateBefore.config.provider,
-            code: failure.code,
-            title: failure.title,
-            detail: failure.detail,
-          },
-          {
-            ...(model ? { model } : {}),
-            ...(instance ? { instance } : {}),
-            ...(backend ? { backend } : {}),
-          },
-        );
-        void Promise.resolve(diagnostic).catch(() => {});
-      } catch {
-        // Diagnostics are optional; their failure cannot replace the sanitized
-        // provider error or prevent lifetime/capacity cleanup below.
-      }
+      // Fenced by a move (ADR 0191): not a failure to report; the send goes back to the queue.
+      const fenced = error instanceof SessionFenced;
+      if (!fenced)
+        try {
+          const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
+          const routeField = (value: string | undefined): string | null =>
+            value === undefined
+              ? null
+              : scrub(
+                  errorSecrets.reduce(
+                    (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
+                    value,
+                  ),
+                ).slice(0, 256);
+          const model = routeField(openingModel);
+          const instance = routeField(openingInstance);
+          const backend = this.dependencies.repo.backend(actor.id);
+          const diagnostic = this.dependencies.openFailed?.(
+            actor.id,
+            {
+              provider: stateBefore.config.provider,
+              code: failure.code,
+              title: failure.title,
+              detail: failure.detail,
+            },
+            {
+              ...(model ? { model } : {}),
+              ...(instance ? { instance } : {}),
+              ...(backend ? { backend } : {}),
+            },
+          );
+          void Promise.resolve(diagnostic).catch(() => {});
+        } catch {
+          // Diagnostics are optional; their failure cannot replace the sanitized
+          // provider error or prevent lifetime/capacity cleanup below.
+        }
       await actor.flush();
       if (generation === actor.generation) {
         const session = actor.session;
@@ -543,14 +562,14 @@ export class Sessions {
         lifetime.abort();
         try {
           actor.apply([
-            { type: "process.exited", deliberate: false },
+            { type: "process.exited", deliberate: fenced },
             { type: "queue.changed", source: "provider", count: 0 },
           ]);
         } finally {
           this.dependencies.released(actor.id);
         }
       }
-      throw failure;
+      throw fenced ? error : failure;
     } finally {
       this.dependencies.repo.finishSessionOpen(actor.id);
     }

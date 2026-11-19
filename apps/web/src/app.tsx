@@ -103,8 +103,9 @@ export function App(props: {
   );
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
   const [router] = useState(() => {
+    // Another machine's project (`machine/project`) is none of this daemon's to narrow to.
     const project = organizerFor(props.storage).getState().project;
-    void props.client.threadsWindow(project ? { project } : {});
+    void props.client.threadsWindow(project && !project.includes("/") ? { project } : {});
     return createAppRouter({ client: props.client, queryClient }, props.history);
   });
   return (

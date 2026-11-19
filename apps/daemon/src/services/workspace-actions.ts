@@ -54,6 +54,8 @@ export async function startWorkspaceActions({
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     log: (message, error) => log.log("warn", message, logError(error)),
     hostSkillRoots: () => services.skillLibrary?.personalRoots() ?? [],
+    // A thread moving to another machine, or its subagent, opens no terminal (ADR 0191).
+    moveRefusal: (id) => services.engine?.ownershipRefusal(id)?.code,
     ...options.workspaceActions,
     ...(configuredTimeout != null ? { preparationTimeoutMs: configuredTimeout } : {}),
     git: {

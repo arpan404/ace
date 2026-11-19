@@ -211,18 +211,25 @@ export class InstallPlanner {
           Number(nodeVersion.split(".")[1]) >= (spec.nodeMinor ?? 0)))
         ? npmCandidate
         : undefined;
-    const [npmRoot, brewPrefix, bunBin] = await Promise.all([
-      npmCandidate && this.probe(npmCandidate, ["root", "-g"], signal),
-      brew && this.probe(brew, ["--prefix"], signal),
-      bun && this.probe(bun, ["pm", "bin", "-g"], signal),
-    ]);
+    const readRoots = (previous?: readonly (string | undefined)[]) =>
+      Promise.all([
+        previous?.[0] || (npmCandidate && this.probe(npmCandidate, ["root", "-g"], signal)),
+        previous?.[1] || (brew && this.probe(brew, ["--prefix"], signal)),
+        previous?.[2] || (bun && this.probe(bun, ["pm", "bin", "-g"], signal)),
+      ]);
+    let [npmRoot, brewPrefix, bunBin] = await readRoots();
     const resolved = binary ? await realpath(binary).catch(() => binary) : undefined;
+    let existing = resolved
+      ? this.detect(spec, resolved, binary ?? resolved, { npmRoot, brewPrefix, bunBin })
+      : undefined;
+    // A failed manager probe is inconclusive while the CLI is still present.
+    if (resolved && !existing && !signal?.aborted) {
+      [npmRoot, brewPrefix, bunBin] = await readRoots([npmRoot, brewPrefix, bunBin]);
+      existing = this.detect(spec, resolved, binary ?? resolved, { npmRoot, brewPrefix, bunBin });
+    }
     // Update the Homebrew package the binary came from (`claude-code` or `claude-code@latest`).
     const installedBrew = spec.brew && resolved ? brewName(spec, resolved) : undefined;
     if (spec.brew && installedBrew) spec = { ...spec, brew: { ...spec.brew, name: installedBrew } };
-    const existing = resolved
-      ? this.detect(spec, resolved, binary ?? resolved, { npmRoot, brewPrefix, bunBin })
-      : undefined;
     const methods: InstallMethod[] = [];
     if (spec.package && (npm || (action === "uninstall" && npmCandidate))) methods.push("npm");
     if (spec.bun && bun) methods.push("bun");
@@ -405,14 +412,20 @@ export class InstallPlanner {
     )?.path;
   }
   async verify(plan: ProviderInstallPlan, signal?: AbortSignal): Promise<string | undefined> {
-    if (!plan.verify) return undefined;
-    const path = await this.executable(plan.provider, plan.verify.command, signal);
+    const verify = plan.verify;
+    if (!verify) return undefined;
+    const path = await this.executable(plan.provider, verify.command, signal);
     if (plan.action === "uninstall") {
       const spec = installer(plan.provider, plan.agent);
       const remaining = spec && (await this.executable(plan.provider, spec.binary, signal));
       return path || remaining ? undefined : "removed";
     }
-    if (!path) return undefined;
-    return parseVersion(plan.provider, (await this.probe(path, plan.verify.args, signal)) ?? "");
+    // Retry the read-only check once before asking the person to run the installer again.
+    const version = async (candidate: string | undefined) =>
+      candidate &&
+      parseVersion(plan.provider, (await this.probe(candidate, verify.args, signal)) ?? "");
+    const first = await version(path);
+    if (first || signal?.aborted) return first;
+    return version(await this.executable(plan.provider, verify.command, signal));
   }
 }
