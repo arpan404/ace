@@ -2,14 +2,16 @@
 /*
  * A feature page's story: its sections as the steps of a scroll story (site/ScrollStory),
  * beside ace drawn on a MacBook, with the other hardware the feature involves standing next to
- * it: the Linux build server, the Windows workstation, the iPhone. As each step becomes
+ * it: the Linux machine, the Windows workstation, the iPhone. As each step becomes
  * current the drawing acts out that part and the camera travels to it
  * (scripts/feature-story.ts). The drawing is one world in the app's own pixels; labels and the
  * verbs on the lines sit outside it, so they keep their size at every zoom. Without the script
- * the drawing is left out and the story reads as its steps.
+ * the drawing is left out and the story reads as its steps. Given `tour` instead of `feature`,
+ * it tells several features at once (the features page), with an index of their steps.
  */
 import type { Feature } from "../../content/features.ts";
 import { zoomCast } from "../../content/zoom.ts";
+import { featureStory, type Story } from "../../scripts/feature-tour.ts";
 import Laptop from "../devices/Laptop.astro";
 import LinuxScreen from "../devices/LinuxScreen.astro";
 import MacBook from "../devices/MacBook.astro";
@@ -19,25 +21,21 @@ import MacScreen from "../mac/MacScreen.astro";
 import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
 import ScrollStory from "../site/ScrollStory.astro";
 
-interface Props {
-  feature: Feature;
-}
+type Props = { feature: Feature } | { tour: Story; index: string };
 
-const { feature } = Astro.props;
-const steps = feature.sections.map((section) => ({
-  title: section.heading,
-  body: section.body.join(" "),
-}));
-const plan = feature.sections.map((section) => section.show);
-const has = (id: Feature["cast"][number]) => feature.cast.includes(id);
-const labelled = feature.cast.length > 1;
+const props = Astro.props;
+const { label, steps, plan, cast, links } =
+  "feature" in props ? featureStory(props.feature) : props.tour;
+const index = "index" in props ? props.index : undefined;
+const has = (id: Story["cast"][number]) => cast.includes(id);
+const labelled = cast.length > 1;
 ---
 
-<ScrollStory steps={steps} label={`${feature.name}, step by step`}>
-  <div slot="art" class="frame card" data-feature-story data-plan={JSON.stringify(plan)}>
+<ScrollStory steps={steps} label={label} index={index}>
+  <div slot="art" class="frame" data-feature-story data-plan={JSON.stringify(plan)}>
     <div class="world" data-world>
       <svg class="links" width="1" height="1">
-        {feature.links.map((line) => <path data-link data-to={line.to} />)}
+        {links.map((line) => <path data-link data-to={line.to} />)}
       </svg>
       <div class="thing" data-thing="mac">
         <MacBook><MacScreen /></MacBook>
@@ -71,13 +69,13 @@ const labelled = feature.cast.length > 1;
     {
       labelled && (
         <div class="marks">
-          {feature.cast.map((id) => (
+          {cast.map((id) => (
             <span class="mark" data-label={id}>
               <b>{zoomCast[id].name}</b>
               <span class="os">{zoomCast[id].note}</span>
             </span>
           ))}
-          {feature.links.map((line) => (
+          {links.map((line) => (
             <span class="verb" data-verb>
               {line.verb}
             </span>
@@ -89,14 +87,56 @@ const labelled = feature.cast.length > 1;
 </ScrollStory>
 
 <style>
-  /* The picture's window onto the drawing: it fills the story's art and crops what's outside. */
+  /*
+   * The stage: the drawing on the page itself, no box around it. It fills the story's art and
+   * fades out at every edge (the script writes how far in each fade reaches, the same numbers the
+   * camera keeps clear), clearing the floating header first, so nothing ends on a hard line.
+   */
   .frame {
     position: relative;
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: var(--raised);
     contain: paint;
+    --fade:
+      linear-gradient(to bottom, transparent var(--fade-header, 60px), #000 var(--fade-top, 104px)),
+      linear-gradient(to top, transparent 0, #000 var(--fade-bottom, 72px)),
+      linear-gradient(to right, transparent 0, #000 var(--fade-left, 104px)),
+      linear-gradient(to left, transparent 0, #000 var(--fade-right, 56px));
+    -webkit-mask-image: var(--fade);
+    mask-image: var(--fade);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
+  /* Hardware a step doesn't frame is off stage: gone, label and line with it. */
+  .thing,
+  .links path,
+  .mark,
+  .verb {
+    transition:
+      opacity 0.5s var(--ease-out),
+      visibility 0s linear 0s;
+  }
+
+  .frame [data-off],
+  .verb[data-crowded] {
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.35s var(--ease-out),
+      visibility 0s linear 0.35s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .thing,
+    .links path,
+    .mark,
+    .verb,
+    .frame [data-off],
+  .verb[data-crowded] {
+      transition: none;
+    }
   }
 
   /* Without the script there is no camera, and the story is its words. */

@@ -5,7 +5,8 @@ import type { CastId } from "../scripts/feature-camera.ts";
  * tools and questions live here, so the page, its structured data and llms.txt agree. The
  * page tells its story one section at a time while ace, drawn on a MacBook, shows that part
  * (components/features/FeatureStory.astro): each section says what the drawing does then
- * (`show.move`) and what the camera frames (`show.focus`).
+ * (`show.move`) and what the camera frames (`show.focus`). `preview` picks the one scene the
+ * features page shows for it.
  */
 
 export type FeatureSlug =
@@ -83,6 +84,11 @@ export interface Feature {
   cast: CastId[];
   /** Lines from the Mac to the other hardware, each with the verb it carries. */
   links: { to: Exclude<CastId, "mac">; verb: string }[];
+  /**
+   * The one scene that shows the feature best, for the features page's tour of all ten: the
+   * move the drawing plays and what the camera frames, as on a section.
+   */
+  preview: { move: Exclude<StepMove, "keep">; focus: StepFocus };
   sections: FeatureSection[];
   /** ace's MCP tools behind the feature, when it has any. */
   tools: string[];
@@ -109,6 +115,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac", "build"],
     links: [{ to: "build", verb: "hands off" }],
+    preview: { move: "team", focus: ["thread"] },
     sections: [
       {
         heading: "One agent, many providers",
@@ -127,7 +134,7 @@ export const features: Feature[] = [
       {
         heading: "Send work to the right machine",
         body: [
-          "A helper can run on another of your linked machines: the soak test on the Linux build server, the Windows build on the workstation. When that machine is busy, the work waits in its queue instead of failing.",
+          "A helper can run on another of your linked machines: the soak test on your Linux machine, the Windows build on the workstation. When that machine is busy, the work waits in its queue instead of failing.",
         ],
         show: { move: "agents", focus: ["mac", "build"] },
       },
@@ -200,6 +207,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac", "build", "workstation"],
     links: [],
+    preview: { move: "computer", focus: ["mac"] },
     sections: [
       {
         heading: "Your apps, used in the background",
@@ -276,7 +284,7 @@ export const features: Feature[] = [
       "Link your machines so agents share each other's threads, browsers, simulators and emulators, move work between them, and follow every thread from iPhone or iPad.",
     headline: "Orchestrate agents across every machine you own",
     intro:
-      "Link your laptop, a Linux build server and a Windows workstation. Agents on one start threads, open browsers and use simulators on another, and you approve it all from your phone.",
+      "Link your laptop, a Linux machine and a Windows workstation. Agents on one start threads, open browsers and use simulators on another, and you approve it all from your phone.",
     points: [
       "Agents start threads and open browsers on linked machines",
       "Simulators and emulators on one machine, used from any other",
@@ -289,18 +297,19 @@ export const features: Feature[] = [
       { to: "workstation", verb: "opens a browser" },
       { to: "phone", verb: "asks you" },
     ],
+    preview: { move: "agents", focus: ["mac", "build", "workstation"] },
     sections: [
       {
         heading: "One fleet, many machines",
         body: [
-          "Run ace on your laptop, a Linux build server and a Windows workstation, then link them. An agent on your laptop can delegate a long test run to the build server, or open a browser on the workstation to check a page there.",
+          "Run ace on your laptop, a Linux machine and a Windows workstation, then link them. An agent on your laptop can delegate a long test run to the Linux machine, or open a browser on the workstation to check a page there.",
         ],
         show: { move: "agents", focus: ["mac", "build", "workstation"] },
       },
       {
         heading: "Devices travel too",
         body: [
-          "An agent on the build server can test your app on the iOS Simulator on your Mac, and an agent on your laptop can use the Android emulator on your workstation, each with the device approval you'd give locally.",
+          "An agent on the Linux machine can test your app on the iOS Simulator on your Mac, and an agent on your laptop can use the Android emulator on your workstation, each with the device approval you'd give locally.",
         ],
         show: { move: "devices", focus: ["mac", "build"] },
       },
@@ -390,6 +399,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac", "phone"],
     links: [{ to: "phone", verb: "asks you" }],
+    preview: { move: "phone-ask", focus: ["mac", "phone"] },
     sections: [
       {
         heading: "Allow and Deny on the Lock Screen",
@@ -466,6 +476,7 @@ export const features: Feature[] = [
       { to: "workstation", verb: "relay" },
       { to: "phone", verb: "relay" },
     ],
+    preview: { move: "remote", focus: ["threads"] },
     sections: [
       {
         heading: "One sign-in for every machine",
@@ -556,6 +567,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac"],
     links: [],
+    preview: { move: "accounts", focus: ["canvas"] },
     sections: [
       {
         heading: "Accounts kept apart",
@@ -636,6 +648,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac"],
     links: [],
+    preview: { move: "browser", focus: ["browser"] },
     sections: [
       {
         heading: "An agent that checks its own work",
@@ -717,6 +730,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac", "build"],
     links: [{ to: "build", verb: "borrows the Simulator" }],
+    preview: { move: "devices", focus: ["sim"] },
     sections: [
       {
         heading: "Lend a device, once",
@@ -735,7 +749,7 @@ export const features: Feature[] = [
       {
         heading: "From any of your machines",
         body: [
-          "This build server has no simulator, so the agent on it borrows the iPhone 17 Pro on your Mac. Devices on one linked machine are there for agents on the others.",
+          "This Linux machine has no simulator, so the agent on it borrows the iPhone 17 Pro on your Mac. Devices on one linked machine are there for agents on the others.",
         ],
         show: { move: "keep", focus: ["mac", "build"] },
       },
@@ -784,6 +798,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac"],
     links: [],
+    preview: { move: "review", focus: ["changes"] },
     sections: [
       {
         heading: "Parallel agents, no collisions",
@@ -853,6 +868,7 @@ export const features: Feature[] = [
     ],
     cast: ["mac", "phone"],
     links: [{ to: "phone", verb: "asks you" }],
+    preview: { move: "parallel", focus: ["threads"] },
     sections: [
       {
         heading: "Five words you can trust",

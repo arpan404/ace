@@ -69,3 +69,21 @@ export function readFocus(
   if (part && devices.length === 0) return { kind: "part", part };
   return { kind: "device", cast: devices.length > 0 ? devices : ["mac"] };
 }
+
+/**
+ * The hardware on stage at step `index`: what that step frames, or the Mac alone when it frames
+ * a part of ace's window. Other machines stay off stage, hidden and outside the camera, until a
+ * step is about them, and leave again on a step about the Mac alone, so a shot of the Mac never
+ * shows a sliver of them. A step about one other device stands it alone.
+ */
+export function onStage(
+  plan: readonly StepPlan[],
+  index: number,
+  standing: readonly CastId[],
+): CastId[] {
+  const step = plan[Math.min(index, plan.length - 1)];
+  const focus = step ? readFocus(step.focus) : undefined;
+  const framed: readonly CastId[] = focus?.kind === "device" ? focus.cast : ["mac"];
+  const on = standing.filter((id) => framed.includes(id));
+  return on.length > 0 ? on : standing.filter((id) => id === "mac");
+}

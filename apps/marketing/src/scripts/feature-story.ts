@@ -1,7 +1,14 @@
 import type { StepPart } from "../content/features.ts";
-import { arrange, chooseLayout, shotCamera, travelled, type CastId } from "./feature-camera.ts";
+import {
+  arrange,
+  chooseLayout,
+  shotCamera,
+  stageFade,
+  travelled,
+  type CastId,
+} from "./feature-camera.ts";
 import { playMove } from "./feature-moves.ts";
-import { readFocus, startsMove, type PlayedMove, type StepPlan } from "./feature-steps.ts";
+import { onStage, readFocus, startsMove, type PlayedMove, type StepPlan } from "./feature-steps.ts";
 import { stepEvent } from "./scroll-story.ts";
 import { createAct, placePointer, tickClocks } from "./stage-act.ts";
 import { show } from "./stage-scenes.ts";
@@ -12,7 +19,8 @@ import { between, link, project, union, type Camera, type Rect, type Size } from
  * with the other hardware the feature involves standing beside it. As each step of the page's
  * scroll story becomes current, the drawing plays that step's move (feature-moves.ts) and the
  * camera travels to what the step is about: whole devices, or one part of ace's window, read
- * from where it is on screen. feature-camera.ts and feature-steps.ts decide; this applies.
+ * from where it is on screen. Hardware other than the Mac is on stage only while a step frames
+ * it. feature-camera.ts and feature-steps.ts decide; this applies.
  * With reduced motion the camera cuts and every scene jumps to its end.
  */
 
@@ -60,7 +68,7 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
   const paths = [...frame.querySelectorAll<SVGPathElement>("[data-link]")];
   const verbs = [...frame.querySelectorAll<HTMLElement>("[data-verb]")];
 
-  // ace is open on every machine: the Mac on the page's thread, the build server testing
+  // ace is open on every machine: the Mac on the page's thread, the Linux machine testing
   // sign-in on a borrowed iPhone, the workstation checking a page in ace's browser.
   show(mac, { thread: "cold-start", approved: true });
   const server = thing("build");
@@ -109,6 +117,9 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
   /** Stands the hardware for this frame's shape, and draws the lines between it. */
   function place(): void {
     size = { width: frame.clientWidth, height: frame.clientHeight };
+    const fade = stageFade(size);
+    for (const [edge, px] of Object.entries(fade))
+      frame.style.setProperty(`--fade-${edge}`, `${px}px`);
     places = arrange(cast, chooseLayout(cast, size));
     for (const entry of things) {
       const at = isCast(entry.dataset.thing) ? places[entry.dataset.thing] : undefined;
@@ -147,6 +158,41 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
     return shotCamera({ ...rect, height }, "part", size);
   }
 
+  /** Puts on stage the hardware step `index` frames, with its label and line; the rest leaves. */
+  function stand(index: number): void {
+    const on = onStage(plan, index, cast);
+    const many = on.length > 1;
+    for (const entry of things)
+      entry.toggleAttribute("data-off", !on.some((id) => id === entry.dataset.thing));
+    for (const label of labels) {
+      label.toggleAttribute("data-off", !many || !on.some((id) => id === label.dataset.label));
+    }
+    // A line runs from the Mac, so it shows only while both its ends are on stage.
+    paths.forEach((path, at) => {
+      const off = !on.includes("mac") || !on.some((id) => id === path.dataset.to);
+      path.toggleAttribute("data-off", off);
+      verbs[at]?.toggleAttribute("data-off", off);
+    });
+  }
+
+  /** A verb that would sit on a machine's label gives way to it, in a tight stacked shot. */
+  function unclutter(): void {
+    const shown = labels.filter((label) => !label.hasAttribute("data-off"));
+    for (const verb of verbs) {
+      const box = verb.getBoundingClientRect();
+      const hit = shown.some((label) => {
+        const other = label.getBoundingClientRect();
+        return (
+          box.left < other.right + 8 &&
+          other.left < box.right + 8 &&
+          box.top < other.bottom + 6 &&
+          other.top < box.bottom + 6
+        );
+      });
+      verb.toggleAttribute("data-crowded", hit);
+    }
+  }
+
   function render(): void {
     world.style.transform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`;
     for (const label of labels) {
@@ -173,6 +219,7 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
     camera = between(from, target, t, size);
     render();
     pending = t < 1 ? requestAnimationFrame(tick) : 0;
+    if (t >= 1) unclutter();
   }
 
   /** Sends the camera toward `next`, from wherever it is now; `cut` jumps straight there. */
@@ -185,6 +232,7 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
       camera = next;
       from = next;
       render();
+      unclutter();
       return;
     }
     if (!pending) pending = requestAnimationFrame(tick);
@@ -198,6 +246,7 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
   /** A step becomes current: its move plays, and the camera follows what it's about. */
   function enter(index: number): void {
     current = index;
+    stand(index);
     travel(aimFor(index));
     const move = startsMove(plan, index, playing);
     if (!move) return;
@@ -211,19 +260,25 @@ export function startFeatureStory(frame: HTMLElement, plan: StepPlan[]): void {
     });
   }
 
+  /** The picture before the first step plays: the hardware that step stands, whole. */
+  const opening = () =>
+    shotCamera(union(onStage(plan, 0, cast).flatMap((id) => places[id] ?? [])), "device", size);
+
   place();
-  // The picture opens on every piece of hardware, then the first step takes the camera in.
-  const opening = cast.flatMap((id) => places[id] ?? []);
-  travel(shotCamera(union(opening), "device", size), true);
+  stand(0);
+  travel(opening(), true);
+
+  // A panel or the Simulator that slides in is framed again the moment it comes to rest, so a
+  // part inside it (a diff, a page) isn't framed where it was mid-slide.
+  mac.addEventListener("transitionend", (event) => {
+    const slid = event.target;
+    if (current < 0 || !(slid instanceof HTMLElement)) return;
+    if (slid.matches(".side-changes, .side-browser, [data-sim]")) travel(aimFor(current));
+  });
 
   new ResizeObserver(() => {
     place();
-    travel(
-      current < 0
-        ? shotCamera(union(cast.flatMap((id) => places[id] ?? [])), "device", size)
-        : aimFor(current),
-      true,
-    );
+    travel(current < 0 ? opening() : aimFor(current), true);
   }).observe(frame);
 
   const looking = new IntersectionObserver(

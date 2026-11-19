@@ -1,4 +1,4 @@
-import { frame, union, type Camera, type Rect, type Size } from "./zoom-camera.ts";
+import { frame, union, type Camera, type Insets, type Rect, type Size } from "./zoom-camera.ts";
 
 /*
  * A feature page's story, as numbers: where each piece of hardware stands, which arrangement
@@ -65,14 +65,39 @@ export function arrange(cast: readonly CastId[], layout: Layout): Partial<Record
   return places;
 }
 
-/** Room a whole-device shot keeps clear: a label stands above each drawing. */
-const deviceInsets = { top: 40, right: 16, bottom: 16, left: 16 };
+/**
+ * Where the stage fades out, in stage pixels from each edge: the picture is masked to nothing at
+ * the edge and fully drawn this far in, so nothing is cut off by a hard line. The top clears the
+ * floating header first. A band across the top of a phone or tablet (a short stage) fades less,
+ * so its little height goes to the picture.
+ */
+export function stageFade(stage: Size): Insets & { header: number } {
+  const band = stage.height < 600;
+  return {
+    header: band ? 56 : 60,
+    top: band ? 84 : 104,
+    right: band ? 16 : 56,
+    bottom: band ? 20 : 72,
+    left: band ? 16 : 104,
+  };
+}
+
+const add = (a: Insets, b: Insets): Insets => ({
+  top: a.top + b.top,
+  right: a.right + b.right,
+  bottom: a.bottom + b.bottom,
+  left: a.left + b.left,
+});
+
+/** Room a whole-device shot keeps clear inside the fade: a label stands above each drawing. */
+const deviceInsets = { top: 32, right: 8, bottom: 8, left: 8 };
 
 /** How large the whole picture is drawn in a frame, for comparing arrangements. */
 function fit(rects: Rect[], stage: Size): number {
   const all = union(rects);
-  const width = stage.width - deviceInsets.left - deviceInsets.right;
-  const height = stage.height - deviceInsets.top - deviceInsets.bottom;
+  const insets = add(stageFade(stage), deviceInsets);
+  const width = stage.width - insets.left - insets.right;
+  const height = stage.height - insets.top - insets.bottom;
   return Math.min(width / all.width, height / all.height);
 }
 
@@ -90,14 +115,24 @@ export function chooseLayout(cast: readonly CastId[], stage: Size): Layout {
 export type FocusKind = "device" | "part";
 
 /** World pixels of room kept around a part of the window, so it doesn't touch the frame. */
-const partMargin = 28;
+const partMargin = 24;
 /** A part is drawn at most this much larger than life, so it never turns into a blur. */
-const partMaxScale = 1.25;
+const partMaxScale = 1.1;
 
-/** The camera for a step: `rect` is what it shows, in world pixels. */
+/**
+ * Stage pixels of room around a part, beyond the fade: a tenth of the stage's smaller side (at most 72), so
+ * the part sits whole and centred with what surrounds it plainly secondary.
+ */
+function partRoom(stage: Size): Insets {
+  const room = Math.min(72, Math.max(12, Math.min(stage.width, stage.height) / 10));
+  return { top: room, right: room, bottom: room, left: room };
+}
+
+/** The camera for a step: `rect` is what it shows, in world pixels, inside the fade. */
 export function shotCamera(rect: Rect, kind: FocusKind, stage: Size): Camera {
+  const fade = stageFade(stage);
   if (kind === "device") {
-    return frame({ rect, insets: deviceInsets, maxScale: 1 }, stage);
+    return frame({ rect, insets: add(fade, deviceInsets), maxScale: 1 }, stage);
   }
   const padded = {
     x: rect.x - partMargin,
@@ -105,8 +140,7 @@ export function shotCamera(rect: Rect, kind: FocusKind, stage: Size): Camera {
     width: rect.width + partMargin * 2,
     height: rect.height + partMargin * 2,
   };
-  const insets = { top: 8, right: 8, bottom: 8, left: 8 };
-  return frame({ rect: padded, insets, maxScale: partMaxScale }, stage);
+  return frame({ rect: padded, insets: add(fade, partRoom(stage)), maxScale: partMaxScale }, stage);
 }
 
 /** How long the camera takes to travel between two steps, in milliseconds. */

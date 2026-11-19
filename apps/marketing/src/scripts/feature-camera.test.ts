@@ -4,6 +4,7 @@ import {
   castSizes,
   chooseLayout,
   shotCamera,
+  stageFade,
   travelled,
   type CastId,
 } from "./feature-camera.ts";
@@ -50,11 +51,25 @@ describe("where a feature page's hardware stands", () => {
 describe("a step's camera", () => {
   const stage = { width: 640, height: 720 };
 
-  it("a part of the window is framed whole, with room around it", () => {
-    const part = { x: 400, y: 300, width: 300, height: 200 };
-    const camera = shotCamera(part, "part", stage);
-    expect(part.x * camera.scale + camera.x).toBeGreaterThan(0);
-    expect((part.x + part.width) * camera.scale + camera.x).toBeLessThan(stage.width);
+  it("a part of the window sits whole and centred inside the fade, with room around it", () => {
+    const fade = stageFade(stage);
+    for (const part of [
+      { x: 400, y: 300, width: 300, height: 200 },
+      { x: 120, y: 760, width: 900, height: 120 },
+      { x: 1200, y: 80, width: 140, height: 640 },
+    ]) {
+      const camera = shotCamera(part, "part", stage);
+      const left = part.x * camera.scale + camera.x;
+      const right = (part.x + part.width) * camera.scale + camera.x;
+      const top = part.y * camera.scale + camera.y;
+      const end = (part.y + part.height) * camera.scale + camera.y;
+      expect(left).toBeGreaterThanOrEqual(fade.left + 40);
+      expect(stage.width - right).toBeGreaterThanOrEqual(fade.right + 40);
+      expect(top).toBeGreaterThanOrEqual(fade.top + 40);
+      expect(stage.height - end).toBeGreaterThanOrEqual(fade.bottom + 40);
+      const middle = (left + right) / 2;
+      expect(Math.abs(middle - (fade.left + (stage.width - fade.right)) / 2)).toBeLessThan(1);
+    }
   });
 
   it("a small part is never drawn much larger than life", () => {
@@ -62,10 +77,10 @@ describe("a step's camera", () => {
     expect(camera.scale).toBeLessThanOrEqual(1.25);
   });
 
-  it("a whole device leaves room above it for its label", () => {
+  it("a whole device stands below the faded top, with room above it for its label", () => {
     const mac = { x: 0, y: 0, ...castSizes.mac };
     const camera = shotCamera(mac, "device", stage);
-    expect(camera.y).toBeGreaterThanOrEqual(40);
+    expect(camera.y).toBeGreaterThanOrEqual(stageFade(stage).top + 24);
   });
 
   it("the camera eases out and in and arrives exactly", () => {

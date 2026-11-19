@@ -77,7 +77,7 @@ export function startZoomStory(root: HTMLElement): void {
   const emptyText = placeholder?.textContent ?? "";
 
   // ace is open on every machine in the picture, each on a thread of its own: this Mac on the
-  // story's thread, the build server testing sign-in, the workstation driving ace's browser.
+  // story's thread, the Linux machine testing sign-in, the workstation driving ace's browser.
   const machine = (id: string) => q(`[data-thing="${id}"]`);
   const thisMac = machine("mac");
   const server = machine("build");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { moveAt, readFocus, startsMove, type StepPlan } from "./feature-steps.ts";
+import { moveAt, onStage, readFocus, startsMove, type StepPlan } from "./feature-steps.ts";
 
 const plan: StepPlan[] = [
   { move: "review", focus: ["threads"] },
@@ -30,5 +30,29 @@ describe("a feature page's steps", () => {
   it("frames hardware when a step names any, and one part of the window otherwise", () => {
     expect(readFocus(["mac", "phone"])).toEqual({ kind: "device", cast: ["mac", "phone"] });
     expect(readFocus(["dock"])).toEqual({ kind: "part", part: "dock" });
+  });
+
+  it("other hardware is on stage only while a step frames it, and leaves again going back", () => {
+    const cast = ["mac", "build", "phone"] as const;
+    const story: StepPlan[] = [
+      { move: "team", focus: ["thread"] },
+      { move: "agents", focus: ["mac", "build"] },
+      { move: "keep", focus: ["dock"] },
+      { move: "phone", focus: ["mac", "phone"] },
+    ];
+    expect(onStage(story, 0, cast)).toEqual(["mac"]);
+    expect(onStage(story, 1, cast)).toEqual(["mac", "build"]);
+    expect(onStage(story, 2, cast)).toEqual(["mac"]);
+    expect(onStage(story, 3, cast)).toEqual(["mac", "phone"]);
+  });
+
+  it("a step about one other device stands it alone, without the Mac", () => {
+    expect(onStage([{ move: "phone-ask", focus: ["phone"] }], 0, ["mac", "phone"])).toEqual([
+      "phone",
+    ]);
+  });
+
+  it("a step can only bring on hardware the story stands", () => {
+    expect(onStage([{ move: "rest", focus: ["mac", "workstation"] }], 0, ["mac"])).toEqual(["mac"]);
   });
 });
