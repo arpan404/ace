@@ -49,24 +49,35 @@ opened after the fence is closed at once); a send that meets the fence there goe
 queue, held. Only teardown controls (`thread.interrupt`, `thread.archive`) still run; any other
 control (a goal, a model, a permission change, an answer) waits. A fenced thread holds no engine
 slot and is left out of the threads picked to run, so held work never blocks other threads at
-the active-thread limit. When a move fails before the hand-over the fence lifts and the thread
-is woken, given a slot first, so what was held dispatches then.
+the active-thread limit. The fence covers the whole tree here: the thread's subagents at any
+depth are fenced with it (`thread_fence`, by the root's ownership record) from the moment the
+move starts stopping, so none of them starts anything meanwhile. When a move fails before the
+hand-over the fence lifts for the whole tree and each thread is woken, given a slot first, so
+what was held dispatches then through normal scheduling. A fence that lands while a provider is
+opening isn't an open failure: the open ends, nothing is reported, and the send goes back to
+the queue, held.
 
 A message queued behind the working turn is not given to the provider while the root works, so
 the move's interrupt, a root Stop, leaves it queued: a Stop fails only resumes, limits and merges
 waiting to run, and inputs already in the interrupted turn.
 
-After the interrupt the provider's process is closed (`closeProvider`), which ends its
-background shells and leaves its session file whole. It is not the deletion stop: nothing
-pending is retired, so queued messages stay held. It returns only once the process has exited: a
-close already in flight is waited for, and a close that leaves the process running is an error.
-Subagent threads on this machine are each interrupted and waited on until their turns have
-ended, for up to 30 seconds from the interrupt between them; then each one's provider is closed
-and given up to 10 seconds to exit, and so is the thread's own. A process still running after
-that fails the move before the hand-over (`process_still_running`), with the agent told to carry
-on here: no snapshot is taken while anything still writes, and a close that never returns can't
-hang the move. Only then is the final snapshot taken. Then it captures what changed since the
-bulk:
+**The invariant before the final snapshot.** Every provider process of the thread's tree here
+(the thread and its subagents at any depth, settled ones with a warm session included, and any
+still opening) has exited, as the engine's own process set says (`withProcess`: attached,
+opening or closing), within one deadline of 40 seconds:
+
+1. Every live subagent is interrupted (its own `thread.interrupt`, with cascade) and waited on
+   until its turn ends, until the last 10 seconds of the deadline.
+2. Every provider of the tree is closed (`closeProvider`). That ends an open still waiting for
+   its handshake (its lifetime is the spawned process's) and waits for it to settle, waits for a
+   close already in flight, and closes an attached session; it is not the deletion stop, so
+   nothing pending is retired and queued messages stay held.
+3. The process set is checked for every thread of the tree. Anything still there when the
+   deadline passes fails the move before the hand-over (`process_still_running`), with the
+   agent told to carry on here. No snapshot is taken while anything still writes, and a close
+   that never returns can't hang the move.
+
+Only then is the final snapshot taken. Then it captures what changed since the bulk:
 
 - **Git methods.** A second capture commit of the checkout as it is now, and an incremental
   bundle of the branch and that commit, excluding the bulk's branch head and capture commit. It is
@@ -148,7 +159,11 @@ final at once. Starts still pending are listed in a table of their own
 (`transfer_live_pending`), so finding them never reads finished ones (ADR 0170), and a restart
 drains it in batches of 64, a turn of the event loop between them, until none are left.
 Retention never drops a transfer whose start is still pending, however long the target was
-down, so the start can always be rebuilt from its row.
+down, so the start can always be rebuilt from its row. A start waits for its transfer's setup
+(the handoff and the link back) to finish. A setup that keeps failing past the cutoff, or a start
+that keeps throwing, is tried again in the background without a restart (1 second, doubling to
+a minute, 8 tries); then the transfer completes without it and the start is recorded as not
+started, said on the thread there, so the sender is answered and moves on.
 
 Recovery and retention on the target read side tables kept in step with every write to a
 transfer's row, never the transfers table itself (ADR 0170): `transfer_incoming_open` lists
@@ -156,7 +171,11 @@ transfers still receiving, cloning or importing and settled ones with a rollback
 `transfer_incoming_expiry` lists the others with the time retention counts from, indexed when
 it is made. Each read starts from the side table and reaches the row by its key. A home whose
 rows predate the side tables is indexed once, in pages of the primary key with a turn of the
-event loop between them, before recovery reads them; never at open.
+event loop between them, before recovery reads them; never at open. Its progress is kept with
+each page it writes (`transfer_incoming_index_progress`), so a restart carries on where it
+stopped. Recovery on each side drains every batch to the end, and the sending side's recovery
+never waits on the receiving side's. A payload file is removed at startup only once its own
+transfer's row says it is settled or gone, never from a list that could be cut short.
 
 **The receipt.** The same row is the receipt of the transfer: it keeps the sending device, the
 method and the result, and retention never drops it. The transfer's own row is swept a day after
@@ -194,8 +213,11 @@ thread at every moment:
 
 - **Before `handing`** nothing was committed, so the target can't own it. A failure, a cancel, a
   lost link or a refused begin returns the source to running: the record goes, and if the turn
-  was interrupted the source sends itself "Moving to Studio didn't work: <reason>. Carry on
-  where you left off." A source restart in `stopping` carries the cutover on from there.
+  was interrupted the source owes itself "Moving to Studio didn't work: <reason>. Carry on
+  where you left off." That message is owed durably (`transfer_live_resume`) and sent until it
+  goes, under a fresh command id per attempt: a full engine refuses it now and takes it once a
+  slot frees, and a restart keeps owing it. It is dropped once the thread carries on by itself.
+  A source restart in `stopping` carries the cutover on from there.
 - **`handing` is written before the commit is sent.** From then on the source never resumes on
   its own: the commit may have landed. It asks status until the target answers. `completed` (the
   target owns it) moves the source; `failed`, `cancelled` or "no such transfer" resume the
@@ -221,8 +243,9 @@ then the source waits.
 - **Background shells and open terminals** of the thread are stopped after the interrupt. The
   continue message lists them by title ("Stopped here: dev server (npm run dev)"), so the agent
   there can start them again.
-- **Children running on this machine** are stopped (their own `thread.interrupt`, with
-  cascade) and listed. Moving them is out of scope for this stage.
+- **Children running on this machine**, at any depth, are fenced, stopped and listed, and their
+  processes are among those the invariant above waits for. Moving them is out of scope for this
+  stage.
 - **Children delegated to other machines** keep running. Their parent link can't be repointed
   yet: their results wait undelivered on the moved thread, which holds them and runs nothing. They
   are listed in the continue message, and repointing them to the new parent is a follow-up.
@@ -285,8 +308,13 @@ with a branch made before the stop; a lost answer after retention dropped the ta
 crash between the hand-over's two writes followed by an outage longer than the retry limit; a
 follow-up queued behind the working turn kept through the move's interrupt; a moved thread's
 first turn refused by a full engine through real command receipts, then started once a slot
-freed; a session that finished opening after the fence; a moved thread with held work leaving
-its slot to other threads at the active-thread limit.
+freed; a session that finished opening after the fence, its input still queued and its provider
+closed; a moved thread with held work leaving its slot to other threads at the active-thread
+limit; a failed move's resume refused while another thread held the only slot, then sent once
+it freed. Unit tests also cover an opening provider ended and waited for, a grandchild's
+process in the tree's deadline, the durable resume across a restart, a target's setup and start
+given up on and answered, indexing carried on after a restart, and recovery past one batch on
+both sides with every live payload kept.
 Live checks owed, because no real CLI ran: Claude resuming a session
 placed under a new folder name; Codex forking from a copied rollout whose `cwd` changed; the
 interrupt landing between tool calls for each provider; a resume failure reading as `failed` on
