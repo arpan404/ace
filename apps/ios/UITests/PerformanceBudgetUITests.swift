@@ -431,13 +431,17 @@ extension XCUIApplication {
     /// The app's `--perf-probe` numbers for this launch, read from the fixture it posts them to
     /// (`Sources/Spike/PerfProbe.swift`); empty until it has posted.
     var probe: [String: String] {
-        let text = PerfProbeRead.text(port: launchArgument("--spike-port") ?? "9841", run: launchArgument("--perf-probe-run") ?? "")
+        let text = probeText
         var values: [String: String] = [:]
         for pair in text.split(separator: ";") {
             let parts = pair.split(separator: "=", maxSplits: 1)
             if parts.count == 2 { values[String(parts[0])] = String(parts[1]) }
         }
         return values
+    }
+    /// The same numbers as posted, `key=value` pairs joined by `;`.
+    var probeText: String {
+        PerfProbeRead.text(port: launchArgument("--spike-port") ?? "9841", run: launchArgument("--perf-probe-run") ?? "")
     }
     func probeValue(_ key: String) -> Double? { probe[key].flatMap(Double.init) }
     private func launchArgument(_ name: String) -> String? {
