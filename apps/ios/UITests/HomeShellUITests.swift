@@ -296,14 +296,16 @@ import XCTest
         let row = app.buttons["thread.ios-form"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        let places = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.more",
-                      "sidebar.place.settings"].map { app.buttons[$0] }
+        let ids = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.more", "sidebar.place.settings"]
+        let places = ids.map { app.buttons[$0] }
         XCTAssertTrue(places[0].waitForExistence(timeout: 10))
-        // Left to right in the rail's order, Spade after Chats while the machine shows it, then
-        // More and Settings; no tab bar beside the list, and Code review is not in the foot.
+        // The foot holds exactly these six, left to right in the rail's order: Spade after Chats
+        // while the machine shows it, then More and Settings. No tab bar beside the list.
+        let foot = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.")).allElementsBoundByIndex
+        XCTAssertEqual(Set(foot.map(\.identifier)), Set(ids))
+        XCTAssertEqual(foot.count, ids.count)
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
-        XCTAssertFalse(app.buttons["sidebar.review"].exists)
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
         capture("ipad-sidebar")
         // Automations and Skills open from More.
