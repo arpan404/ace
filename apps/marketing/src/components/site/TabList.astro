@@ -39,23 +39,19 @@ const { prefix, label, tabs } = Astro.props;
 
   :global([data-enhanced]) .tabs {
     display: flex;
-    gap: 2px;
+    gap: 4px;
     max-width: 100%;
     width: fit-content;
-    padding: 5px;
     overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
     scrollbar-width: none;
   }
 
   button {
     flex: 1 0 auto;
-    height: 40px;
-    padding: 0 clamp(14px, 2.2vw, 24px);
+    height: 38px;
+    padding: 0 14px;
     border: 0;
-    border-radius: 999px;
+    border-radius: 8px;
     background: none;
     color: var(--muted);
     font: inherit;
@@ -69,12 +65,14 @@ const { prefix, label, tabs } = Astro.props;
   }
 
   button:hover {
+    background: var(--wash);
     color: var(--foreground);
   }
 
+  /* The chosen tab carries the app's own wash, not a filled pill. */
   button[aria-selected="true"] {
-    background: var(--ink);
-    color: var(--ink-foreground);
+    background: var(--active);
+    color: var(--foreground);
   }
 
   @media (max-width: 519px) {

@@ -1,10 +1,9 @@
 ---
 /*
- * Download: ace on every device it runs on, as hardware in one row, the visitor's own computer
- * first with its download button; then every platform under tabs with its builds and three
- * steps to install; then the questions people ask before downloading.
+ * Download: the button for the visitor's own computer first; then every platform under tabs
+ * with its builds and three steps to install; then the questions people ask before downloading.
  */
-import Devices from "../components/download/Devices.astro";
+import DownloadButton from "../components/DownloadButton.astro";
 import Platforms from "../components/download/Platforms.astro";
 import Faq from "../components/Faq.astro";
 import { downloadPage } from "../content/download.ts";
@@ -45,7 +44,7 @@ const questions = faq.filter((entry) =>
         )
       }
     </p>
-    <Devices />
+    <div class="actions"><DownloadButton withNote /></div>
   </section>
 
   <Platforms />
@@ -54,6 +53,13 @@ const questions = faq.filter((entry) =>
 </Page>
 
 <style>
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
   .opening {
     padding-top: clamp(32px, 5vw, 64px);
   }

@@ -1,27 +1,21 @@
 /*
- * The words on /agents/: the roster's heading, its two groups, the line shown for an ACP agent
- * and the three facts under it. The agents themselves come from agents.ts (the app's own
+ * The words on /agents/: the headings and ledes of its two lists and the three facts under
+ * them. The agents themselves come from agents.ts (the app's own
  * tables); a built-in agent's line comes from its guide (agent-guides.ts).
  */
 
 export const roster = {
-  heading: "Pick one in the composer.",
-  lede: "Each thread runs on the agent you choose in ace's model picker. Six are built in, and any agent that speaks the Agent Client Protocol joins them. Turn the dial to meet them.",
-  /** The two groups, as the dial's switch and the grid's headings name them. */
-  builtIn: "Built in",
-  acp: "Through ACP",
-  acpLong: "Through the Agent Client Protocol",
-  acpMore: "And any other agent that speaks ACP.",
-  /** What the composer says while the reader turns the dial. */
-  prompt: "Ask anything",
-  /** How the dial is named for assistive technology, and how to turn it. */
-  dialLabel: "Agents ace runs. Use the arrow keys to turn.",
-  open: (name: string) => `Run ${name} in ace`,
+  builtIn: {
+    heading: "Six are built in.",
+    lede: "Each has an adapter of its own in ace. Choose one for a thread in the composer's model picker, and change it whenever you like.",
+  },
+  acp: {
+    heading: "And any agent that speaks ACP.",
+    lede: "The Agent Client Protocol lets an agent join without an adapter. Install it, sign in through its own CLI, and it stands in the picker beside the rest.",
+    more: "Any other ACP agent",
+  },
+  factsHeading: "The same deal for every one.",
 };
-
-/** The line beside an ACP agent on the dial; the protocol, not a page of its own, is the story. */
-export const acpLine = (name: string) =>
-  `${name} joins through the Agent Client Protocol. Install it, sign in through its own CLI, and choose it in the composer like any built-in agent.`;
 
 export const rosterFacts: { title: string; body: string; href?: string }[] = [
   {

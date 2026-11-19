@@ -1,178 +1,67 @@
 ---
 /*
- * The agents ace runs, on a dial beside ace's composer: the reader turns it by clicking a chip
- * or with the arrow keys, the chosen agent shows in the composer's model picker, and a card
- * beside the dial says what it is and links to its page. A switch moves between the built-in
- * agents and the ones that come through the Agent Client Protocol. Where there is no room beside
- * the composer, or without the script, the chips stand in a grid instead. Words come from
- * content/roster.ts and each built-in agent's guide.
+ * The agents ace runs, on /agents/: the six built in as a ruled list, each with what it is, the
+ * model its CLI offers first and a link to its page; then every agent the app's registry runs
+ * through the Agent Client Protocol, as a ruled grid of marks; then the three facts that hold
+ * for all of them. Words come from content/roster.ts and each agent's guide.
  */
-import { providerIcon } from "@ace/ui-core/provider-icons";
 import { agentGuides } from "../content/agent-guides.ts";
-import { acpAgents } from "../content/agents.ts";
-import { acpLine, roster, rosterFacts } from "../content/roster.ts";
+import { acpAgents, currentModels } from "../content/agents.ts";
+import { roster, rosterFacts } from "../content/roster.ts";
 import BrandMark from "./BrandMark.astro";
 import Icon from "./Icon.astro";
-import AppIcon from "./mac/AppIcon.astro";
-import "./mac/ace-window.css";
-
-const claude = providerIcon({ provider: "claude" }).brand;
-const groups = [
-  {
-    id: "built-in",
-    name: roster.builtIn,
-    agents: agentGuides.map((guide) => ({
-      brand: guide.brand,
-      label: guide.label,
-      line: guide.what,
-      href: `/agents/${guide.slug}/`,
-    })),
-  },
-  {
-    id: "acp",
-    name: roster.acp,
-    agents: acpAgents.map((agent) => ({
-      brand: agent.brand,
-      label: agent.label,
-      line: acpLine(agent.label),
-      href: undefined,
-    })),
-  },
-];
 ---
 
-<section class="section page" id="agents">
-  <header class="head reveal">
-    <h2 class="section-title">{roster.heading}</h2>
-    <p class="lede">{roster.lede}</p>
-  </header>
-
-  <div class="roster reveal" data-roster>
-    <div class="turn">
-      <div class="groups" role="tablist" aria-label={roster.dialLabel}>
-        {
-          groups.map((group, index) => (
-            <button
-              type="button"
-              role="tab"
-              id={`roster-tab-${group.id}`}
-              aria-controls={`roster-ring-${group.id}`}
-              aria-selected={index === 0 ? "true" : "false"}
-              tabindex={index === 0 ? 0 : -1}
-              data-roster-group={index}
-            >
-              {group.name}
-              <span class="count">{group.agents.length}</span>
-            </button>
-          ))
-        }
-      </div>
-
-      <div class="stage" data-roster-stage>
-        <div class="ace drawn" aria-hidden="true">
-          <div class="composer" data-roster-composer>
-            <span class="placeholder">{roster.prompt}</span>
-            <div class="composer-foot">
-              <AppIcon name="plus" size={18} />
-              <span class="access"><AppIcon name="shield-check" size={16} />Auto review</span>
-              <span class="model" data-roster-model>
-                {claude && <BrandMark brand={claude} size={15} />}Claude Code
-                <AppIcon name="caret-down" size={12} />
-              </span>
-              <span class="send"><AppIcon name="arrow-up" size={16} /></span>
-            </div>
-          </div>
-        </div>
-
-        {
-          groups.map((group, index) => (
-            <div
-              class="ring"
-              role="tabpanel"
-              id={`roster-ring-${group.id}`}
-              aria-labelledby={`roster-tab-${group.id}`}
-              hidden={index !== 0}
-              data-roster-ring={index}
-            >
-              {group.agents.map((agent, at) => (
-                <button
-                  type="button"
-                  class="seat"
-                  aria-pressed={at === 0 ? "true" : "false"}
-                  tabindex={at === 0 ? 0 : -1}
-                  data-roster-seat={at}
-                >
-                  <BrandMark brand={agent.brand} size={18} />
-                  <span>{agent.label}</span>
-                </button>
-              ))}
-            </div>
-          ))
-        }
-
-        <div class="chosen" aria-live="polite">
-          {
-            groups.map((group, index) =>
-              group.agents.map((agent, at) => (
-                <article
-                  class="card"
-                  hidden={index !== 0 || at !== 0}
-                  data-roster-card={`${index}-${at}`}
-                >
-                  <span class="tile">
-                    <BrandMark brand={agent.brand} size={26} />
-                  </span>
-                  <p class="kicker">{index === 0 ? roster.builtIn : roster.acpLong}</p>
-                  <h3>{agent.label}</h3>
-                  <p class="line">{agent.line}</p>
-                  {agent.href && (
-                    <a class="button button-secondary button-small" href={agent.href}>
-                      {roster.open(agent.label)}
-                      <Icon name="arrow-right" size={14} />
-                    </a>
-                  )}
-                </article>
-              )),
-            )
-          }
-        </div>
-      </div>
-    </div>
-
-    <div class="tiers">
-      {
-        groups.map((group, index) => (
-          <div class="tier">
-            <h3 class="kicker">{index === 0 ? group.name : roster.acpLong}</h3>
-            <ul class:list={["chips", { light: index > 0 }]} aria-label={group.name}>
-              {group.agents.map((agent) => (
-                <li>
-                  {agent.href ? (
-                    <a class="chip" href={agent.href}>
-                      <BrandMark brand={agent.brand} size={18} />
-                      {agent.label}
-                      <Icon name="arrow-right" size={14} />
-                    </a>
-                  ) : (
-                    <span class="chip">
-                      <BrandMark brand={agent.brand} size={15} />
-                      {agent.label}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-            {index > 0 && <p class="more">{roster.acpMore}</p>}
-          </div>
-        ))
-      }
-    </div>
+<section class="section page pair">
+  <div class="say reveal">
+    <h2 class="section-title">{roster.builtIn.heading}</h2>
+    <p class="lede">{roster.builtIn.lede}</p>
   </div>
+  <ul class="card rows reveal">
+    {
+      agentGuides.map((guide) => (
+        <li>
+          <a href={`/agents/${guide.slug}/`}>
+            <BrandMark brand={guide.brand} size={24} />
+            <span class="text">
+              <span class="name">
+                {guide.label}
+                <span class="model">{currentModels[guide.label]?.model}</span>
+              </span>
+              <span class="what">{guide.what}</span>
+            </span>
+            <Icon name="arrow-right" size={16} />
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>
 
-  <ul class="facts reveal" data-stagger>
+<section class="section page pair">
+  <div class="say reveal">
+    <h2 class="section-title">{roster.acp.heading}</h2>
+    <p class="lede">{roster.acp.lede}</p>
+  </div>
+  <ul class="card cells reveal">
+    {
+      acpAgents.map((agent) => (
+        <li>
+          <BrandMark brand={agent.brand} size={20} />
+          {agent.label}
+        </li>
+      ))
+    }
+    <li class="more">{roster.acp.more}</li>
+  </ul>
+</section>
+
+<section class="section page facts">
+  <h2 class="section-title reveal">{roster.factsHeading}</h2>
+  <ol class="reveal">
     {
       rosterFacts.map((fact) => (
-        <li class="card">
+        <li>
           <h3>{fact.title}</h3>
           <p>{fact.body}</p>
           {fact.href && (
@@ -183,340 +72,154 @@ const groups = [
         </li>
       ))
     }
-  </ul>
+  </ol>
 </section>
 
 <style>
-  .head h2 {
-    font-size: clamp(36px, 5.6vw, 72px);
-  }
-
-  .roster {
-    margin-top: clamp(36px, 5vw, 64px);
-  }
-
-  /* The dial needs room beside the composer and the script to turn it; until then, the grid. */
-  .turn {
-    display: none;
-  }
-
-  @media (min-width: 1040px) {
-    .roster[data-live] .turn {
-      display: block;
-    }
-
-    .roster[data-live] .tiers {
-      display: none;
-    }
-  }
-
-  /* The two groups as one segmented control, as the home page's parts are switched. */
-  .groups {
-    display: inline-grid;
-    grid-auto-flow: column;
-    gap: 2px;
-    padding: 5px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-  }
-
-  .groups button {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 38px;
-    padding: 0 20px;
-    border: 0;
-    border-radius: 999px;
-    background: none;
-    color: var(--muted);
-    font: inherit;
-    font-size: 14.5px;
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--motion-base) var(--ease-out),
-      color var(--motion-fast) var(--ease-out);
-  }
-
-  .groups button:hover {
-    color: var(--foreground);
-  }
-
-  .groups button[aria-selected="true"] {
-    background: var(--ink);
-    color: var(--ink-foreground);
-  }
-
-  .count {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    opacity: 0.6;
-  }
-
-  /*
-   * The composer on the left, the dial's seats in the middle (placed by the script), the chosen
-   * agent's card on the right.
-   */
-  .stage {
-    position: relative;
+  .pair {
     display: grid;
-    grid-template-columns: minmax(0, 400px) 290px minmax(240px, 1fr);
-    align-items: center;
-    min-height: 470px;
-    margin-top: 24px;
+    gap: 32px clamp(40px, 7vw, 96px);
+    align-items: start;
   }
 
-  .drawn {
-    position: relative;
-    inset: auto;
-    overflow: visible;
-    background: none;
-  }
-
-  .drawn .composer {
-    background: var(--a-canvas);
-    box-shadow: 0 24px 60px -30px var(--frame-shadow);
-  }
-
-  /* Where the composer is narrow, its access control gives way to the picker. */
-  @media (max-width: 1239px) {
-    .drawn .access {
-      display: none;
+  @media (min-width: 900px) {
+    .pair {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
     }
   }
 
-  .lines {
-    position: absolute;
-    left: 0;
-    top: 0;
-    overflow: visible;
-    pointer-events: none;
+  h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
   }
 
-  .lines path {
-    fill: none;
-    stroke-width: 1.5;
-    stroke-linecap: round;
+  /* The built-in agents: flat rows ruled with hairlines, as the app rules a list. */
+  .rows {
+    padding: 6px;
   }
 
-  .ring {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
+  .rows li + li {
+    border-top: 1px solid var(--border);
   }
 
-  .ring[hidden] {
-    display: none;
-  }
-
-  .seat {
-    position: absolute;
-    left: 0;
-    top: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    width: 184px;
-    height: 40px;
-    padding: 0 14px 0 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    box-shadow: 0 10px 24px -16px var(--frame-shadow);
-    color: var(--foreground);
-    font: inherit;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    pointer-events: auto;
-    transform-origin: 0 50%;
-    transition:
-      translate 0.6s var(--ease-out),
-      scale 0.6s var(--ease-out),
-      opacity 0.4s var(--ease-out),
-      background-color var(--motion-base) var(--ease-out),
-      color var(--motion-base) var(--ease-out);
-    transform: perspective(420px) rotateX(var(--tilt, 0deg));
-    transform-origin: 0 50%;
-  }
-
-  .seat span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .seat:hover {
-    border-color: var(--border-strong);
-  }
-
-  .seat[aria-pressed="true"] {
-    border-color: transparent;
-    background: var(--ink);
-    color: var(--ink-foreground);
-  }
-
-  .seat[data-out] {
-    visibility: hidden;
-    pointer-events: none;
-  }
-
-  .chosen {
-    grid-column: 3;
-  }
-
-  .chosen .card {
+  .rows a {
     display: grid;
-    justify-items: start;
-    gap: 10px;
-    padding: clamp(24px, 2.4vw, 32px);
-  }
-
-  .chosen .card[hidden] {
-    display: none;
-  }
-
-  .chosen .tile {
-    width: 52px;
-    height: 52px;
-    margin-bottom: 8px;
-    border-radius: 14px;
-  }
-
-  .chosen h3 {
-    font-size: clamp(26px, 2.6vw, 34px);
-    font-weight: 600;
-    letter-spacing: -0.045em;
-    line-height: 1.05;
-  }
-
-  .chosen .line {
-    color: var(--muted);
-    font-size: 15.5px;
-    line-height: 1.55;
-  }
-
-  .chosen .button {
-    margin-top: 8px;
-  }
-
-  /* Played once as the roster comes into view: the reach draws out of the composer, then the
-     dial's chips arrive on their seats. */
-  :global(html.motion) .ring,
-  :global(html.motion) .roster:global(.is-in) .ring {
-    opacity: 1;
-  }
-
-  :global(html.motion) .chosen .card {
-    animation: settle 0.45s var(--ease-out) both;
-  }
-
-  @keyframes settle {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .seat {
-      transition: none;
-    }
-  }
-
-  /* The grid: built-in agents as links to their pages, then the protocol's agents, lighter. */
-  .tier + .tier {
-    margin-top: 36px;
-  }
-
-  .chips {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr));
-    gap: 10px;
-    margin-top: 14px;
-  }
-
-  .chip {
-    display: flex;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 9px;
-    height: 44px;
-    padding: 0 14px 0 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    font-size: 14.5px;
-    font-weight: 500;
-    white-space: nowrap;
+    gap: 16px;
+    padding: 14px;
+    border-radius: 8px;
+    color: inherit;
     text-decoration: none;
+    transition: background-color var(--motion-fast) var(--ease-out);
   }
 
-  a.chip:hover {
-    border-color: var(--border-strong);
+  .rows a:hover {
+    background: var(--wash);
   }
 
-  .chip :global(svg:last-child:not(:first-child)) {
-    margin-left: auto;
-    color: var(--faint);
+  .text {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
   }
 
-  .light {
+  .name {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    align-items: baseline;
+    gap: 2px 12px;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
   }
 
-  .light .chip {
-    height: 34px;
-    padding: 0 12px 0 10px;
-    background: none;
-    color: var(--muted);
-    font-size: 13.5px;
-  }
-
-  .more {
-    margin-top: 12px;
+  .model {
     color: var(--subtle);
     font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
   }
 
-  /* Three facts every agent shares, as cards. */
-  .facts {
+  .what {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .rows a > :global(svg:last-child) {
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  .rows a:hover > :global(svg:last-child) {
+    color: var(--foreground);
+    transform: translateX(3px);
+  }
+
+  /* The ACP agents: one grid ruled with hairlines; the gaps between the cells are the rules. */
+  .cells {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-    gap: 16px;
-    margin-top: clamp(56px, 7vw, 96px);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  @media (min-width: 520px) {
+    .cells {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .cells li {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-height: 54px;
+    padding: 0 16px;
+    background: var(--surface);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
+  .cells .more {
+    color: var(--muted);
+  }
+
+  /* The three facts: columns under one heading, each opened by a hairline. */
+  .facts ol {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 0 clamp(24px, 4vw, 48px);
+    margin-top: clamp(28px, 4vw, 48px);
   }
 
   .facts li {
-    display: grid;
-    align-content: start;
-    gap: 10px;
-    padding: clamp(22px, 2.6vw, 30px);
+    padding: 20px 0 24px;
+    border-top: 1px solid var(--border);
   }
 
-  .facts h3 {
-    font-size: 19px;
+  h3 {
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.02em;
   }
 
   .facts p {
+    margin-top: 6px;
     color: var(--muted);
     font-size: 15px;
     line-height: 1.55;
   }
 
-  .facts a {
-    justify-self: start;
+  .facts .text-link {
+    display: inline-block;
+    margin-top: 10px;
     font-size: 14px;
   }
 </style>
-
-<script>
-  import { startRoster } from "../scripts/roster.ts";
-
-  for (const root of document.querySelectorAll<HTMLElement>("[data-roster]")) startRoster(root);
-</script>
