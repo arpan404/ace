@@ -8,6 +8,9 @@
           "const": "navigation_history",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -25,6 +28,9 @@
         "action": {
           "const": "selection",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
@@ -53,6 +59,9 @@
           ],
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -71,6 +80,9 @@
         "action": {
           "const": "find_text",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "forward": {
           "default": true,
@@ -98,6 +110,9 @@
         "action": {
           "const": "navigate",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
@@ -153,6 +168,9 @@
           "minimum": 1,
           "type": "integer"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "modifiers": {
           "default": [],
           "items": {
@@ -203,6 +221,9 @@
           "const": "type",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "ref": {
           "maxLength": 256,
           "minLength": 1,
@@ -232,6 +253,9 @@
           "const": "press",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "key": {
           "maxLength": 256,
           "minLength": 1,
@@ -260,6 +284,9 @@
         "action": {
           "const": "scroll",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
@@ -291,6 +318,9 @@
           "const": "drag",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "ref": {
           "maxLength": 256,
           "minLength": 1,
@@ -320,6 +350,9 @@
         "action": {
           "const": "measure_interaction",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "filmstrip": {
           "default": true,
@@ -364,6 +397,9 @@
           "minimum": 1,
           "type": "integer"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "interactiveOnly": {
           "default": false,
           "description": "Only actionable elements (buttons, links, fields), as a flat list.",
@@ -399,6 +435,9 @@
         "action": {
           "const": "screenshot",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "fullPage": {
           "default": false,
@@ -438,6 +477,9 @@
           "const": "evaluate",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "expression": {
           "maxLength": 65536,
           "type": "string"
@@ -469,6 +511,9 @@
         "action": {
           "const": "wait_for",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "networkIdle": {
           "const": true,
@@ -531,6 +576,9 @@
           "const": "logs",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "kind": {
           "enum": [
             "console",
@@ -581,6 +629,9 @@
           "minimum": 1,
           "type": "number"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "height": {
           "maximum": 4096,
           "minimum": 100,
@@ -629,6 +680,9 @@
           "minimum": 0.5,
           "type": "number"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "height": {
           "maximum": 4096,
           "minimum": 100,
@@ -672,6 +726,9 @@
           "const": "tabs",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "keep": {
           "type": "boolean"
         },
@@ -712,6 +769,9 @@
         "action": {
           "const": "fill_form",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "fields": {
           "items": {
@@ -755,6 +815,9 @@
           "const": "downloads",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "operation": {
           "default": "list",
           "enum": [
@@ -787,6 +850,9 @@
           "const": "pdf",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "landscape": {
           "default": false,
           "type": "boolean"
@@ -813,6 +879,9 @@
           "const": "extensions",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "operation": {
           "default": "list",
           "enum": [
@@ -837,6 +906,9 @@
         "action": {
           "const": "upload",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "files": {
           "items": {
@@ -881,6 +953,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "promptText": {
           "maxLength": 4096,
           "type": "string"
@@ -905,6 +980,9 @@
           "const": "hover",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "ref": {
           "maxLength": 256,
           "minLength": 1,
@@ -928,6 +1006,9 @@
         "action": {
           "const": "select",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "ref": {
           "maxLength": 256,
@@ -963,6 +1044,9 @@
           "const": "check",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "ref": {
           "maxLength": 256,
           "minLength": 1,
@@ -987,6 +1071,9 @@
           "const": "uncheck",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "ref": {
           "maxLength": 256,
           "minLength": 1,
@@ -1010,6 +1097,9 @@
         "action": {
           "const": "focus",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "ref": {
           "maxLength": 256,
@@ -1039,6 +1129,9 @@
           "default": false,
           "description": "Match the whole name exactly.",
           "type": "boolean"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "name": {
           "description": "Accessible name; a case-insensitive substring unless exact is true.",
@@ -1070,6 +1163,9 @@
           "const": "network_body",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -1094,6 +1190,9 @@
           "const": "record_start",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -1111,6 +1210,9 @@
         "action": {
           "const": "record_stop",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
@@ -1139,6 +1241,9 @@
                 "theme": "dark"
               }
             },
+            "expect": {
+              "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+            },
             "operation": {
               "const": "start",
               "type": "string"
@@ -1161,6 +1266,9 @@
             "action": {
               "const": "annotate",
               "type": "string"
+            },
+            "expect": {
+              "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
             },
             "operation": {
               "const": "stop",
@@ -1188,6 +1296,9 @@
             "command": {
               "$ref": "https://ace.local/protocol/v1/BrowserAnnotationPageCommand.json"
             },
+            "expect": {
+              "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+            },
             "operation": {
               "const": "command",
               "type": "string"
@@ -1214,6 +1325,9 @@
           "const": "zoom",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "factor": {
           "maximum": 5,
           "minimum": 0.25,
@@ -1238,6 +1352,9 @@
           "const": "clear_data",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -1256,6 +1373,9 @@
           "const": "page_source",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -1273,6 +1393,9 @@
         "action": {
           "const": "context_target",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
@@ -1304,6 +1427,9 @@
           "const": "image_data",
           "type": "string"
         },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
+        },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -1327,6 +1453,9 @@
         "action": {
           "const": "annotate_capture",
           "type": "string"
+        },
+        "expect": {
+          "$ref": "https://ace.local/protocol/v1/BrowserExpectedPlace.json"
         },
         "tabId": {
           "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",

@@ -4,7 +4,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { isChatEntry, projectLabel } from "@ace/ui-core";
 import { useCallback, useEffect, useMemo } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
-import { projectsKey, type Project } from "./project-cache.ts";
+import { projectsKey, trackProjectsRead, type Project } from "./project-cache.ts";
 
 export type { Project } from "./project-cache.ts";
 
@@ -44,7 +44,12 @@ export function useThreadProjects(): readonly string[] {
   return useSidebarAll(readThreadProjects, sameList) ?? none;
 }
 
-const projectsQuery = { queryKey: projectsKey, staleTime: 60_000, read: readProjects };
+const projectsQuery = {
+  queryKey: projectsKey,
+  staleTime: 60_000,
+  read: (client: ClientApi, signal: AbortSignal) =>
+    trackProjectsRead(client, () => readProjects(client, signal)),
+};
 
 function useProjectList(): Project[] | undefined {
   return useDaemonQuery(projectsQuery).data;

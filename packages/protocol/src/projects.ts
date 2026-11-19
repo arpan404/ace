@@ -7,7 +7,12 @@ import { ProviderKind } from "./provider-data.ts";
 import { AccessMode } from "./permissions.ts";
 import { BrowserProfileScope } from "./browser-backend.ts";
 import { ProjectNote, ProjectNoteEdit, maxProjectNotes } from "./project-notes.ts";
-import { ProjectIdentity, ProjectIdentityCommands, ProjectMarker } from "./project-identity.ts";
+import {
+  ProjectIdentity,
+  ProjectIdentityCommands,
+  ProjectMarker,
+  ProjectRemoteKey,
+} from "./project-identity.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -144,6 +149,12 @@ export const Project = z.object({
    * registration of its own, which clients key as `hostId/workspaceId`, or an older daemon.
    */
   identity: ProjectIdentity.optional(),
+  /**
+   * Its remotes and folder inside the repository, once its daemon has read them (ADR 0189):
+   * clients group registrations with the same key. Absent: not read yet, not a checkout with
+   * a remote, unlinked by the person, or an older daemon.
+   */
+  remoteKey: ProjectRemoteKey.optional(),
   /** When work last started here or it was last added (ms); a machine's default checkout. */
   openedAt: z.number().nonnegative().optional(),
 });
