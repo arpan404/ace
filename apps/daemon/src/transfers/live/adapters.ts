@@ -1,5 +1,5 @@
 import type { CommandPayload, ProviderKind, ThreadId } from "@ace/protocol";
-import { ThreadId as ThreadIdSchema } from "@ace/protocol";
+import { CommandId as CommandIdSchema, ThreadId as ThreadIdSchema } from "@ace/protocol";
 import type { ServiceContext } from "../../services/types.ts";
 import type { TransferArchive, TransferGit } from "../ports.ts";
 import { TransferError } from "../ports.ts";
@@ -188,6 +188,14 @@ export function liveTargetPorts(
       }
     },
     threadStatus: (threadId) => store.getThread(id(threadId))?.status,
+    continueFate(threadId, commandId) {
+      const engine = engineOf(context);
+      const queue = engine.queue(id(threadId));
+      return {
+        fate: engine.inputFate(id(threadId), CommandIdSchema.parse(commandId)).state,
+        held: queue.paused && (queue.reason === "not_sent" || queue.reason === "model_unavailable"),
+      };
+    },
     adoptSession: (threadId, session) =>
       engineOf(context).liveMove.adoptSession(id(threadId), session),
     dropSession: (threadId) => engineOf(context).liveMove.dropSession(id(threadId)),

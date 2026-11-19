@@ -55,6 +55,7 @@ async function target(options: { setUp?: () => void; threadStatus?: () => never 
     account: () => undefined,
     threadCwd: () => "/srv/app",
     threadStatus: options.threadStatus ?? (() => ({ state: "working", agents: 1 }) as const),
+    continueFate: () => ({ fate: "delivered", held: false }),
     adoptSession: () => {},
     dropSession: () => {},
     adoptHandoff: () => {},

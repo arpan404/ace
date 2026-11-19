@@ -15,7 +15,7 @@ import { sessionCarrier, SessionNotCarried } from "../sessions/index.ts";
 import { continueMessage } from "./messages.ts";
 import type { ThreadOwnership } from "./ownership.ts";
 import { LiveStarts, pendingBatch, type LiveStart } from "./target-rows.ts";
-import { turnStart } from "./turn-start.ts";
+import { turnStart, type ContinueFacts } from "./turn-start.ts";
 
 /** What the receiving machine does for a thread that moved while it worked (ADR 0191). */
 export interface LiveTargetPorts {
@@ -28,6 +28,8 @@ export interface LiveTargetPorts {
   /** The folder the new thread runs in: the checkout, or its own worktree. */
   threadCwd(threadId: string): string | undefined;
   threadStatus(threadId: string): ThreadStatus | undefined;
+  /** What became of input `commandId` (the continue message) in the thread. */
+  continueFate(threadId: string, commandId: string): ContinueFacts;
   adoptSession(
     threadId: string,
     session: { nativeSessionId: string; instanceId: string; action: "resume" | "fork" },
@@ -278,7 +280,7 @@ export class LiveTarget {
         try {
           ports.send(
             start.threadId,
-            `transfer-live:${input.transferId}:continue:${attempts}`,
+            continueKey(input.transferId, attempts),
             continueMessage({ from: input.from, path, live: input.live, session }),
           );
           break;
@@ -292,7 +294,7 @@ export class LiveTarget {
       for (;;) {
         // After a restart that already fell back, the held message is sent again by the same id.
         if (session.reason === fallbackReason) ports.retryHeld(start.threadId, fallbackKey(input));
-        const outcome = await this.watch(start.threadId);
+        const outcome = await this.watch(start.threadId, continueKey(input.transferId, attempts));
         if (outcome === "closed") return;
         if (outcome === "running") {
           ports.starts.started(input.transferId, true, ports.now());
@@ -312,19 +314,21 @@ export class LiveTarget {
       this.running.delete(input.transferId);
     }
   }
-  /** Until the first turn runs, or the message it was given is held unsent by a failure. */
-  private async watch(threadId: string): Promise<"running" | "failed" | "closed"> {
+  /** Until the continue message `key` reaches its run, or is held unsent by a failure. */
+  private async watch(threadId: string, key: string): Promise<"running" | "failed" | "closed"> {
     for (;;) {
       if (this.closed) return "closed";
-      const status = this.ports.threadStatus(threadId);
-      if (!status) return "failed";
-      const next = turnStart(status);
+      if (!this.ports.threadStatus(threadId)) return "failed";
+      const next = turnStart(this.ports.continueFate(threadId, key));
       if (next.kind !== "wait") return next.kind;
       await this.ports.sleep(500);
     }
   }
 }
 
+/** The one continue message's key, and so its command id; `attempt` counts refused tries. */
+const continueKey = (transferId: string, attempt: number) =>
+  `transfer-live:${transferId}:continue:${attempt}`;
 const fallbackReason = "the carried session didn't open here";
 const fallbackKey = (input: { transferId: string }) => `transfer-live:${input.transferId}:fallback`;
 

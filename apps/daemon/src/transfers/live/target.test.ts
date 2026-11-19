@@ -12,6 +12,7 @@ import {
 import { Store } from "../../store.ts";
 import { ThreadOwnership } from "./ownership.ts";
 import { LiveTarget, maxStartAttempts, type LiveTargetPorts } from "./target.ts";
+import type { ContinueFacts } from "./turn-start.ts";
 import { LiveStarts } from "./target-rows.ts";
 
 const id = "0b6f7c1e-1d2a-4c3b-8e9f-1a2b3c4d5e6f";
@@ -20,14 +21,21 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-/** A target with a real store and account home; the thread's status follows `statuses`. */
+/**
+ * A target with a real store and account home. Each continue message has its own fate, by its
+ * command id: delivered once sent, unless `held` (the carried session fails to open, so the
+ * first one is held unsent) or `fateAt` says otherwise. A retry of a held message dispatches it
+ * unless `retryDispatches` is false.
+ */
 async function target(
-  statuses: ThreadStatus[],
   refusals = 0,
   options: {
     refusal?: string;
-    /** The thread's status as time and actions go by; by default the next of `statuses`. */
-    statusAt?: (clock: number, actions: number) => ThreadStatus;
+    held?: boolean;
+    retryDispatches?: boolean;
+    fateAt?: (clock: number) => ContinueFacts;
+    /** The thread's status, which a turn the person starts there changes. */
+    status?: ThreadStatus;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-live-target-"));
@@ -43,6 +51,7 @@ async function target(
   const sessions: string[] = [];
   const notices: string[] = [];
   const retried: string[] = [];
+  const inputs = new Map<string, ContinueFacts>();
   let refused = refusals;
   let clock = 0;
   const ports: LiveTargetPorts = {
@@ -52,24 +61,26 @@ async function target(
     archive: { unpackArchive: async () => ({ entries: 0 }) },
     account: () => ({ instanceId: "claude-cli-default", home }),
     threadCwd: () => "/srv/app",
-    // The thread answers each message, or each retry of a held one, with the next status.
-    threadStatus: () => {
-      const actions = sent.length + retried.length;
-      if (options.statusAt) return options.statusAt(clock, actions);
-      return statuses[Math.min(actions, statuses.length) - 1] ?? { state: "new" };
-    },
+    threadStatus: () => options.status ?? { state: "new" },
+    continueFate: (_thread, key) =>
+      options.fateAt?.(clock) ?? inputs.get(key) ?? { fate: "unknown", held: false },
     adoptSession: (_thread, session) => sessions.push(`adopt:${session.action}`),
     dropSession: () => sessions.push("drop"),
     adoptHandoff: () => sessions.push("handoff"),
-    send: (_thread, _key, text) => {
+    send: (_thread, key, text) => {
       if (refused > 0) {
         refused--;
         throw new Error(options.refusal ?? "engine_capacity_exceeded");
       }
       sent.push(text);
+      const held = options.held && inputs.size === 0;
+      inputs.set(key, held ? { fate: "waiting", held: true } : { fate: "delivered", held: false });
     },
     retryHeld: (_thread, key) => {
       retried.push(key);
+      if (options.retryDispatches === false) return;
+      for (const [input, facts] of inputs)
+        if (facts.held) inputs.set(input, { fate: "delivered", held: false });
     },
     atomic: (run) => store.atomic(run),
     notice: (_thread, text) => notices.push(text),
@@ -134,7 +145,7 @@ async function all<T>(items: AsyncIterable<T>): Promise<T[]> {
 
 describe("a moved thread starting on this machine", () => {
   it("continues the carried session, tells the agent it moved, and records that it runs", async () => {
-    const t = await target([{ state: "working", agents: 1 }]);
+    const t = await target();
     const live = carried([await staged(t.folder)]);
     const outcome = await prep(t, live);
     expect(outcome).toEqual({ kind: "native" });
@@ -148,7 +159,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("falls back to the summary once when the carried session fails to open", async () => {
-    const t = await target([{ state: "failed" }, { state: "working", agents: 1 }]);
+    const t = await target(0, { held: true });
     const live = carried([await staged(t.folder)]);
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
@@ -159,8 +170,33 @@ describe("a moved thread starting on this machine", () => {
     expect(t.live.state("x")).toMatchObject({ running: true, session: { kind: "summary" } });
   });
 
+  it("records no start while the held message, retried, still isn't sent", async () => {
+    // The retry is asked for but never dispatches the held message.
+    const t = await target(0, { held: true, retryDispatches: false });
+    const live = carried([await staged(t.folder)]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    expect(t.retried).toHaveLength(1);
+    expect(t.live.state("x")).toMatchObject({ running: false });
+    expect(t.notices[0]).toContain("its first turn didn't start here");
+  });
+
+  it("waits for the continue message itself, not a turn the person started there", async () => {
+    // The person's own message runs at once; the continue message waits ten minutes.
+    const t = await target(0, {
+      status: { state: "working", agents: 1 },
+      fateAt: (clock) =>
+        clock < 10 * 60_000 ? { fate: "waiting", held: false } : { fate: "delivered", held: false },
+    });
+    const live = carried([]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    expect(t.clock()).toBeGreaterThanOrEqual(10 * 60_000);
+    expect(t.live.state("x")).toMatchObject({ running: true });
+  });
+
   it("starts from the summary, saying why, when the provider's session couldn't come", async () => {
-    const t = await target([{ state: "working", agents: 1 }]);
+    const t = await target();
     const live: TransferLive = {
       ...carried([]),
       session: undefined,
@@ -175,7 +211,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("keeps the same outcome when a restart prepares it again", async () => {
-    const t = await target([]);
+    const t = await target();
     const live = carried([await staged(t.folder)]);
     await prep(t, live);
     // The session is placed already: preparing again neither fails nor changes how it came.
@@ -186,7 +222,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("records the thread as this machine's, from the machine it moved from", async () => {
-    const t = await target([]);
+    const t = await target();
     t.live.own({
       transferId: "x",
       threadId: "n",
@@ -201,7 +237,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("tries again when this machine refuses the continue message for now, keeping the backoff", async () => {
-    const t = await target([{ state: "working", agents: 1 }], 2);
+    const t = await target(2);
     const live = carried([]);
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
@@ -212,7 +248,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("gives up after refusals for about half an hour: final, said on the thread, answered to the sender", async () => {
-    const t = await target([], maxStartAttempts);
+    const t = await target(maxStartAttempts);
     const live = carried([]);
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
@@ -227,7 +263,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("answers the sender from its receipt, and only that sender", async () => {
-    const t = await target([]);
+    const t = await target();
     await prep(t, carried([]));
     expect(t.live.receipt("x", "macbook-device")).toMatchObject({
       state: "importing",
@@ -239,7 +275,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("finds every start a restart left unfinished, past one batch, and none that finished", async () => {
-    const t = await target([]);
+    const t = await target();
     const ids = Array.from({ length: 70 }, (_, index) => `x${String(index).padStart(3, "0")}`);
     for (const transferId of ids) await prep(t, carried([]), transferId);
     t.ports.starts.started("x000", true, 1);
@@ -249,13 +285,9 @@ describe("a moved thread starting on this machine", () => {
 
   it("sends no second continue message however long the first waits in the queue", async () => {
     // Queued behind other work there for an hour before its turn starts.
-    const t = await target([], 0, {
-      statusAt: (clock, actions) =>
-        actions === 0
-          ? { state: "new" }
-          : clock < 60 * 60_000
-            ? { state: "waiting", on: "queue" }
-            : { state: "working", agents: 1 },
+    const t = await target(0, {
+      fateAt: (clock) =>
+        clock < 60 * 60_000 ? { fate: "waiting", held: false } : { fate: "delivered", held: false },
     });
     const live = carried([await staged(t.folder)]);
     await prep(t, live);
@@ -266,7 +298,7 @@ describe("a moved thread starting on this machine", () => {
   });
 
   it("ends the start at once on a refusal that won't pass, with no retries", async () => {
-    const t = await target([], 1, { refusal: "thread_not_found" });
+    const t = await target(1, { refusal: "thread_not_found" });
     const live = carried([]);
     await prep(t, live);
     await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });

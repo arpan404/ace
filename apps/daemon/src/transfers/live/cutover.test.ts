@@ -72,18 +72,26 @@ describe("a working thread's switch-over, on the machine it leaves", () => {
   });
 });
 
+const facts = (fate: Parameters<typeof turnStart>[0]["fate"], held = false) => ({ fate, held });
+
 describe("the moved thread's first turn on the target", () => {
-  it.each(["working", "done"] as const)("counts a %s thread as started", (state) => {
-    const status = state === "working" ? { state, agents: 1 } : { state };
-    expect(turnStart(status)).toEqual({ kind: "running" });
+  it("counts the continue message as started once it reached its run", () => {
+    expect(turnStart(facts("delivered"))).toEqual({ kind: "running" });
+    expect(turnStart(facts("uncertain"))).toEqual({ kind: "running" });
   });
 
-  it("waits while the message is still queued or the thread hasn't begun", () => {
-    expect(turnStart({ state: "waiting", on: "queue" })).toEqual({ kind: "wait" });
-    expect(turnStart({ state: "new" })).toEqual({ kind: "wait" });
+  it("waits while the continue message is queued, on its way, or not yet recorded", () => {
+    for (const fate of ["waiting", "sending", "unknown"] as const)
+      expect(turnStart(facts(fate))).toEqual({ kind: "wait" });
   });
 
   it("reads the message held unsent by a failure as failed, however long it took", () => {
-    expect(turnStart({ state: "failed" })).toEqual({ kind: "failed" });
+    expect(turnStart(facts("waiting", true))).toEqual({ kind: "failed" });
+    expect(turnStart(facts("failed"))).toEqual({ kind: "failed" });
+  });
+
+  it("leaves the thread to the person once they resent or removed the message", () => {
+    expect(turnStart(facts("replaced"))).toEqual({ kind: "running" });
+    expect(turnStart(facts("removed"))).toEqual({ kind: "running" });
   });
 });
