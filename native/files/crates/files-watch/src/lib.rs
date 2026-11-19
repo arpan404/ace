@@ -35,6 +35,8 @@ mod linux;
 mod macos;
 mod net;
 mod observed;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod pairs;
 mod translate;
 mod wake;
 mod watch;

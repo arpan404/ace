@@ -17,8 +17,9 @@
 //! in hand. Anything else may have been renamed in from a folder no one has open, and its old path
 //! is only known to the OS watch: reporting the new name alone would leave the old one in every
 //! index until the OS watch caught up. Such a name is held until the OS watch names it, which
-//! brings the old path in the same window, or for at most [`HOLD`], after which it is reported
-//! anyway. Names that went away are reported at once.
+//! brings the old path in the same window, or for at most [`HOLD`]; an OS watch that late has lost
+//! track, so the worker then rescans the root, which finds the name and drops the old path. Names
+//! that went away are reported at once.
 //!
 //! A folder with more names than a batch may carry is not kept name by name; when its stamp moves
 //! and no event about it arrived since the last check, it is rescanned. The cost is one open and
@@ -291,8 +292,8 @@ impl Net {
         self.held.values().map(|held| held.until).min()
     }
 
-    /// The held names the OS watch has not named in time: reported now, so a change the OS
-    /// watch never reports still reaches the caller.
+    /// The held names the OS watch has not named in time. The caller rescans the root for them:
+    /// only a walk finds the old paths they left behind.
     pub(crate) fn release_due(&mut self, now: Instant) -> Vec<Notice> {
         let due: Vec<String> = self
             .held
@@ -671,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn a_held_name_the_os_watch_never_reports_is_reported_after_the_hold() {
+    fn a_held_name_the_os_watch_never_names_is_given_up_after_the_hold() {
         let tree = Tree::new(|root| std::fs::create_dir(root.join("elsewhere")).unwrap());
         std::fs::write(tree.path("elsewhere/a.txt"), b"x").unwrap();
         let mut net = tree.net(100, &[]);

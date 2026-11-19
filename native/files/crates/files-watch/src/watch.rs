@@ -31,6 +31,7 @@ use crate::coalesce::Coalescer;
 use crate::error::Error;
 use crate::exclude::Excluder;
 use crate::net::{self, Net};
+use crate::pairs::Pairs;
 use crate::translate::{self, Notice};
 use crate::wake::Wake;
 
@@ -142,6 +143,7 @@ impl Watcher {
             net,
             wake,
             poked: BTreeSet::new(),
+            pairs: Pairs::default(),
             poke_due: None,
             last_poke: None,
             root,
@@ -302,10 +304,24 @@ struct Worker {
     wake: Option<Wake>,
     /// Open folders the kernel said changed, waiting for their check.
     poked: BTreeSet<String>,
+    /// FSEvents renames whose new name waits for its old path.
+    pairs: Pairs,
     /// When the poked folders are checked: at once after a quiet spell, then at most every
     /// [`POKE_GAP`], so a burst in an open folder does not list it for every file.
     poke_due: Option<Instant>,
     last_poke: Option<Instant>,
+}
+
+/// The FSEvents id of a rename record's event, which `flags.rs` puts in the tracker. Other backends
+/// use the tracker for their own rename cookies and pair renames themselves.
+#[cfg(target_os = "macos")]
+fn rename_id(event: &Event) -> Option<u64> {
+    event.attrs.tracker().and_then(|id| u64::try_from(id).ok())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn rename_id(_event: &Event) -> Option<u64> {
+    None
 }
 
 /// The time a check of the net runs at; the wall clock dates new entries by their birth time.
@@ -351,16 +367,16 @@ impl Worker {
             if self.poke_due.is_some_and(|due| now >= due) {
                 self.check_poked(&mut coalescer, now);
             }
-            if self.net.next_due().is_some_and(|due| now >= due) {
-                let released = self.net.release_due(now);
-                self.absorb(
-                    net::Found {
-                        notices: released,
-                        rescans: Vec::new(),
-                    },
-                    &mut coalescer,
-                    now,
-                );
+            if self.pairs.next_due().is_some_and(|due| now >= due) {
+                let released = self.pairs.release_due(now);
+                self.report(released, &mut coalescer, now);
+            }
+            // A moved-in name the OS watch has not named in time: its old path is somewhere only the
+            // OS watch knows, so the root is walked again, which drops the old path too.
+            if self.net.next_due().is_some_and(|due| now >= due)
+                && !self.net.release_due(now).is_empty()
+            {
+                coalescer.overflow(None, now);
             }
             let wait = coalescer.wait(now);
             // A queued event is always ready, so receiving first would let a burst that never
@@ -370,7 +386,7 @@ impl Worker {
                 self.settle(&mut coalescer, now);
                 continue;
             }
-            let until_check = [self.poke_due, self.net.next_due()]
+            let until_check = [self.poke_due, self.net.next_due(), self.pairs.next_due()]
                 .into_iter()
                 .flatten()
                 .fold(next_check, Instant::min)
@@ -382,10 +398,11 @@ impl Worker {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Command::Event(Ok(event))) => {
                     let now = Instant::now();
+                    let rename = rename_id(&event);
                     // A pending rescan covers everything until it is sent, so a lookup would
                     // only be discarded with the change. Skipping it also lets a large backlog
                     // drain quickly, so the rescan is sent soon after the burst ends.
-                    let mut translation = if coalescer.is_rescanning() {
+                    let translation = if coalescer.is_rescanning() {
                         translate::translate(
                             event,
                             &self.root,
@@ -400,11 +417,11 @@ impl Worker {
                         coalescer.overflow(dir, now);
                         continue;
                     }
-                    self.adopt_folders(&mut translation.notices, now, &mut coalescer);
-                    for notice in translation.notices {
-                        self.net.noticed(&notice.change.path);
-                        coalescer.push(notice, now);
-                    }
+                    let notices = match rename {
+                        Some(id) => self.pairs.take(id, translation.notices, now),
+                        None => translation.notices,
+                    };
+                    self.report(notices, &mut coalescer, now);
                 }
                 Ok(Command::Focus(folders)) => {
                     self.net.focus(&self.root, &self.excluder, folders);
@@ -446,6 +463,18 @@ impl Worker {
             }
         }
         self.backend.stop();
+    }
+
+    /// Adds what the OS watch reported to the window, with the files of folders that appeared.
+    fn report(&mut self, mut notices: Vec<Notice>, coalescer: &mut Coalescer, now: Instant) {
+        if notices.is_empty() {
+            return;
+        }
+        self.adopt_folders(&mut notices, now, coalescer);
+        for notice in notices {
+            self.net.noticed(&notice.change.path);
+            coalescer.push(notice, now);
+        }
     }
 
     /// Checks the open folders, and adds what the OS watch did not report to the window.

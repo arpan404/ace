@@ -195,24 +195,25 @@ unsafe extern "C-unwind" fn callback(
     count: usize,
     paths: NonNull<c_void>,
     flags: NonNull<FSEventStreamEventFlags>,
-    _ids: NonNull<FSEventStreamEventId>,
+    ids: NonNull<FSEventStreamEventId>,
 ) {
     // SAFETY: `info` is the live Context the stream owns; FSEvents frees it only after the last
     // callback, and the callback only reads it.
     let context = unsafe { &*info.cast::<Context>() };
-    // SAFETY: without `UseCFTypes`, FSEvents passes `count` C strings and `count` flags, valid for
-    // the duration of the call.
-    let (paths, flags) = unsafe {
+    // SAFETY: without `UseCFTypes`, FSEvents passes `count` C strings, `count` flags and `count`
+    // event ids, valid for the duration of the call.
+    let (paths, flags, ids) = unsafe {
         (
             std::slice::from_raw_parts(paths.as_ptr().cast::<*const std::ffi::c_char>(), count),
             std::slice::from_raw_parts(flags.as_ptr(), count),
+            std::slice::from_raw_parts(ids.as_ptr(), count),
         )
     };
-    for (path, flags) in paths.iter().zip(flags) {
+    for ((path, flags), id) in paths.iter().zip(flags).zip(ids) {
         // SAFETY: each entry is a NUL-terminated path FSEvents keeps alive for the call.
         let bytes = unsafe { CStr::from_ptr(*path) }.to_bytes();
         let path = Path::new(OsStr::from_bytes(bytes));
-        for event in flags::events(path, *flags) {
+        for event in flags::events(path, *flags, *id) {
             context.events.send(event);
         }
     }

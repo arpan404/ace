@@ -233,7 +233,11 @@ reported at once only when its origin is known: it was born under 2 s ago and it
 within 50 ms of its birth (a move changes the status time), or its inode just left another open
 folder. Any other new name may have been renamed in from a folder no one has open, whose old path
 only the OS watch knows; it is held until the OS watch names it, so the old path's deletion and
-the new name land in one batch, or for at most 5 s. A folder with more than `max_batch` names is rescanned
+the new name land in one batch, or for at most 5 s, after which the root is rescanned (an OS watch
+that late has lost track, and only a walk drops the old path). On macOS FSEvents also splits a
+rename's two records (consecutive event ids, old path first) across deliveries in either order;
+a rename record that names an entry present now waits up to 2 s for the record one id before it,
+so the old path's deletion and the new name are always in one window. A folder with more than `max_batch` names is rescanned
 instead, only when no event named it since the last check. A change inside a file does not move a
 folder's stamp; the net covers what the tree shows. On macOS a kqueue `NOTE_WRITE` handle on each
 of the first 64 open folders (descriptors: macOS starts processes with 256) wakes the check as the

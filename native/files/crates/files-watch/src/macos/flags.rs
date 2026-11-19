@@ -49,8 +49,9 @@ const SCAN_HERE: u32 = MUST_SCAN_SUBDIRS | MOUNT | UNMOUNT;
 const METADATA: u32 = INODE_META | FINDER_INFO | CHANGE_OWNER | XATTR;
 const ITEM: u32 = CREATED | REMOVED | RENAMED | MODIFIED | METADATA;
 
-/// The events one FSEvents record stands for.
-pub(crate) fn events(path: &Path, flags: u32) -> Vec<Event> {
+/// The events one FSEvents record stands for. A rename record's events carry its event id as their
+/// tracker, so the worker can keep the rename's two halves together (`pairs.rs`).
+pub(crate) fn events(path: &Path, flags: u32, id: u64) -> Vec<Event> {
     if flags & HISTORY_DONE != 0 {
         // The marker after replayed history; its path means nothing.
         return Vec::new();
@@ -96,9 +97,18 @@ pub(crate) fn events(path: &Path, flags: u32) -> Vec<Event> {
     if flags & MODIFIED != 0 {
         kinds.push(EventKind::Modify(ModifyKind::Data(DataChange::Content)));
     }
+    let tracker = (flags & RENAMED != 0)
+        .then(|| usize::try_from(id).ok())
+        .flatten();
     kinds
         .into_iter()
-        .map(|kind| Event::new(kind).add_path(path.to_path_buf()))
+        .map(|kind| {
+            let event = Event::new(kind).add_path(path.to_path_buf());
+            match tracker {
+                Some(tracker) => event.set_tracker(tracker),
+                None => event,
+            }
+        })
         .collect()
 }
 
@@ -117,7 +127,7 @@ mod tests {
 
     /// What a record decodes to: `Err(folder)` for a rescan, `Ok(kinds)` otherwise.
     fn decoded(path: &str, flags: u32) -> Result<Vec<EventKind>, Option<PathBuf>> {
-        let events = events(Path::new(path), flags);
+        let events = events(Path::new(path), flags, 7);
         if let Some(rescan) = events.iter().find(|event| event.need_rescan()) {
             assert_eq!(events.len(), 1, "a rescan stands alone");
             return Err(rescan.paths.first().cloned());
