@@ -1,4 +1,4 @@
-import { useThreadMeta } from "@ace/client-react";
+import { useClient, useThreadMeta } from "@ace/client-react";
 import { cleanPath, folderKey, pathParts } from "@ace/ui-core";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
@@ -6,6 +6,7 @@ import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useHostOpen, useRemoteHost } from "@/lib/host-open.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import type { FileOperationDialog } from "./file-operation.ts";
+import { treeClipboard, useTreeClip, type TreeClip } from "./tree-clipboard.ts";
 import { useFileMutations } from "./use-file-mutations.ts";
 
 /** A tree row as its actions see it: a checkout path without a trailing slash ("" is the root). */
@@ -28,6 +29,12 @@ export interface TreeCommands {
   /** Showing a path in the file manager: only when this device is the daemon's machine. */
   reveal: { label: string; run(path: string): void } | undefined;
   duplicate(entry: TreeEntry): void;
+  /** What Cut or Copy picked, until it is pasted (a cut) or replaced. */
+  clip: TreeClip | undefined;
+  cut(entries: readonly TreeEntry[]): void;
+  copy(entries: readonly TreeEntry[]): void;
+  /** Copy or move what was picked into `folder` ("" is the root). */
+  paste(folder: string): void;
   copyPath(entries: readonly TreeEntry[], relative: boolean): void;
   mention(entries: readonly TreeEntry[]): void;
   findInFolder(folder: string): void;
@@ -68,6 +75,8 @@ export function useTreeCommands(inputs: TreeCommandInputs): TreeCommands {
   const remote = useRemoteHost();
   const host = useHostOpen();
   const mutations = useFileMutations(threadId);
+  const board = treeClipboard(useClient(), threadId);
+  const clip = useTreeClip(board);
   const clipboard = useCopy(() =>
     toast.error({ title: "Couldn't copy. Select the path and copy it yourself." }),
   );
@@ -93,6 +102,21 @@ export function useTreeCommands(inputs: TreeCommandInputs): TreeCommands {
       void mutations
         .copy([entry], pathParts(entry.path).folder)
         .then((made) => made[0] && inputs.onMade?.(entry.folder ? folderKey(made[0]) : made[0]));
+    },
+    clip,
+    cut: (entries) => board.set({ mode: "cut", entries }),
+    copy: (entries) => board.set({ mode: "copy", entries }),
+    paste: (folder) => {
+      if (!clip) return;
+      if (clip.mode === "copy") {
+        void mutations.copy(clip.entries, folder);
+        return;
+      }
+      board.set(undefined);
+      void mutations.move(
+        clip.entries.map((entry) => entry.path),
+        folder,
+      );
     },
     copyPath: (entries, relative) =>
       clipboard.copy(

@@ -1,3 +1,4 @@
+import { pathParts } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import {
   MenuContent,
@@ -46,6 +47,8 @@ export function FileRowItems(props: { entry: TreeEntry; commands: TreeCommands }
   const run = (operation: Parameters<TreeCommands["operation"]>[0]) => () =>
     commands.operation(operation);
   const into = root ? "" : `${entry.path}/`;
+  // Pasting on a file puts it beside that file.
+  const pasteInto = folder ? entry.path : pathParts(entry.path).folder;
   return (
     <>
       {!several && !folder && (
@@ -85,6 +88,21 @@ export function FileRowItems(props: { entry: TreeEntry; commands: TreeCommands }
         </Item>
       )}
       <MenuSeparator />
+      {!root && (
+        <>
+          <Item action="cut" disabled={offline} onClick={() => commands.cut(covered)}>
+            Cut
+          </Item>
+          <Item action="copy" onClick={() => commands.copy(covered)}>
+            Copy
+          </Item>
+        </>
+      )}
+      {commands.clip && !several && (
+        <Item action="paste" disabled={offline} onClick={() => commands.paste(pasteInto)}>
+          Paste
+        </Item>
+      )}
       {!several && !root && (
         <Item disabled={offline} onClick={() => commands.duplicate(entry)}>
           Duplicate

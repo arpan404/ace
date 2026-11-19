@@ -54,6 +54,13 @@ function runAction(ctx: RowKeyContext, action: TreeAction, row: FolderRow): bool
     case "findInFolder":
       commands.findInFolder(folderOf(row));
       return true;
+    case "cut":
+    case "copy":
+      commands[action](covered);
+      return true;
+    case "paste":
+      if (edits) commands.paste(folderOf(row));
+      return true;
     case "selectAll":
       ctx.selection.all();
       return true;

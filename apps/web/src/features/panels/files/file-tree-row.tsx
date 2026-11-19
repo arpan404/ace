@@ -43,6 +43,8 @@ export interface FileTreeRowViewProps {
   onActivate(row: FolderRow, how: OpenHow, at?: number): void;
   /** In the tree's selection. */
   selected: boolean;
+  /** Cut, waiting to be pasted somewhere else. */
+  cut: boolean;
   /** A click on the row, with its modifiers: pick, toggle or extend the selection. */
   onPick(row: FolderRow, event: MouseEvent<HTMLElement>): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
@@ -124,6 +126,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         aria-expanded={folder ? row.expanded : undefined}
         aria-busy={folder && row.busy ? true : undefined}
         aria-selected={props.selected}
+        aria-description={props.cut ? "Cut" : undefined}
         tabIndex={props.focusable ? 0 : -1}
         title={row.key}
         onFocus={() => props.onFocus(row.key)}
@@ -145,6 +148,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         className={cn(
           rowClass,
           row.ignored ? "text-muted-foreground" : "text-foreground",
+          props.cut && "opacity-60",
           folder && props.dropTarget === row.key && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
         )}
       >

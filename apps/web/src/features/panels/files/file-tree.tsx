@@ -202,6 +202,16 @@ export function FileTree(props: {
     onExpanded,
     onMade: (key) => focusRow(key),
   });
+  const clip = commands.clip;
+  const cutKeys = useMemo(
+    () =>
+      new Set(
+        clip?.mode === "cut"
+          ? clip.entries.map((entry) => (entry.folder ? folderKey(entry.path) : entry.path))
+          : [],
+      ),
+    [clip],
+  );
   const keys: RowKeyContext = {
     rows,
     commands,
@@ -296,6 +306,7 @@ export function FileTree(props: {
                 online={online}
                 dropTarget={dropTarget}
                 selected={selection.has(row.key)}
+                cut={cutKeys.has(row.key)}
                 onPick={pick}
                 onActivate={activate}
                 onKeyDown={onRowKey}
