@@ -19,8 +19,10 @@ const BURST: usize = 20_000;
 /// Files per folder in the burst.
 const SET: usize = 1_000;
 
-/// How long the burst's rescan and its walk may take before the test calls it hung.
-const BURST_DEADLINE: Duration = Duration::from_secs(60);
+/// How long the burst's rescan and its walk may take before the test calls it hung. The watcher
+/// hears the burst through the OS watch, and on a loaded Mac fseventsd was measured handing over
+/// about 220 events a second, so twenty thousand creates alone take a minute and a half.
+const BURST_DEADLINE: Duration = Duration::from_secs(180);
 
 /// One quick-open query, at most `limit` hits.
 fn index(client: &mut Client, root: u64, query: &str, limit: u64) -> files_wire::IndexResult {
