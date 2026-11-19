@@ -763,12 +763,6 @@ const entries = [
     keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
   },
   {
-    id: "beta.spade",
-    page: "/settings/beta",
-    title: betaSwitches.spade.title,
-    keywords: ["assistant", "bots", "experimental", "preview"],
-  },
-  {
     id: "beta.marketplace",
     page: "/settings/beta",
     title: betaSwitches.marketplace.title,

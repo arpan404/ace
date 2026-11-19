@@ -1,5 +1,5 @@
 import type { SpadeStatus } from "@ace/protocol";
-import { betaKeys, betaOnAtRest, booleanAtRest } from "@ace/settings/beta";
+import { betaKeys, betaOnAtRest, booleanAtRest, spadeInThisRelease } from "@ace/settings/beta";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
 import type { Args } from "./args.ts";
@@ -40,6 +40,7 @@ export async function switchSpade(
   service: SpadeServiceControl,
   askBeta?: AskBeta,
 ): Promise<SpadeSwitch> {
+  if (enabled && !spadeInThisRelease) throw spadeNotInRelease();
   let beta = false;
   if (enabled && !(await betaOnAtRest(home, "spade"))) {
     const yes = args.flags.yes === true || (askBeta ? await askBeta() : false);
@@ -68,6 +69,14 @@ export async function switchSpade(
   });
   if (!live && !enabled && (await service.state()) !== "absent") await service.remove();
   return { enabled, live, ...(beta ? { beta: true as const } : {}) };
+}
+
+/** Turning Spade on in a release that keeps it off (`spadeInThisRelease`). */
+export function spadeNotInRelease(): CliFailure {
+  return new CliFailure("refused", "Spade isn't available in this release of ace.", undefined, {
+    code: "turned_off",
+    hint: "Spade arrives in a later release.",
+  });
 }
 
 export interface SpadeState {

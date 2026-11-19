@@ -13,6 +13,14 @@ import type { SettingsService } from "./service.ts";
  */
 
 export const betaKeys = { spade: "beta.spade", marketplace: "beta.marketplace" } as const;
+
+/**
+ * Whether this release lets a machine turn Spade on at all. The 0.0.24 stable release ships
+ * Spade's binary but keeps it off everywhere: the daemon treats `beta.spade` as off whatever it
+ * holds, the CLI refuses to turn it on, and Settings › Beta has no Spade switch. The rail keeps
+ * its coming-soon mark.
+ */
+export const spadeInThisRelease = false;
 export type BetaFeature = keyof typeof betaKeys;
 
 /** The old file in ace's home that showed Spade with `{"spade": true}`. */
@@ -58,6 +66,7 @@ async function readLegacy(home: string): Promise<LegacyFlag> {
  * service guard. A settings file that can't be read counts as off.
  */
 export async function betaOnAtRest(home: string, feature: BetaFeature): Promise<boolean> {
+  if (feature === "spade" && !spadeInThisRelease) return false;
   const stored = await booleanAtRest(home, betaKeys[feature]);
   if (stored !== undefined) return stored;
   return feature === "spade" && (await readLegacy(home)).spade === true;

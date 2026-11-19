@@ -13,13 +13,16 @@ import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
-import { betaKeys, foldLegacySpadeFlag } from "@ace/settings/beta";
+import { betaKeys, foldLegacySpadeFlag, spadeInThisRelease } from "@ace/settings/beta";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { loadSpadePersonKey } from "../local-files.ts";
 import { spadeHostThread } from "./spade-host.ts";
 import { startSpadeComputers } from "./spade-computers.ts";
 import { spadeSwitch } from "./spade-switch.ts";
 import type { ServiceContext } from "./types.ts";
+
+/** A release that keeps Spade off (`spadeInThisRelease`) hides it whatever the switch holds. */
+const betaOn = (value: unknown): boolean => spadeInThisRelease && value === true;
 
 /** Test seams for Spade's service; production uses the defaults. */
 export interface DaemonSpadeOptions {
@@ -69,7 +72,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   // Settings › Beta's Spade switch (`beta.spade`, ADR 0139): while it is off Spade gets no
   // service, grant or forwarding, whatever `spade.enabled` says. Followed below, once the
   // switch exists.
-  let shown = (await services.settings?.get(betaKeys.spade))?.value === true;
+  let shown = betaOn((await services.settings?.get(betaKeys.spade))?.value);
   link.setHidden(!shown);
 
   const sql = {
@@ -207,7 +210,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
       }
       const beta = notification.entries.find((each) => each.key === betaKeys.spade);
       if (beta) heardBeta = true;
-      if (beta && (beta.value === true) !== shown) showSpade(beta.value === true);
+      if (beta && betaOn(beta.value) !== shown) showSpade(betaOn(beta.value));
       else if (entry) apply("changed");
     },
   );
@@ -219,8 +222,8 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     settings.get("spade.enabled"),
   ]);
   if (!heardEnabled) enabled = enabledNow.value === true;
-  if (!heardBeta && (betaNow.value === true) !== shown) {
-    shown = betaNow.value === true;
+  if (!heardBeta && betaOn(betaNow.value) !== shown) {
+    shown = betaOn(betaNow.value);
     link.setHidden(!shown);
   }
   // Not awaited: registering a service can be slow, and the daemon's start doesn't wait on Spade.

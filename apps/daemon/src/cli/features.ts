@@ -1,7 +1,14 @@
-import { betaKeys, betaOnAtRest, booleanAtRest, type BetaFeature } from "@ace/settings/beta";
+import {
+  betaKeys,
+  betaOnAtRest,
+  booleanAtRest,
+  spadeInThisRelease,
+  type BetaFeature,
+} from "@ace/settings/beta";
 import type { SpadeServiceControl } from "../spade/service-control.ts";
 import type { Args } from "./args.ts";
 import { saveGlobalSetting } from "./global-setting.ts";
+import { spadeNotInRelease } from "./spade.ts";
 import { usageFailure } from "./output.ts";
 import { nearest } from "./suggest.ts";
 
@@ -53,6 +60,7 @@ export async function switchFeature(
   on: boolean,
   service: () => SpadeServiceControl,
 ): Promise<FeatureSwitch> {
+  if (feature === "spade" && on && !spadeInThisRelease) throw spadeNotInRelease();
   const live = await saveGlobalSetting(args, home, betaKeys[feature], on, names[feature]);
   if (feature === "marketplace") return { feature, on, live, stopped: false, started: false };
   // A running daemon stops or starts Spade's service itself. With none, turning Spade off stops

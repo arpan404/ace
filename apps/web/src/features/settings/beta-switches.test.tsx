@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { expect, test } from "vitest";
 import type { FakeDaemon } from "@ace/fake-daemon";
+import { spadeInThisRelease } from "@ace/settings/beta";
 import { harness } from "@/test/harness.tsx";
 import { openNew, spadeApp } from "@/test/spade.ts";
 
@@ -43,24 +44,37 @@ test("Ask me before agents publish starts off and saves the person's choice", as
   );
 });
 
-test("the Spade switch on Settings › Beta saves the setting and swaps Spade's place for its coming-soon mark", async () => {
-  const app = harness();
-  await app.open("/settings/beta");
-  const toggle = await screen.findByRole("switch", { name: "Spade" });
-  await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-  expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
+test.skipIf(!spadeInThisRelease)(
+  "the Spade switch on Settings › Beta saves the setting and swaps Spade's place for its coming-soon mark",
+  async () => {
+    const app = harness();
+    await app.open("/settings/beta");
+    const toggle = await screen.findByRole("switch", { name: "Spade" });
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+    expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
 
-  await userEvent.click(toggle);
+    await userEvent.click(toggle);
 
-  await waitFor(() => expect(app.daemon.services.settings.get("beta.spade")).toBe(false));
-  expect(await within(rail()).findByRole("button", { name: "Spade, coming soon" })).toBeTruthy();
-  expect(within(rail()).queryByRole("link", { name: "Spade" })).toBeNull();
+    await waitFor(() => expect(app.daemon.services.settings.get("beta.spade")).toBe(false));
+    expect(await within(rail()).findByRole("button", { name: "Spade, coming soon" })).toBeTruthy();
+    expect(within(rail()).queryByRole("link", { name: "Spade" })).toBeNull();
 
-  await userEvent.click(toggle);
+    await userEvent.click(toggle);
 
-  await waitFor(() => expect(app.daemon.services.settings.get("beta.spade")).toBe(true));
-  expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
-});
+    await waitFor(() => expect(app.daemon.services.settings.get("beta.spade")).toBe(true));
+    expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
+  },
+);
+
+test.skipIf(spadeInThisRelease)(
+  "Settings › Beta has no Spade switch in a release that keeps Spade off",
+  async () => {
+    const app = harness();
+    await app.open("/settings/beta");
+    expect(await screen.findByRole("switch", { name: "Marketplace" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Spade" })).toBeNull();
+  },
+);
 
 test("a marketplace address opens the modal only while the marketplace is on", async () => {
   for (const turnedOn of [true, false]) {

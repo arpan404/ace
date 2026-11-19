@@ -15,16 +15,14 @@ import { DaemonSlot } from "./setting-control.tsx";
 import { SettingSwitch } from "./setting-switch.tsx";
 import { settingRow } from "./settings-index.ts";
 
-/** Features still being tried out on this machine, each one switch that goes back freely. */
+/**
+ * Features still being tried out on this machine, each one switch that goes back freely. Spade has
+ * no switch in this release: the daemon keeps it off (`spadeInThisRelease`).
+ */
 export function BetaSettings() {
   return (
     <>
       <SettingSection label="Features" scope="daemon">
-        <SettingSwitch
-          setting={settingKeys.betaSpade}
-          entry="beta.spade"
-          description={betaSwitches.spade.description}
-        />
         <SettingSwitch
           setting={settingKeys.betaMarketplace}
           entry="beta.marketplace"

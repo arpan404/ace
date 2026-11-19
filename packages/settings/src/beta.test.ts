@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { betaOnAtRest, foldLegacySpadeFlag } from "./beta.ts";
+import { betaOnAtRest, foldLegacySpadeFlag, spadeInThisRelease } from "./beta.ts";
 import { fileIO } from "./io.ts";
 import { SettingsService } from "./service.ts";
 
@@ -81,22 +81,23 @@ test("a beta switch can't be turned on by a workspace", async ({ onTestFinished 
   ).rejects.toThrow("global");
 });
 
-test("features.json showing Spade turns Beta's Spade on once and leaves the file", async ({
-  onTestFinished,
-}) => {
-  const { dir, settings } = await home(onTestFinished);
-  await writeFile(join(dir, "features.json"), '{"spade": true}');
-  expect(await betaOnAtRest(dir, "spade")).toBe(true);
+test.skipIf(!spadeInThisRelease)(
+  "features.json showing Spade turns Beta's Spade on once and leaves the file",
+  async ({ onTestFinished }) => {
+    const { dir, settings } = await home(onTestFinished);
+    await writeFile(join(dir, "features.json"), '{"spade": true}');
+    expect(await betaOnAtRest(dir, "spade")).toBe(true);
 
-  expect(await foldLegacySpadeFlag(settings, dir)).toBe(true);
-  expect((await settings.get("beta.spade")).value).toBe(true);
-  expect(await exists(join(dir, "features.json"))).toBe(false);
+    expect(await foldLegacySpadeFlag(settings, dir)).toBe(true);
+    expect((await settings.get("beta.spade")).value).toBe(true);
+    expect(await exists(join(dir, "features.json"))).toBe(false);
 
-  // Turned off afterwards, it stays off: the old flag is gone.
-  await settings.set("beta.spade", false, { kind: "global" });
-  expect(await foldLegacySpadeFlag(settings, dir)).toBe(false);
-  expect(await betaOnAtRest(dir, "spade")).toBe(false);
-});
+    // Turned off afterwards, it stays off: the old flag is gone.
+    await settings.set("beta.spade", false, { kind: "global" });
+    expect(await foldLegacySpadeFlag(settings, dir)).toBe(false);
+    expect(await betaOnAtRest(dir, "spade")).toBe(false);
+  },
+);
 
 test("a choice already made in Beta wins over the old flag, which is still taken out", async ({
   onTestFinished,
@@ -148,3 +149,18 @@ test("keys another writer adds to features.json while the flag moves in are kept
   });
   expect((await settings.get("beta.spade")).value).toBe(true);
 });
+
+test.skipIf(spadeInThisRelease)(
+  "a release that keeps Spade off reads it as off at rest, even with Beta's switch and an old features.json on",
+  async ({ onTestFinished }) => {
+    const dir = await mkdtemp(join(tmpdir(), "ace-beta-release-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    await writeFile(
+      join(dir, "settings.json"),
+      JSON.stringify({ version: 2, settings: { "beta.spade": true, "beta.marketplace": true } }),
+    );
+    await writeFile(join(dir, "features.json"), '{"spade": true}');
+    expect(await betaOnAtRest(dir, "spade")).toBe(false);
+    expect(await betaOnAtRest(dir, "marketplace")).toBe(true);
+  },
+);
