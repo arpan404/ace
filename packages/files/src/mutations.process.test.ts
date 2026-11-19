@@ -1428,3 +1428,71 @@ it("keeps a pending delete receipt whose endpoint cannot be read", async () => {
     value: { entries: [expect.objectContaining({ id: "unreadable-endpoint" })] },
   });
 });
+
+it("verifies the entry a local delete moved, and puts a changed one back", async () => {
+  const real = createExclusiveRename();
+  cleanup.push(() => real.close());
+  const f = await setup({
+    exclusiveRename: {
+      async move(source, destination) {
+        // The entry changes between the delete's version check and the move itself.
+        if (source.endsWith("moved.md") && destination.includes(".ace-upload-trash-"))
+          await writeFile(source, "changed while moving\n");
+        await real.move(source, destination);
+      },
+      close: async () => {},
+    },
+  });
+  const client = await f.connect();
+  await writeFile(join(f.root, "moved.md"), "the version the client read\n");
+
+  const reply = await client.request({
+    op: "delete",
+    path: "moved.md",
+    expected: await version(client, "moved.md"),
+  });
+
+  // The moved entry is not the version the delete was guarded by, so the delete is refused and
+  // the entry is put back where it was, never replacing the name.
+  expect(reply).toMatchObject({ type: "files.error", code: "CONFLICT" });
+  expect(await readFile(join(f.root, "moved.md"), "utf8")).toBe("changed while moving\n");
+  expect(await client.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [] },
+  });
+});
+
+it("keeps a changed entry whole at its endpoint when a local delete cannot put it back", async () => {
+  const real = createExclusiveRename();
+  cleanup.push(() => real.close());
+  const f = await setup({
+    exclusiveRename: {
+      async move(source, destination) {
+        const deleting =
+          source.endsWith("blocked.md") && destination.includes(".ace-upload-trash-");
+        if (deleting) await writeFile(source, "changed while moving\n");
+        await real.move(source, destination);
+        // The name it came from is taken again before the rollback can happen.
+        if (deleting) await writeFile(source, "a new entry claimed the name\n");
+      },
+      close: async () => {},
+    },
+  });
+  const client = await f.connect();
+  await writeFile(join(f.root, "blocked.md"), "the version the client read\n");
+
+  const reply = await client.request({
+    op: "delete",
+    path: "blocked.md",
+    expected: await version(client, "blocked.md"),
+  });
+
+  // The entry cannot go back, so it is whole at the endpoint and the caller is told where it is.
+  expect(reply).toMatchObject({
+    type: "files.error",
+    code: "STRANDED",
+    recovery: expect.stringMatching(/^\.ace-upload-trash-/),
+  });
+  const { recovery } = reply as { recovery: string };
+  expect(await readFile(join(f.root, recovery), "utf8")).toBe("changed while moving\n");
+  expect(await readFile(join(f.root, "blocked.md"), "utf8")).toBe("a new entry claimed the name\n");
+});
