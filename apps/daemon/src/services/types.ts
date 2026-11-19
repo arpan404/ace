@@ -90,7 +90,7 @@ export interface Services {
     | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
     | undefined;
   /** Projects and threads other machines send here (ADR 0101). */
-  transferTarget?: import("../transfers/http.ts").TransferTarget;
+  transferTarget?: import("../transfers/serve.ts").TransferTarget;
   /** This machine's links to the person's other machines, made from Settings. */
   fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */

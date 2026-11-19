@@ -544,6 +544,12 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      * client can say so; `stable` otherwise. Absent from older daemons; unknown names are kept.
      */
     releaseLine: z.string().min(1).max(32).optional(),
+    /**
+     * On a relay `machine` stream (ADR 0192): this machine takes `machine.transfer` frames, so a
+     * paired machine may move projects and threads here through the relay. Absent from older
+     * daemons, which end the stream on a frame they don't know: nothing is sent to them.
+     */
+    machineTransfers: z.literal(true).optional(),
   }),
   /**
    * On a relay stream opened with Noise NK (ADR 0155): the daemon took the client's

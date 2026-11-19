@@ -71,6 +71,7 @@ export async function startRelayTransport(
       return options.relayMain;
     },
     machineCalls: () => options.machineCalls,
+    transfers: () => options.transferTarget,
     store: options.store,
     auth,
     account: options.machineAccount,
