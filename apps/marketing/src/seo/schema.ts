@@ -2,8 +2,11 @@ import { acpAgents, builtInAgents } from "../content/agents.ts";
 import { features } from "../content/features.ts";
 import { product, workbench } from "../content/product.ts";
 import { downloads, platforms } from "../content/release.ts";
+import { spadePage } from "../content/spade.ts";
 import { trail } from "../content/routes.ts";
 import { contact, links } from "../site.ts";
+import { cardFor } from "./cards.ts";
+import { siteModified } from "./modified.ts";
 
 /*
  * schema.org nodes, composed per page into one JSON-LD @graph. Search engines use them for rich
@@ -75,9 +78,12 @@ export function webPage(
     description: page.description,
     inLanguage: "en",
   };
-  // The site is rebuilt with each release, so its date is when the page last changed.
-  if (downloads.publishedAt) node.dateModified = downloads.publishedAt;
+  // The day the site's source last changed (seo/modified.ts), as in the sitemap.
+  if (siteModified) node.dateModified = siteModified;
   if (url) node.url = url;
+  const image = schema.at(cardFor(page.path).image);
+  if (image)
+    node.primaryImageOfPage = { "@type": "ImageObject", url: image, width: 1200, height: 630 };
   if (home) {
     node.isPartOf = { "@id": `${home}#website` };
     node.about = { "@id": `${home}#app` };
@@ -128,6 +134,7 @@ export function softwareApplication(schema: Schema): Node {
     ...(downloads.version ? { softwareVersion: downloads.version } : {}),
     ...(downloads.publishedAt ? { datePublished: downloads.publishedAt } : {}),
     releaseNotes: downloads.notesUrl,
+    ...(schema.at("/download/") ? { installUrl: schema.at("/download/") } : {}),
     license: links.license,
     ...publisher(schema),
     isAccessibleForFree: true,
@@ -157,12 +164,34 @@ export function softwareApplication(schema: Schema): Node {
   };
 }
 
+/**
+ * Spade, ace's own assistant, as software of its own that is part of ace: on /spade/. Free, in
+ * beta, runs on your computer.
+ */
+export function spadeApplication(schema: Schema): Node {
+  const home = schema.at("/");
+  return {
+    "@type": "SoftwareApplication",
+    ...id(schema, "/spade/", "spade"),
+    name: "Spade",
+    description: spadePage.intro,
+    applicationCategory: "UtilitiesApplication",
+    operatingSystem: "macOS, Windows, Linux",
+    ...(schema.at("/spade/") ? { url: schema.at("/spade/") } : {}),
+    ...(home ? { isPartOf: { "@id": `${home}#app` }, image: schema.at("/og/spade.png") } : {}),
+    ...publisher(schema),
+    isAccessibleForFree: true,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    license: links.license,
+  };
+}
+
 export function sourceCode(schema: Schema): Node {
   return {
     "@type": "SoftwareSourceCode",
     name: `${product.name} source code`,
     codeRepository: links.source,
-    programmingLanguage: ["TypeScript", "Swift"],
+    programmingLanguage: ["TypeScript", "Swift", "Rust"],
     license: links.license,
     ...(schema.at("/") ? { targetProduct: { "@id": `${schema.at("/")}#app` } } : {}),
   };

@@ -1,0 +1,173 @@
+---
+/*
+ * The agent at work in ace, drawn: a statement beside a piece of the app with this agent in it,
+ * the thread list with its threads (one beside another agent's) over the open thread's status
+ * strip and the composer, its picker on this agent's model. Decorative: the words carry it.
+ */
+import { providerBrands, type Brand } from "@ace/ui-core/provider-icons";
+import type { ProviderKind } from "@ace/protocol";
+import type { AgentGuide } from "../../content/agent-guides.ts";
+import { currentModels } from "../../content/agents.ts";
+import type { ThreadRow as Row } from "../../content/stage.ts";
+import BrandMark from "../BrandMark.astro";
+import AppIcon from "../mac/AppIcon.astro";
+import ThreadRow from "../mac/ThreadRow.astro";
+import "../mac/ace-window.css";
+
+interface Props {
+  guide: AgentGuide;
+}
+
+const { guide } = Astro.props;
+const kinds = Object.keys(providerBrands) as ProviderKind[];
+const kindOf = (brand: Brand): ProviderKind =>
+  kinds.find((kind) => providerBrands[kind] === brand) ?? "claude";
+const provider = kindOf(guide.brand);
+/* The one thread run by another agent: Codex beside Claude Code, Claude Code beside the rest. */
+const other: ProviderKind = provider === "claude" ? "codex" : "claude";
+const model = currentModels[guide.label];
+const lede = `Each ${guide.label} run is a thread with its own branch, worktree and status. Pick ${guide.label} in the composer, and switch a thread to another agent whenever you like.`;
+
+const rows: Row[] = [
+  {
+    id: "checkout",
+    project: "billing-api",
+    chip: "BA",
+    hue: 265,
+    title: "Fix flaky checkout test",
+    branch: "fix/checkout-flake",
+    state: { kind: "working", seconds: 72 },
+    provider,
+  },
+  {
+    id: "setup-guide",
+    project: "docs-site",
+    chip: "DS",
+    hue: 150,
+    title: "Write the setup guide",
+    branch: "docs/setup-guide",
+    state: { kind: "approve" },
+    provider,
+  },
+  {
+    id: "settings",
+    project: "web",
+    chip: "WE",
+    hue: 30,
+    title: "Settings page redesign",
+    branch: "feat/settings",
+    state: { kind: "done", label: "4m" },
+    pr: 412,
+    provider: other,
+  },
+];
+---
+
+<section class="section page inapp">
+  <header class="say reveal">
+    <h2 class="section-title">A thread for every task.</h2>
+    <p class="lede">{lede}</p>
+  </header>
+  <div class="frame reveal">
+    <div class="ace drawn" aria-hidden="true">
+      <div class="head"><b>Threads</b><AppIcon name="note-pencil" size={17} /></div>
+      <div class="rows">
+        {rows.map((row, index) => <ThreadRow row={row} selected={index === 0} />)}
+      </div>
+      <div class="dock">
+        <div class="strip">
+          <span><b>Working</b> · 1m 12s</span>
+          <b>Stop</b>
+        </div>
+        <div class="composer">
+          <span class="placeholder">Ask anything</span>
+          <div class="composer-foot">
+            <AppIcon name="plus" size={18} />
+            <span class="access"><AppIcon name="shield-check" size={16} />Auto review</span>
+            <span class="model">
+              <span class="provider"><BrandMark brand={guide.brand} size={15} /></span>
+              {model?.model ?? guide.label}
+              {model?.effort && <span>· {model.effort}</span>}
+              <AppIcon name="caret-down" size={12} />
+            </span>
+            <span class="send"><AppIcon name="arrow-up" size={16} /></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .inapp {
+    display: grid;
+    gap: 28px clamp(40px, 7vw, 96px);
+    align-items: center;
+  }
+
+  @media (min-width: 900px) {
+    .inapp {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+  }
+
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  .say .lede {
+    margin-top: 20px;
+  }
+
+  .frame {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+
+  /* The app's window styles draw it to fill a Mac; here it is one piece in the page's flow. */
+  .ace.drawn {
+    position: relative;
+    inset: auto;
+    display: grid;
+    padding: 6px 0 14px;
+  }
+
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 44px;
+    padding: 0 18px 0 20px;
+    color: var(--a-muted);
+  }
+
+  .head b {
+    color: var(--a-fg);
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+
+  .drawn .rows {
+    padding: 0 8px;
+  }
+
+  .drawn .dock {
+    position: static;
+    width: auto;
+    margin: 18px 14px 0;
+    transform: none;
+  }
+
+  @media (max-width: 520px) {
+    .drawn :global(.composer-foot) {
+      gap: 14px;
+    }
+
+    .drawn :global(.access) {
+      display: none;
+    }
+  }
+</style>

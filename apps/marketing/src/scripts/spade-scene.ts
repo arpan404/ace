@@ -1,12 +1,14 @@
 import { cueFace } from "./spade-cast.ts";
 import { stepEvent } from "./scroll-story.ts";
 import { finishedAt, poseAt, showsAt } from "./spade-story.ts";
+import { panelOpenAt, phoneViewAt } from "./spade-view.ts";
 
 /*
  * Acts out the /spade/ story's scene (components/spade/Scene.astro) at the current step: each
  * piece marked `data-in` shows only in its steps, each face marked `data-poses` takes its pose
  * (hopping on the step it finishes), and pieces that have just appeared are marked `data-new`
- * for one short fade. The scene starts at the first step; the story's script moves it on.
+ * for one short fade. The scene carries whether the profile is open and which part a phone shows
+ * (scripts/spade-view.ts), for its layout. The scene starts at the first step; the story's script moves it on.
  */
 
 export function startScene(root: HTMLElement): void {
@@ -15,7 +17,11 @@ export function startScene(root: HTMLElement): void {
   const scene = root.querySelector<HTMLElement>(".scene");
 
   const act = (step: number) => {
-    if (scene) scene.dataset.step = String(step);
+    if (scene) {
+      scene.dataset.step = String(step);
+      scene.dataset.view = phoneViewAt(step);
+      scene.toggleAttribute("data-panel", panelOpenAt(step));
+    }
     for (const piece of pieces) {
       const shown = showsAt(piece.dataset.in ?? "", step);
       const was = !piece.hasAttribute("hidden");

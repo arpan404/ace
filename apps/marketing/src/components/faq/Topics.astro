@@ -1,0 +1,234 @@
+---
+/*
+ * The FAQ's questions laid out as a list beside its detail: the topics down the left (a
+ * sideways row of names on a narrow screen), the chosen topic's questions on the right. A link
+ * to /faq/#<topic> opens that topic. Without the script every topic shows, one under another,
+ * each under its own heading.
+ */
+import type { QuestionTopic } from "../../content/questions.ts";
+import QuestionList from "./QuestionList.astro";
+
+interface Props {
+  topics: QuestionTopic[];
+}
+
+const { topics } = Astro.props;
+---
+
+<section class="section page topics" data-faq-topics>
+  <div class="layout reveal">
+    <div class="side">
+      <div class="tabs" role="tablist" aria-label="Topics">
+        {
+          topics.map((topic, index) => (
+            <button
+              type="button"
+              role="tab"
+              id={`faq-tab-${index}`}
+              aria-controls={`faq-panel-${index}`}
+              aria-selected={index === 0 ? "true" : "false"}
+              tabindex={index === 0 ? 0 : -1}
+              data-tab={topic.id}
+            >
+              <span class="name">{topic.name}</span>
+              <span class="line">{topic.line}</span>
+            </button>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="panels">
+      {
+        topics.map((topic, index) => (
+          <div class="panel" role="tabpanel" id={`faq-panel-${index}`} aria-labelledby={`faq-tab-${index}`}>
+            <header class="named">
+              <h2 id={topic.id}>{topic.name}</h2>
+              <p>{topic.line}</p>
+            </header>
+            <QuestionList questions={topic.questions} />
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .topics::before {
+    display: none;
+  }
+
+  .topics {
+    padding-top: clamp(40px, 6vw, 72px);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px clamp(40px, 6vw, 80px);
+    align-items: start;
+  }
+
+  @media (min-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    }
+
+    .side {
+      position: sticky;
+      top: 96px;
+    }
+  }
+
+  /* The topics. They only show once the script can switch between them. */
+  .tabs {
+    display: none;
+  }
+
+  .topics[data-enhanced] .tabs {
+    display: flex;
+    gap: 4px;
+    margin-inline: calc(var(--gutter) * -1);
+    padding-inline: calc(var(--gutter) - 6px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs button {
+    flex: none;
+    display: grid;
+    gap: 2px;
+    padding: 9px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out);
+  }
+
+  .tabs button:hover {
+    background: var(--wash);
+    color: var(--foreground);
+  }
+
+  /* The chosen topic is marked as the app marks a selected row: full ink on the active wash. */
+  .tabs button[aria-selected="true"] {
+    background: var(--active);
+    color: var(--foreground);
+  }
+
+  .name {
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .line {
+    display: none;
+  }
+
+  @media (min-width: 900px) {
+    .topics[data-enhanced] .tabs {
+      display: grid;
+      margin-inline: 0;
+      padding-inline: 0;
+      overflow: visible;
+    }
+
+    .tabs button {
+      padding: 11px 14px 12px;
+    }
+
+    .name {
+      font-size: 17px;
+      letter-spacing: -0.015em;
+      white-space: normal;
+    }
+
+    .line {
+      display: block;
+      color: var(--subtle);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .tabs button[aria-selected="true"] .line {
+      color: var(--muted);
+    }
+  }
+
+  .panels {
+    display: grid;
+    gap: 48px;
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  /* Each topic names itself only where the topic list is missing. */
+  .named {
+    margin-bottom: 14px;
+  }
+
+  h2 {
+    font-size: clamp(22px, 2.4vw, 28px);
+    letter-spacing: -0.035em;
+  }
+
+  .named p {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  .topics[data-enhanced] .named {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+</style>
+
+<script>
+  /* Topics as tabs. A link to a topic's anchor, or to a question in it, opens that topic. */
+  import { startTabs } from "../../scripts/tabs.ts";
+
+  /** The topic tab holding the element the address's hash names, if any. */
+  const tabForHash = (root: HTMLElement) => {
+    const target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    const panel = target?.closest<HTMLElement>('[role="tabpanel"]');
+    const tab = panel ? root.querySelector<HTMLElement>(`[aria-controls="${panel.id}"]`) : null;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    return tab;
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-faq-topics]")) {
+    const list = root.querySelector<HTMLElement>('[role="tablist"]');
+    // On a narrow screen the chosen topic is brought into the row's view, without moving the page.
+    const showChosen = () => {
+      const chosen = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (list && chosen) list.scrollLeft = chosen.offsetLeft - list.offsetLeft - 16;
+    };
+    startTabs(root, tabForHash(root)?.dataset.tab);
+    showChosen();
+    addEventListener("hashchange", () => {
+      tabForHash(root)?.click();
+      showChosen();
+    });
+  }
+</script>
