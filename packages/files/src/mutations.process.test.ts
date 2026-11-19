@@ -10,6 +10,8 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { SafeRoot } from "@ace/workspace";
 import { createExclusiveRename } from "./exclusive-rename.ts";
 import { localFilesIo } from "./local-io.ts";
+import { FileError } from "./types.ts";
+import type { FilesIo } from "./io.ts";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { decodeFileFrame } from "./index.ts";
@@ -666,4 +668,144 @@ it("restores a pre-cutover trash entry only onto an absent, link-free destinatio
     await client.request({ op: "restore", trashId: id, path: "legacy.md", expected: null }),
   ).toMatchObject({ type: "files.result" });
   expect(await readFile(join(f.root, "legacy.md"), "utf8")).toBe("legacy\n");
+});
+
+/** The local port with one step replaced, so a test can fail an answer at an exact moment. */
+async function port(replace: (base: FilesIo) => Partial<FilesIo>): Promise<FilesIo> {
+  const base = localFilesIo((root) => SafeRoot.create(root));
+  return { ...base, ...replace(base) };
+}
+
+it("keeps a delete restorable when its answer is lost after the entry moved", async () => {
+  let now = 100;
+  let down = true;
+  const io = await port((base) => ({
+    async trash(root, path, endpoint, expected, own) {
+      await base.trash(root, path, endpoint, expected, own);
+      // The move landed; the answer never came back.
+      throw new FileError("FILES_RESTARTING", "the process went away before it answered");
+    },
+    async shallow() {
+      if (down) throw new FileError("FILES_RESTARTING", "the process is still down");
+      return null;
+    },
+  }));
+  const f = await setup({ workspaceIo: io, now: () => now, retentionMs: 10 });
+  const client = await f.connect();
+  await writeFile(join(f.root, "report.md"), "quarterly\n");
+
+  expect(
+    await client.request({
+      op: "delete",
+      path: "report.md",
+      expected: await version(client, "report.md"),
+    }),
+  ).toMatchObject({ type: "files.error", code: "FILES_RESTARTING" });
+  await expect(readFile(join(f.root, "report.md"))).rejects.toMatchObject({ code: "ENOENT" });
+
+  // The receipt names the entry, so it is restorable even though the delete reported a failure.
+  const listed = z
+    .object({ value: z.object({ entries: z.array(z.object({ id: z.string() })) }) })
+    .parse(await client.request({ op: "trash.list", limit: 32 }));
+  expect(listed.value.entries).toHaveLength(1);
+
+  // While the receipt is unresolved it never expires, however long the daemon runs.
+  now += 10_000;
+  await f.service.sweep();
+  expect(await client.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [expect.objectContaining({ id: listed.value.entries[0]?.id })] },
+  });
+
+  // A start reconciles it: the entry is not at its path, so it is an ordinary trash entry again.
+  down = false;
+  await f.restart();
+  const next = await f.connect();
+  expect(
+    await next.request({
+      op: "restore",
+      path: "report.md",
+      trashId: listed.value.entries[0]?.id,
+      expected: null,
+    }),
+  ).toMatchObject({ type: "files.result" });
+  expect(await readFile(join(f.root, "report.md"), "utf8")).toBe("quarterly\n");
+});
+
+it("drops a delete's receipt when the port refuses before it moves anything", async () => {
+  const io = await port((base) => ({
+    async trash(): Promise<void> {
+      throw new FileError("CONFLICT", "the entry changed", "1:2:3:4:5");
+    },
+    async shallow() {
+      throw new Error("a refused delete never asks where the entry went");
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "report.md"), "quarterly\n");
+
+  expect(
+    await client.request({
+      op: "delete",
+      path: "report.md",
+      expected: await version(client, "report.md"),
+    }),
+  ).toMatchObject({ type: "files.error", code: "CONFLICT" });
+  expect(await readFile(join(f.root, "report.md"), "utf8")).toBe("quarterly\n");
+  expect(await client.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [] },
+  });
+});
+
+it("reports the version the port read from the file it saved", async () => {
+  const io = await port(() => ({
+    async write(root, path, bytes, expected) {
+      const saved = localFilesIo((target) => SafeRoot.create(target));
+      await saved.write(root, path, bytes, expected);
+      return "11:22:33:44:55";
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+
+  expect(
+    await client.request({ op: "create", path: "saved.md", expected: null, text: "hello" }),
+  ).toMatchObject({ type: "files.result", value: { version: "11:22:33:44:55" } });
+  expect(client.changes).toContainEqual(
+    expect.objectContaining({
+      change: expect.objectContaining({ path: "saved.md", version: "11:22:33:44:55" }),
+    }),
+  );
+});
+
+it("reports a committed move even when its version cannot be read afterwards", async () => {
+  let moved = false;
+  const io = await port((base) => ({
+    async move(...args: Parameters<FilesIo["move"]>) {
+      await base.move(...args);
+      moved = true;
+    },
+    async describe(root, path, options) {
+      if (moved) throw new FileError("FILES_RESTARTING", "the process is restarting");
+      return base.describe(root, path, options);
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "a.md"), "a\n");
+
+  const result = await client.request({
+    op: "rename",
+    path: "a.md",
+    expected: await version(client, "a.md"),
+    destination: "b.md",
+    destinationExpected: null,
+  });
+
+  // The move landed; a metadata read that failed afterwards is not a failed move.
+  expect(result).toMatchObject({ type: "files.result", value: { path: "a.md", version: null } });
+  expect(await readFile(join(f.root, "b.md"), "utf8")).toBe("a\n");
+  expect(client.changes).toContainEqual(
+    expect.objectContaining({ change: expect.objectContaining({ destination: "b.md" }) }),
+  );
 });

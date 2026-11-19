@@ -13,8 +13,22 @@ import type { FilesIo } from "./io.ts";
 import { localFilesIo } from "./local-io.ts";
 import { Mutations } from "./mutations.ts";
 import { readPart } from "./read.ts";
+import { PathReservations } from "./reservations.ts";
 import { Uploads } from "./uploads.ts";
 import { FileError, type FilesOptions, type Download } from "./types.ts";
+
+/** The paths one mutation can change, which is what another mutation's proof must not cross. */
+function affectedPaths(operation: Parameters<Mutations["apply"]>[0]): string[] {
+  switch (operation.op) {
+    case "rename":
+    case "move":
+      return [operation.path, operation.destination];
+    case "restore":
+      return [operation.path];
+    default:
+      return [operation.path];
+  }
+}
 
 export class FilesService {
   private readonly safe: SafeRoot;
@@ -29,6 +43,7 @@ export class FilesService {
   private readonly previews: ArchivePreviews;
   private readonly listeners = new Set<(change: WorkspaceFileChange) => void>();
   private readonly lifetime: FileRequestLifetime;
+  private readonly reservations = new PathReservations();
   get idle(): boolean {
     return (
       !this.closed &&
@@ -80,6 +95,7 @@ export class FilesService {
     );
     safes.set(service.safe.root, service.safe);
     try {
+      await service.mutations.reconcile();
       await service.uploads.reconcile();
       return service;
     } catch (error) {
@@ -166,14 +182,21 @@ export class FilesService {
       });
     return next;
   }
+  /**
+   * Records a commit: the revision moves while the mutation still holds the queue, so a request
+   * that prepared against an older observation retries instead of landing on top of this one.
+   */
+  private committed(): void {
+    this.revision++;
+  }
   subscribe(listener: (change: WorkspaceFileChange) => void): () => void {
     if (this.listeners.size >= 1024) throw new FileError("BUSY", "File subscriber limit reached");
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   private emit(change: WorkspaceFileChange): void {
-    this.revision++;
-    // A UI or engine consumer failure cannot roll back a completed filesystem mutation.
+    // The commit already advanced the revision inside the queue; notifying is what is left, and
+    // a UI or engine consumer failure cannot roll back a completed filesystem mutation.
     for (const listener of this.listeners) {
       try {
         listener(change);
@@ -281,6 +304,7 @@ export class FilesService {
             path,
             version: await observed(this.safe, path),
           };
+          this.committed();
           this.emit(change);
           return change;
         }
@@ -294,30 +318,42 @@ export class FilesService {
     operation: Parameters<Mutations["apply"]>[0],
     guard: () => void,
   ): Promise<WorkspaceFileChange> {
+    const reserved = affectedPaths(operation);
     for (let attempt = 0; attempt < 3; attempt++) {
       const revision = this.revision;
       const prepared = await this.lifetime.walk((signal) =>
         this.mutations.prepare(operation, signal),
       );
       // Failed queued I/O emits no change event; refresh its old observation too.
-      if (this.pending > 0) {
+      if (this.pending > 0 || !this.reservations.idle) {
         await this.tail;
+        await this.reservations.settled();
         continue;
       }
-      const applied = await this.serial(async () => {
-        guard();
-        this.authorize(device, "files.write");
-        if (revision !== this.revision) return undefined;
-        if (operation.op === "delete" || operation.op === "rename" || operation.op === "move")
-          this.uploads.assertUnoccupied(operation.path);
-        return this.mutations.apply(operation, prepared);
-      });
-      if (!applied) continue;
-      // The new version is read after the queue: a folder's digest can walk a whole tree, and
-      // no other mutation should wait for it. This reply is the one the client is waiting on.
-      const change = await this.mutations.change(applied);
-      this.emit(change);
-      return change;
+      // The move's guard is verified after it lands, and verifying a folder walks its whole tree.
+      // That happens outside the queue, under a reservation on the paths this mutation touched, so
+      // an unrelated write is never held up by it and no write lands on a path still being proven.
+      const release = await this.reservations.reserve(reserved);
+      try {
+        const applied = await this.serial(async () => {
+          guard();
+          this.authorize(device, "files.write");
+          if (revision !== this.revision) return undefined;
+          if (operation.op === "delete" || operation.op === "rename" || operation.op === "move")
+            this.uploads.assertUnoccupied(operation.path);
+          const outcome = await this.mutations.apply(operation, prepared);
+          this.committed();
+          return outcome;
+        });
+        if (!applied) continue;
+        // The version and the broadcast come after the queue, and a failure to read the version
+        // cannot turn a committed change into an error: the caller is told what landed.
+        const change = await this.mutations.change(applied);
+        this.emit(change);
+        return change;
+      } finally {
+        release();
+      }
     }
     throw new FileError("BUSY", "Workspace changed during preparation; try again");
   }
@@ -481,8 +517,11 @@ export class FilesService {
       );
       for (const record of this.catalog.list("trash")) {
         signal?.throwIfAborted();
-        if (record.expires <= this.options.now())
-          await this.mutations.expire(TrashRecord.parse(record));
+        const trash = TrashRecord.parse(record);
+        // A receipt whose move is still unknown never expires: the bytes it names may be the only
+        // copy, and the next start reconciles it back into an ordinary entry.
+        if (trash.pending) continue;
+        if (trash.expires <= this.options.now()) await this.mutations.expire(trash);
       }
       this.previews.sweep();
     });
