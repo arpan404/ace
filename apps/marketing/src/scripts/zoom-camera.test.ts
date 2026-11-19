@@ -7,7 +7,8 @@ import {
   project,
   shotOrder,
   storyAt,
-  teamTree,
+  dialSeats,
+  teamDial,
   type Insets,
   type Rect,
   type Size,
@@ -143,43 +144,48 @@ describe("what has happened in the story", () => {
   });
 });
 
-describe("the team growing out of the composer", () => {
+describe("the dial of agents beside the composer", () => {
   const chip = { width: 172, height: 38 };
+  const composer = { x: 138, y: 525, width: 800, height: 140 };
+  const stage = { width: 1440, height: 900 };
+  const dial = teamDial(composer, stage, 138, chip);
 
-  it("stands the chips beside the composer on a wide screen, clear of it and of the edge", () => {
-    const composer = { x: 138, y: 525, width: 800, height: 140 };
-    const stage = { width: 1440, height: 900 };
-    const tree = teamTree(composer, stage, 138, 6, chip);
-    expect(tree?.leaves).toHaveLength(6);
-    for (const leaf of tree?.leaves ?? []) {
-      expect(leaf.x).toBeGreaterThan(composer.x + composer.width);
-      expect(leaf.x + chip.width).toBeLessThanOrEqual(stage.width - 138);
-      expect(leaf.y + chip.height).toBeLessThanOrEqual(composer.y + composer.height);
-    }
+  it("stands the chosen agent level with the composer, clear of it and of the edge", () => {
+    expect(dial).toBeDefined();
+    if (!dial) return;
+    const chosen = dialSeats(dial, 6, 2, chip)[2];
+    expect(chosen?.y).toBeCloseTo(composer.y + composer.height / 2 - chip.height / 2);
+    expect(chosen?.x).toBeGreaterThan(composer.x + composer.width);
+    expect((chosen?.x ?? 0) + chip.width).toBeLessThanOrEqual(stage.width - 138);
+    expect(chosen?.opacity).toBe(1);
   });
 
-  it("draws nothing when a wide screen has no room beside the composer", () => {
-    const composer = { x: 40, y: 500, width: 900, height: 120 };
-    expect(teamTree(composer, { width: 1024, height: 768 }, 40, 6, chip)).toBeUndefined();
+  it("curves the neighbours away evenly above and below, fading as they go", () => {
+    if (!dial) return;
+    const seats = dialSeats(dial, 6, 0, chip);
+    const [chosen, below, , , , above] = seats;
+    expect(below?.x).toBeCloseTo(above?.x ?? NaN);
+    expect((below?.y ?? 0) - (chosen?.y ?? 0)).toBeCloseTo((chosen?.y ?? 0) - (above?.y ?? 0));
+    expect(below?.x).toBeLessThan(chosen?.x ?? 0);
+    expect(below?.opacity).toBeLessThan(1);
+    expect(seats[3]?.opacity).toBe(0);
   });
 
-  it("draws nothing on a phone, where the composer fills the width", () => {
-    const composer = { x: 20, y: 400, width: 350, height: 110 };
-    expect(teamTree(composer, { width: 390, height: 844 }, 20, 6, chip)).toBeUndefined();
+  it("keeps the same seats whoever is chosen, so choosing only turns the dial", () => {
+    if (!dial) return;
+    const first = dialSeats(dial, 6, 0, chip);
+    const later = dialSeats(dial, 6, 4, chip);
+    expect(later[4]).toEqual(first[0]);
+    expect(later[5]).toEqual(first[1]);
+    expect(later[3]).toEqual(first[5]);
   });
 
-  it("starts every line at the composer and ends it at its chip", () => {
-    const composer = { x: 138, y: 525, width: 800, height: 140 };
-    const tree = teamTree(composer, { width: 1440, height: 900 }, 138, 6, chip);
-    tree?.lines.forEach((line, index) => {
-      const leaf = tree.leaves[index];
-      expect(
-        line.startsWith(`M${composer.x + composer.width} ${composer.y + composer.height / 2}`),
-      ).toBe(true);
-      expect(
-        line.endsWith(`${leaf?.x}`) ||
-          line.endsWith(`${leaf?.x} ${(leaf?.y ?? 0) + chip.height / 2}`),
-      ).toBe(true);
-    });
+  it("is left out when there is no room beside the composer", () => {
+    expect(
+      teamDial({ x: 40, y: 500, width: 900, height: 120 }, { width: 1024, height: 768 }, 40, chip),
+    ).toBeUndefined();
+    expect(
+      teamDial({ x: 20, y: 400, width: 350, height: 110 }, { width: 390, height: 844 }, 20, chip),
+    ).toBeUndefined();
   });
 });

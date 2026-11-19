@@ -10,7 +10,6 @@
  * `--ty`). Without the script the story reads as the headline and its captions, in order.
  */
 import { builtInAgents } from "../../content/agents.ts";
-import { delegates, rows } from "../../content/stage.ts";
 import { product } from "../../content/product.ts";
 import {
   zoomCaptions,
@@ -44,8 +43,6 @@ const place = (id: CastId) => {
   return `--x: ${wide[0]}; --y: ${wide[1]}; --tx: ${tall[0]}; --ty: ${tall[1]}`;
 };
 
-const soak = delegates.find((agent) => agent.machine === "build-server");
-const sweep = rows.find((row) => row.machine === "workstation");
 const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 ---
 
@@ -62,11 +59,11 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
       </div>
 
       <div class="thing far" data-thing="build" style={place("build")}>
-        <Laptop><LinuxScreen task={soak?.name ?? ""} progress={soak?.detail ?? ""} /></Laptop>
+        <Laptop><LinuxScreen /></Laptop>
       </div>
 
       <div class="thing far" data-thing="workstation" style={place("workstation")}>
-        <Monitor><WindowsScreen task={sweep?.title ?? ""} /></Monitor>
+        <Monitor><WindowsScreen /></Monitor>
       </div>
 
       <div class="thing phone" data-thing="phone" data-phone-shown style={place("phone")}>
@@ -76,16 +73,17 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     </div>
 
     <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
-    <div class="fan" data-zoom-fan aria-hidden="true">
-      <svg width="1" height="1">
-        {builtInAgents.map((_, index) => <path data-fan-line pathLength="1" style={`--i: ${index}`} />)}
+    <div class="dial" data-zoom-dial hidden>
+      <svg width="1" height="1" aria-hidden="true">
+        <path class="track" data-dial-track></path>
+        <path class="reach" data-dial-reach></path>
       </svg>
       {
         builtInAgents.map((agent, index) => (
-          <span class="leaf" data-fan-leaf style={`--i: ${index}`}>
+          <button type="button" class="seat" data-dial-seat aria-pressed={index === 0 ? "true" : "false"}>
             <BrandMark brand={agent.brand} size={18} />
-            {agent.label}
-          </span>
+            <span>{agent.label}</span>
+          </button>
         ))
       }
     </div>
@@ -390,7 +388,7 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     margin-top: 28px;
   }
 
-  /* The agents ace runs as bare marks, then what it costs and where it runs. Where the tree
+  /* The agents ace runs as bare marks, then what it costs and where it runs. Where the dial
      beside the composer already names the agents, the marks are left out. */
   .facts {
     display: flex;
@@ -412,41 +410,47 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     display: grid;
   }
 
-  .zoom[data-team="tree"] .facts ul {
+  .zoom[data-team="dial"] .facts ul {
     display: none;
   }
 
 
   /*
-   * "A whole team out", drawn: a tree grows from the composer to the agents ace runs, as a
-   * thread lists its agents. The script places the chips and draws the lines.
+   * "A whole team out", drawn: the agents ace runs sit on a dial beside the composer. The one
+   * level with it is chosen and shows in the composer; the dial turns to the next by itself
+   * until someone picks one. The script seats the chips (zoom-camera.ts `dialSeats`).
    */
-  .fan {
+  .dial {
     position: absolute;
     inset: 0;
+    z-index: 2;
     pointer-events: none;
   }
 
-  .zoom:not([data-live]) .fan {
+  .dial[hidden],
+  .zoom:not([data-live]) .dial {
     display: none;
   }
 
-  .fan svg {
+  .dial svg {
     position: absolute;
     left: 0;
     top: 0;
     overflow: visible;
   }
 
-  .fan path {
+  .dial path {
     fill: none;
-    stroke: var(--line);
+    stroke: var(--border-strong);
     stroke-width: 1.5;
     stroke-linecap: round;
-    stroke-dasharray: 1;
   }
 
-  .leaf {
+  .dial .reach {
+    stroke: var(--line);
+  }
+
+  .seat {
     position: absolute;
     left: 0;
     top: 0;
@@ -459,32 +463,37 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     border-radius: 999px;
     background: var(--surface);
     box-shadow: 0 10px 24px -16px var(--frame-shadow);
+    color: var(--foreground);
+    font: inherit;
     font-size: 14px;
     font-weight: 500;
     white-space: nowrap;
+    cursor: pointer;
+    pointer-events: auto;
+    transform-origin: 0 50%;
+    transition:
+      translate 0.7s var(--ease-out),
+      scale 0.7s var(--ease-out),
+      opacity 0.45s var(--ease-out),
+      background-color var(--motion-base) var(--ease-out),
+      color var(--motion-base) var(--ease-out);
   }
 
-  /* The lines draw outward from the composer and each chip lands as its line arrives. */
-  :global(html.motion) .fan path {
-    animation: grow 0.9s var(--ease-out) both;
-    animation-delay: calc(0.35s + var(--i) * 70ms);
+  .seat[aria-pressed="true"] {
+    border-color: transparent;
+    background: var(--ink);
+    color: var(--ink-foreground);
   }
 
-  :global(html.motion) .leaf {
-    animation: land 0.5s var(--ease-out) both;
-    animation-delay: calc(0.95s + var(--i) * 70ms);
+  /* A seat out of sight can't be pressed or tabbed to. */
+  .seat[data-out] {
+    visibility: hidden;
+    pointer-events: none;
   }
 
-  @keyframes grow {
-    from {
-      stroke-dashoffset: 1;
-    }
-  }
-
-  @keyframes land {
-    from {
-      opacity: 0;
-      scale: 0.92;
+  @media (prefers-reduced-motion: reduce) {
+    .seat {
+      transition: none;
     }
   }
 

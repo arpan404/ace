@@ -172,11 +172,22 @@ import AppIcon from "./AppIcon.astro";
     overflow: hidden;
     border: 7px solid #050506;
     border-radius: 54px;
+    /*
+     * The wallpaper: a dark sky over the curve of a horizon, lit along its edge in the site's
+     * orange. Three layers: the ground below the horizon, the light along it, the sky.
+     */
     background:
-      radial-gradient(120% 60% at 18% 0%, #5a6fd8 0%, transparent 60%),
-      radial-gradient(110% 55% at 100% 34%, #c0567a 0%, transparent 62%),
-      radial-gradient(120% 60% at 0% 100%, #2a2f7c 0%, transparent 64%),
-      linear-gradient(to bottom, #1a1d4a, #0c0d24);
+      radial-gradient(220% 120% at 50% 117%, #050403 0 50%, #140c07 57.6%, transparent 58%),
+      radial-gradient(
+        220% 120% at 50% 117%,
+        transparent 57.4%,
+        #ffe2c8 58.1%,
+        rgb(255 150 70 / 0.72) 59.4%,
+        rgb(232 96 24 / 0.34) 63%,
+        rgb(150 60 12 / 0.14) 70%,
+        transparent 82%
+      ),
+      linear-gradient(to bottom, #050505 0%, #0a0807 46%, #150d08 100%);
   }
 
   .lock-status {
@@ -297,7 +308,7 @@ import AppIcon from "./AppIcon.astro";
     display: flex;
     align-items: center;
     gap: 5px;
-    color: #c9bcff;
+    color: #d6d8dc;
   }
 
   .done-state {
@@ -326,7 +337,7 @@ import AppIcon from "./AppIcon.astro";
     width: 62%;
     height: 100%;
     border-radius: 2px;
-    background: #b49cf5;
+    background: #d6d8dc;
     transition:
       width 0.8s cubic-bezier(0.16, 1, 0.3, 1),
       background-color 0.4s;

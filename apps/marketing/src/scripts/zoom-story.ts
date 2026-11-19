@@ -9,7 +9,9 @@ import {
   project,
   shotOrder,
   storyAt,
-  teamTree,
+  dialSeats,
+  dialTrack,
+  teamDial,
   union,
   type Camera,
   type Rect,
@@ -57,9 +59,10 @@ export function startZoomStory(root: HTMLElement): void {
   const lens = q("[data-zoom-lens]");
   const ghost = q("[data-zoom-ghost]");
   const cue = q("[data-zoom-cue]");
-  const fan = q("[data-zoom-fan]");
-  const fanLines = [...root.querySelectorAll<SVGPathElement>("[data-fan-line]")];
-  const fanLeaves = [...root.querySelectorAll<HTMLElement>("[data-fan-leaf]")];
+  const dialRoot = q("[data-zoom-dial]");
+  const dialTrackPath = root.querySelector<SVGPathElement>("[data-dial-track]");
+  const dialReachPath = root.querySelector<SVGPathElement>("[data-dial-reach]");
+  const seats = [...root.querySelectorAll<HTMLElement>("[data-dial-seat]")];
   const app = q(".ace");
   const composer = q(".ace .composer");
   const placeholder = q(".ace .composer .placeholder");
@@ -76,7 +79,25 @@ export function startZoomStory(root: HTMLElement): void {
   const promptText = prompt?.textContent?.replace(/\s+/g, " ").trim() ?? "";
   const emptyText = placeholder?.textContent ?? "";
 
-  show(root, { thread: "cold-start" });
+  // ace is open on every machine in the picture, each on a thread of its own: this Mac on the
+  // story's thread, the build server testing sign-in, the workstation driving ace's browser.
+  const machine = (id: string) => q(`[data-thing="${id}"]`);
+  const thisMac = machine("mac");
+  const server = machine("build");
+  const desk = machine("workstation");
+  if (thisMac) show(thisMac, { thread: "cold-start" });
+  if (server) show(server, { thread: "sign-in" });
+  if (desk) {
+    show(desk, { thread: "staging" });
+    desk.querySelector(".ace")?.setAttribute("data-panel", "browser");
+    for (const step of desk.querySelectorAll('[data-browser-step="0"], [data-browser-step="1"]')) {
+      step.classList.remove("pending");
+    }
+    const pointer = desk.querySelector<HTMLElement>("[data-agent-cursor]");
+    pointer?.style.setProperty("--ax", "250px");
+    pointer?.style.setProperty("--ay", "230px");
+    pointer?.classList.add("shown");
+  }
   // The copy of the composer that stands alone on the page at the start, prompt already typed.
   const copy = composer.cloneNode(true);
   if (ghost && copy instanceof HTMLElement) {
@@ -174,7 +195,7 @@ export function startZoomStory(root: HTMLElement): void {
       all: { rect: union([mac, build, workstation, phone]), insets },
     };
     cameras = shotOrder.map((id) => frame(shots[id], size));
-    growTeam(side);
+    seatTeam(side);
 
     mids = paths.map((path) => {
       // Lines run between screens, not between the wider bodies under them.
@@ -199,44 +220,84 @@ export function startZoomStory(root: HTMLElement): void {
     const drawn = narrow
       ? (ghost?.offsetHeight ?? promptBox.height) * readable
       : promptBox.height * Math.min(1.3, composerWidth(free) / promptBox.width);
-    const spare = size.height - (hero.offsetHeight - lift) - 36 - drawn - 72;
+    // Room is kept under the composer for the cue and the lower half of the dial.
+    const spare = size.height - (hero.offsetHeight - lift) - 36 - drawn - 124;
     const next = Math.max(0, Math.round(spare * 0.42));
     if (Math.abs(next - lift) < 2) return;
     lift = next;
     hero.style.setProperty("--lift", `${lift}px`);
   }
 
-  /** Places the opening's tree of agents around the composer as the first shot shows it. */
-  function growTeam(side: number): void {
-    const camera = cameras[0];
-    if (!fan || !camera || !promptBox) return;
-    const at = project(camera, promptBox);
-    const composerBox = narrow
-      ? {
-          ...at,
-          width: size.width - side * 2,
-          height: (ghost?.offsetHeight ?? promptBox.height) * readable,
-        }
-      : { ...at, width: promptBox.width * camera.scale, height: promptBox.height * camera.scale };
-    const headline = edge.getBoundingClientRect().top - stage.getBoundingClientRect().top;
-    const tree = teamTree(
-      composerBox,
-      size,
-      side,
-      fanLeaves.length,
-      { width: 172, height: 38 },
-      headline + 8,
-    );
-    // Without the tree, the hero names the agents with their marks beside its facts.
-    root.dataset.team = tree ? "tree" : "marks";
-    fan.hidden = !tree;
-    if (!tree) return;
-    tree.leaves.forEach((leaf, index) => {
-      const chip = fanLeaves[index];
-      if (chip) chip.style.translate = `${leaf.x}px ${leaf.y}px`;
+  const chipSize = { width: 172, height: 38 };
+  let dial: ReturnType<typeof teamDial>;
+  let chosen = 0;
+  /** The composer copy's model picker, and what it reads when the story's own agent is chosen. */
+  const picker = ghost?.querySelector<HTMLElement>(".model");
+  const pickerHome = picker?.innerHTML ?? "";
+
+  /** Turns the dial to one agent: the chips take their seats and the composer shows the choice. */
+  function choose(index: number): void {
+    chosen = index;
+    if (!dial) return;
+    dialSeats(dial, seats.length, chosen, chipSize).forEach((seat, at) => {
+      const chip = seats[at];
+      if (!chip) return;
+      chip.style.translate = `${seat.x}px ${seat.y}px`;
+      chip.style.scale = String(seat.scale);
+      chip.style.opacity = String(seat.opacity);
+      chip.toggleAttribute("data-out", seat.opacity === 0);
+      chip.setAttribute("aria-pressed", at === chosen ? "true" : "false");
     });
-    tree.lines.forEach((line, index) => fanLines[index]?.setAttribute("d", line));
+    if (!picker) return;
+    const chip = seats[chosen];
+    const mark = chip?.querySelector("svg")?.outerHTML ?? "";
+    // The first agent is the story's own, so the composer reads exactly as the app will.
+    picker.innerHTML =
+      chosen === 0
+        ? pickerHome
+        : `<span class="provider">${mark}</span>${chip?.textContent?.trim() ?? ""}`;
   }
+
+  /** Seats the opening's dial of agents beside the composer as the first shot shows it. */
+  function seatTeam(side: number): void {
+    const camera = cameras[0];
+    if (!dialRoot || !camera || !promptBox) return;
+    const at = project(camera, promptBox);
+    const composerBox = {
+      ...at,
+      width: promptBox.width * camera.scale,
+      height: promptBox.height * camera.scale,
+    };
+    dial = narrow ? undefined : teamDial(composerBox, size, side, chipSize);
+    // Without the dial, the hero names the agents with their marks beside its facts.
+    root.dataset.team = dial ? "dial" : "marks";
+    dialRoot.hidden = !dial;
+    if (!dial) return;
+    dialTrackPath?.setAttribute("d", dialTrack(dial));
+    dialReachPath?.setAttribute(
+      "d",
+      `M${composerBox.x + composerBox.width} ${dial.cy}H${dial.cx + dial.radius - 8}`,
+    );
+    choose(chosen);
+  }
+
+  // The dial turns to the next agent by itself until someone picks one or the story starts.
+  let turning = still
+    ? 0
+    : window.setInterval(() => {
+        if (!dial || document.hidden || shown > 0 || dialRoot?.matches(":hover")) return;
+        choose((chosen + 1) % seats.length);
+      }, 2600);
+  const settle = () => {
+    clearInterval(turning);
+    turning = 0;
+  };
+  seats.forEach((chip, index) =>
+    chip.addEventListener("click", () => {
+      settle();
+      choose(index);
+    }),
+  );
 
   let applied: StoryState | undefined;
 
@@ -307,9 +368,11 @@ export function startZoomStory(root: HTMLElement): void {
       ghost.style.opacity = narrow ? String(1 - arrived) : "";
       ghost.style.visibility = arrived === 1 ? "hidden" : "";
       const waiting = 1 - clamp(leg.at / 0.06);
-      if (fan) {
-        fan.style.opacity = String(waiting);
-        fan.style.visibility = waiting === 0 ? "hidden" : "";
+      if (dialRoot) {
+        dialRoot.style.opacity = String(waiting);
+        dialRoot.style.visibility = waiting === 0 ? "hidden" : "";
+        // The story is about its own agent: once it starts, the dial is back on it.
+        if (waiting < 1 && chosen !== 0) choose(0);
       }
       if (cue) {
         cue.style.opacity = String(waiting);
