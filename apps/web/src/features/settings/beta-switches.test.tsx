@@ -53,7 +53,7 @@ test("the Spade switch on Settings › Beta saves the setting and swaps Spade's 
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.spade")).toBe(false));
-  expect(await within(rail()).findByRole("img", { name: "Spade, coming soon" })).toBeTruthy();
+  expect(await within(rail()).findByRole("button", { name: "Spade, coming soon" })).toBeTruthy();
   expect(within(rail()).queryByRole("link", { name: "Spade" })).toBeNull();
 
   await userEvent.click(toggle);

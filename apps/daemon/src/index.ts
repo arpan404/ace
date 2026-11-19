@@ -1,4 +1,5 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
@@ -75,6 +76,8 @@ export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 import { MaintenanceGate } from "@ace/service";
 import { keepUserPause } from "./user-pause.ts";
+import { firstLine, loginPathWaitMs, onFinalPath, receiveLoginPath } from "./login-path-handoff.ts";
+import { daemonLoginPath } from "@ace/service/login-path";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -107,11 +110,37 @@ export async function startDaemon(options: DaemonOptions = {}) {
   assertTestHomeIsolation(home);
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
+  // When this process began, on the same clock: each startup phase logs how far in it ended.
+  const entered = now();
+  const spawnedAt = entered - process.uptime() * 1000;
+  const sinceSpawn = () => Math.round(now() - spawnedAt);
   const config = options.config ?? readConfig();
+  // Started by the desktop app on last launch's PATH: the login shell's follows on stdin, or
+  // the daemon asks the shell itself (`login-path-handoff.ts`).
+  // Aborted as the daemon stops (below): ends a lookup still waiting on a slow shell, and its
+  // processes, inside the shutdown budget.
+  const loginPathStop = new AbortController();
+  if (!options.loginPath) {
+    const loginPath = receiveLoginPath({
+      env: process.env,
+      read: () => firstLine(process.stdin, { signal: loginPathStop.signal }),
+      timeout: () => new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
+      lookup: (pending) => daemonLoginPath(pending, process.env, { signal: loginPathStop.signal }),
+      signal: loginPathStop.signal,
+    });
+    if (loginPath) options = { ...options, loginPath };
+  }
+  // The doctor and toolchains find CLIs on PATH: only on the final one.
+  const pathFinal = options.loginPath?.final;
   const diagnostics = options.diagnostics ?? {
-    doctor: () => connectedDoctorReport(config, process.env, now),
+    doctor: () =>
+      onFinalPath(pathFinal, loginPathStop.signal, () =>
+        connectedDoctorReport(config, process.env, now),
+      ),
     toolchains: () =>
-      daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
+      onFinalPath(pathFinal, loginPathStop.signal, () =>
+        daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
+      ),
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
@@ -194,6 +223,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
   } catch (error) {
     log.log("warn", "Daemon run marker could not be written", logError(error));
   }
+  log.log(
+    "info",
+    "Daemon modules loaded",
+    logFields([["sinceSpawnMs", Math.round(entered - spawnedAt)]]),
+  );
   resources.own(
     installFatalLogFlush(process, log, (error) =>
       sqliteFailureDetails(error, config.dataDir, diskSpace),
@@ -305,6 +339,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   );
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
+  // After `lifetime`: whatever waited on the final PATH wakes to a stopping daemon.
+  resources.onShutdown(() => loginPathStop.abort());
   let initialized = false;
   const abortReason = (): StopReason => {
     const reason: unknown = options.signal?.reason;
@@ -409,6 +445,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
+    const storeBegan = now();
     const eventStore = openAtStart(
       () =>
         new Store(
@@ -430,6 +467,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       config.dataDir,
       diskSpace,
       pauseBelow,
+    );
+    log.log(
+      "info",
+      "Event store opened",
+      logFields([
+        ["durationMs", Math.round(now() - storeBegan)],
+        ["sinceSpawnMs", sinceSpawn()],
+      ]),
     );
     // One admission gate for the server and the engine, closed before any service starts when
     // maintenance was asked for, so startup recovery honours it too (ADR 0041).
@@ -511,7 +556,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const account = machineAccount({
       dataDir: config.dataDir,
       codes: store.machineCodes,
-      fetch: globalThis.fetch,
+      // Every call this makes goes to ace's account backend, so each names the daemon.
+      fetch: namedFetch(globalThis.fetch, config.aceClient),
       now,
       randomBytes,
       delay: (callback, milliseconds) => {
@@ -611,6 +657,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         log.log("error", "WebSocket failure", logError(error));
       },
       warn: (message, fields) => log.log("warn", message, fields),
+      info: (message, fields) => log.log("info", message, fields),
     };
     bindLiveServices(serverOptions, services);
     // Late-bound: the lifecycle exists once the server below has started its transports.
@@ -620,9 +667,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
       return lifecycle.delete(command);
     };
     lifetime.signal.throwIfAborted();
+    const serverBegan = now();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();
-    log.log("info", "Daemon listening", logFields([["url", server.url], ...build]));
+    log.log(
+      "info",
+      "Daemon listening",
+      logFields([
+        ["url", server.url],
+        ["durationMs", Math.round(now() - serverBegan)],
+        ["sinceSpawnMs", sinceSpawn()],
+        ...build,
+      ]),
+    );
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
     endpointPath = path;

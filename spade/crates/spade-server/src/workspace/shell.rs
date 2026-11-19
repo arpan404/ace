@@ -55,6 +55,15 @@ pub struct Job<'a> {
     /// run outside), not because the gate skipped its review expecting containment. When a bot run
     /// turns out to need review and this is `false`, it is refused rather than run plainly.
     pub may_run_uncontained: bool,
+    /// A command Spade's classifier settled: it runs with a clean, fixed environment built by
+    /// Spade, never one inherited from the daemon or carried from an earlier terminal command
+    /// (ADR 0172, amendment 4). `job.env` (the hardening overrides) still go on top.
+    pub clean: bool,
+    /// A command Spade's classifier settled runs in a read-only OS sandbox confined to the bot's
+    /// folder, whatever the bot's sandbox setting (ADR 0172, amendment 7): its reads are held by
+    /// the kernel, so a symlink or recursive read out of the folder is refused. If the sandbox
+    /// can't be built it does not run.
+    pub read_only: bool,
 }
 
 /// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
@@ -149,6 +158,27 @@ pub trait Confine: Send + Sync {
     /// Whether a bot command with home `home` runs contained (files and network) on this machine.
     fn contains(&self, home: &Path) -> bool;
 
+    /// Whether this machine can run a command in a read-only sandbox confined to the bot's folder
+    /// (ADR 0172, amendment 7), so Spade's classifier may settle a read. `false` where there is no
+    /// usable sandbox; then nothing settles.
+    fn read_only_available(&self) -> bool {
+        false
+    }
+
+    /// Whether a settled `command` can run in the read-only sandbox here: every program it runs
+    /// resolves on the clean PATH (ADR 0172, amendment 7), so it won't fail "not found" inside the
+    /// sandbox. `false` sends it to the reviewer instead of settling.
+    fn read_only_settles(&self, _command: &str) -> bool {
+        true
+    }
+
+    /// A read-only confinement of `command` whose home is `home`: the folder, the narrow system
+    /// paths and the command's own resolved program roots readable, no writes, no network (ADR
+    /// 0172, amendment 7). `Err` when it can't be built, so a settled command never runs unconfined.
+    fn read_only(&self, _home: &Path, _command: &str) -> Result<Confined, String> {
+        Err("this machine has no read-only sandbox".to_owned())
+    }
+
     /// Whether the bot whose workspace is `home` runs its commands outside the sandbox (its own
     /// setting, else the machine's; ADR 0171).
     fn outside(&self, _home: &Path) -> bool {
@@ -189,6 +219,8 @@ pub struct Confined {
     pub path_first: Vec<String>,
     /// The run's proxy access, ended when the run is.
     pub hold: Box<dyn std::any::Any + Send + Sync>,
+    /// What the run did through the proxy, read once it ends; none when its network is off.
+    pub watch: Option<spade_sandbox::egress::Watch>,
 }
 
 /// The ends of a command's processes, as they happen: each recorded before it runs and settled
@@ -254,6 +286,10 @@ pub struct Ran {
     pub cut: bool,
     /// Not everything the command started could be seen to stop: some may still run.
     pub incomplete: bool,
+    /// The sandbox held it.
+    pub contained: bool,
+    /// The hosts it reached through the proxy and the ones its policy refused.
+    pub network: spade_sandbox::egress::Seen,
 }
 
 #[derive(Clone)]
@@ -290,6 +326,21 @@ impl Shell {
             Some(confine) => confine.confine(home, kind),
             None => Ok(Confinement::None),
         }
+    }
+
+    /// Whether a settled command can be held in a read-only sandbox here (ADR 0172, amendment 7).
+    pub fn read_only_available(&self) -> bool {
+        self.confine
+            .as_ref()
+            .is_some_and(|confine| confine.read_only_available())
+    }
+
+    /// Whether `command` can settle in a read-only sandbox here: a sandbox is available and every
+    /// program it runs resolves on the clean PATH (ADR 0172, amendment 7).
+    pub fn read_only_settles(&self, command: &str) -> bool {
+        self.confine.as_ref().is_some_and(|confine| {
+            confine.read_only_available() && confine.read_only_settles(command)
+        })
     }
 
     /// Whether a bot command with home `home` runs contained (files and network) here.
@@ -354,6 +405,31 @@ impl Shell {
         vars
     }
 
+    /// The clean, fixed environment a settled command runs with (ADR 0172, amendment 4): an
+    /// allowlist built entirely by Spade, nothing read from the process or carried from an earlier
+    /// command. `PATH` is the system folders, `HOME` and `TMPDIR` are the bot's folder, and the
+    /// locale, shell and terminal are fixed. The hardening overrides are layered on by `run_from`.
+    pub fn settled_environment(&self, dir: &Path) -> Vec<(String, String)> {
+        let home = dir.to_string_lossy().into_owned();
+        let mut vars = vec![
+            ("PATH".to_owned(), platform::trusted_path(&self.env)),
+            ("SHELL".to_owned(), "/bin/sh".to_owned()),
+            ("LANG".to_owned(), "C.UTF-8".to_owned()),
+            ("LC_ALL".to_owned(), "C.UTF-8".to_owned()),
+            ("TERM".to_owned(), "dumb".to_owned()),
+            ("TMPDIR".to_owned(), home.clone()),
+        ];
+        if cfg!(windows) {
+            vars.push(("USERPROFILE".to_owned(), home.clone()));
+            vars.push((
+                "NoDefaultCurrentDirectoryInExePath".to_owned(),
+                "1".to_owned(),
+            ));
+        }
+        vars.push(("HOME".to_owned(), home));
+        vars
+    }
+
     /// Runs `command` in `dir` for at most `timeout`.
     pub async fn run(&self, dir: &Path, command: &str, timeout: Duration) -> Result<Ran, String> {
         self.run_job(Job {
@@ -368,6 +444,8 @@ impl Shell {
             outside: false,
             // Spade's own internal command: always expected to be containable.
             may_run_uncontained: false,
+            clean: false,
+            read_only: false,
         })
         .await
     }
@@ -385,6 +463,10 @@ impl Shell {
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
         let confined: Option<Confined> = match &self.confine {
+            // A settled command (ADR 0172, amendment 7): a read-only sandbox confined to the
+            // folder, whatever the bot's setting. It never runs unconfined; a sandbox that can't
+            // be built fails the command closed.
+            Some(confine) if job.read_only => Some(confine.read_only(home, job.script)?),
             // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
             Some(_) if job.outside => None,
             Some(confine) => {
@@ -414,7 +496,11 @@ impl Shell {
             }
             None => None,
         };
-        let mut environment = self.environment(home);
+        let mut environment = if job.clean {
+            self.settled_environment(home)
+        } else {
+            self.environment(home)
+        };
         let mut shell = match &confined {
             None => platform::command(&self.env, command),
             Some(confined) => {
@@ -490,7 +576,13 @@ impl Shell {
         // Whatever it left running in the background goes now, before the pipes are drained.
         let settled = contained.kill().await && settled;
         let pipes_closed = readers.finish(DRAIN).await;
-        // The run's proxy access ends with it.
+        // The run's proxy access ends with it; what it did on the network stays readable.
+        let contained = confined.is_some();
+        let network = confined
+            .as_ref()
+            .and_then(|c| c.watch.as_ref())
+            .map(spade_sandbox::egress::Watch::seen)
+            .unwrap_or_default();
         drop(confined);
         let (stdout, out_cut) = stdout.map(|o| o.take()).unwrap_or_default();
         let (stderr, err_cut) = stderr.map(|o| o.take()).unwrap_or_default();
@@ -501,6 +593,8 @@ impl Shell {
             timed_out,
             cut: out_cut || err_cut || !pipes_closed,
             incomplete: !settled,
+            contained,
+            network,
         })
     }
 }

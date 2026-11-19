@@ -8,6 +8,7 @@ import { profileRoute } from "./api-profiles.ts";
 import { discoveryCron } from "./cron-discovery.ts";
 import { publisherCron } from "./cron-publishers.ts";
 import { encodeBase64url } from "@ace/account-grant";
+import { clientOf, serverGate } from "@ace/service/client-features";
 import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
@@ -107,6 +108,7 @@ export default {
       newId,
       newToken,
       fetch: (target, init) => fetch(target, init),
+      gate: serverGate(clientOf(request)),
     };
     return dispatch(request, url, route, context);
   },

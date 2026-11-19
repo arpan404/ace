@@ -43,51 +43,39 @@ struct PluginsSection: View {
     }
 
     var body: some View {
-        QuietSection("Plugins") {
+        if let problem {
+            Section { ProblemRow(problem, id: "plugins.problem", retry: retry) }
+        }
+        if let catalogProblem {
+            Section { ProblemRow(catalogProblem, id: "plugins.catalog.problem", retry: retryCatalog) }
+        }
+        Section {
             ForEach(shown) { plugin in
                 NavigationLink {
                     PluginPageView(model: model, plugin: plugin, components: components.filter { $0.plugin == plugin.name })
                 } label: {
-                    QuietSectionRow {
-                        QuietRowText(title: plugin.name, detail: plugin.summary)
+                    InsetRow(systemImage: nil, title: plugin.name, subtitle: plugin.summary) {
                         Text(plugin.version).aceFont(AceDesign.TextRole.action)
                             .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
-                        RowCaret()
                     }
                 }
-                .buttonStyle(.row)
                 .accessibilityIdentifier("plugins.row.\(plugin.name)")
             }
             ForEach(reviews) { pending in
-                Button { review(PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id])) } label: {
-                    QuietSectionRow {
-                        Text("Finish reviewing \(pending.name)").aceFont(AceDesign.TextRole.action)
-                            .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
-                    }
+                Button("Finish reviewing \(pending.name)") {
+                    review(PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id]))
                 }
-                .buttonStyle(.row)
-            }
-            if model.canOperate {
-                Button(action: install) {
-                    QuietSectionRow {
-                        Text("Install plugin").aceFont(AceDesign.TextRole.action)
-                            .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
-                    }
-                }
-                .buttonStyle(.row)
-                .accessibilityIdentifier("plugins.install")
+                .buttonStyle(.rowActionOpening)
             }
             if more {
-                Button(action: loadMore) {
-                    QuietSectionRow {
-                        Text("Show more plugin skills").aceFont(AceDesign.TextRole.action)
-                            .foregroundStyle(AceDesign.Ink.muted)
-                    }
-                }
-                .buttonStyle(.row)
+                Button("Show more plugin skills", action: loadMore).buttonStyle(.rowAction)
             }
-            if let problem { QuietProblem(message: problem, id: "plugins.problem", retry: retry) }
-            if let catalogProblem { QuietProblem(message: catalogProblem, id: "plugins.catalog.problem", retry: retryCatalog) }
-        }
+            if model.canOperate {
+                Button(action: install) { AddRow("Install plugin") }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("plugins.install")
+            }
+        } header: { InsetHeader("Plugins") }
+        .insetRowBackground()
     }
 }

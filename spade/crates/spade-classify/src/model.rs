@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! "SPCM" | version u32 | buckets u32 | classes u32 | temperature f32 | low f32 | person f32
-//! | scale f32 × classes | bias f32 × classes | weight i8 × buckets × classes
+//! | read f32 | scale f32 × classes | bias f32 × classes | weight i8 × buckets × classes
 //! | known bits (KNOWN_BITS / 8 bytes)
 //! ```
 //!
@@ -20,9 +20,10 @@ use crate::CLASSES;
 use crate::hash::{BUCKETS, KNOWN_BITS, probes};
 
 const MAGIC: &[u8; 4] = b"SPCM";
-const VERSION: u32 = 2;
+/// 3: the person threshold is over the sum of the person-only effects, and a read threshold.
+const VERSION: u32 = 3;
 const C: usize = CLASSES.len();
-const HEADER: usize = 4 + 4 * 6 + 8 * C;
+const HEADER: usize = 4 + 4 * 7 + 8 * C;
 
 /// A model file that can't be used: the classifier then abstains on everything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,8 +37,12 @@ pub struct Header {
     /// The probability of a low-risk effect (`read` or `write_local`) at or above which a call
     /// may be settled as low-risk.
     pub low: f32,
-    /// The probability of one person-only effect at or above which a call goes to the person.
+    /// The probability of a person-only effect (any of them, summed) at or above which a call goes
+    /// to the person.
     pub person: f32,
+    /// The probability of `read` at or above which a plain command may be settled while untrusted
+    /// content is in view: above every validation call that isn't a read.
+    pub read: f32,
     pub scales: [f32; C],
     pub bias: [f32; C],
 }
@@ -83,17 +88,18 @@ impl Model {
         let mut scales = [0.0; C];
         let mut bias = [0.0; C];
         for c in 0..C {
-            scales[c] = real(28 + 4 * c)?;
-            bias[c] = real(28 + 4 * C + 4 * c)?;
+            scales[c] = real(32 + 4 * c)?;
+            bias[c] = real(32 + 4 * C + 4 * c)?;
         }
         let header = Header {
             temperature: real(16)?,
             low: real(20)?,
             person: real(24)?,
+            read: real(28)?,
             scales,
             bias,
         };
-        let finite = [header.temperature, header.low, header.person]
+        let finite = [header.temperature, header.low, header.person, header.read]
             .iter()
             .chain(&scales)
             .chain(&bias)
@@ -164,7 +170,7 @@ impl Model {
 pub fn softmax(logits: [f32; C], temperature: f32) -> [f32; C] {
     let scaled = logits.map(|l| l / temperature);
     let top = scaled.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let exp = scaled.map(|l| (l - top).exp());
+    let exp = scaled.map(|l| crate::math::exp(l - top));
     let total: f32 = exp.iter().sum();
     exp.map(|e| e / total)
 }
@@ -218,7 +224,7 @@ pub fn encode(header: &Header, weights: &[i8], known: &[u8]) -> Vec<u8> {
     for word in [VERSION, BUCKETS as u32, C as u32] {
         out.extend_from_slice(&word.to_le_bytes());
     }
-    for real in [header.temperature, header.low, header.person] {
+    for real in [header.temperature, header.low, header.person, header.read] {
         out.extend_from_slice(&real.to_le_bytes());
     }
     for real in header.scales.iter().chain(&header.bias) {

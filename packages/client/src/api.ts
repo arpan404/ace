@@ -137,6 +137,12 @@ export interface ClientApi {
   networkOnline(online: boolean): void;
   reconnectNow(): void;
   /**
+   * The page may have been away (the computer slept, the tab came back, the network changed):
+   * a ready socket must answer a ping at once or is replaced, and a waiting reconnect runs now
+   * instead of after its backoff (`Connection.wake`).
+   */
+  wake?(): void;
+  /**
    * Hold a thread. `optional` holds take only spare room (`threadRoom`) and give it up for a
    * thread held in the foreground; refused or given up, the store's error reads `no_room`.
    */

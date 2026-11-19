@@ -95,6 +95,47 @@ pub struct Usage {
     pub received: u64,
 }
 
+/// The most hosts a run's [`Seen`] keeps of each kind; later ones are only counted in [`Usage`].
+pub const MOST_HOSTS: usize = 16;
+
+/// A host the policy refused one run, with why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefusedHost {
+    pub host: String,
+    pub port: u16,
+    pub reason: String,
+}
+
+/// The hosts one run reached and was refused, each once, in the order first asked, at most
+/// [`MOST_HOSTS`] of each: what its step says it did on the network.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Seen {
+    pub reached: Vec<String>,
+    pub refused: Vec<RefusedHost>,
+}
+
+impl Seen {
+    fn reached(&mut self, host: &str) {
+        if self.reached.len() < MOST_HOSTS && !self.reached.iter().any(|h| h == host) {
+            self.reached.push(host.to_owned());
+        }
+    }
+
+    fn refused(&mut self, host: &str, port: u16, reason: &str) {
+        let known = self
+            .refused
+            .iter()
+            .any(|r| r.host == host && r.port == port);
+        if self.refused.len() < MOST_HOSTS && !known {
+            self.refused.push(RefusedHost {
+                host: host.to_owned(),
+                port,
+                reason: reason.to_owned(),
+            });
+        }
+    }
+}
+
 #[derive(Default)]
 struct Counters {
     connections: AtomicU64,
@@ -108,6 +149,7 @@ struct Session {
     run: String,
     policy: NetworkPolicy,
     usage: Counters,
+    seen: Mutex<Seen>,
     /// Tunnels open now.
     open: AtomicUsize,
     /// Set when the ticket is dropped: everything of the session ends.
@@ -234,6 +276,7 @@ impl Proxy {
             run: run.to_owned(),
             policy,
             usage: Counters::default(),
+            seen: Mutex::default(),
             open: AtomicUsize::new(0),
             cancel: watch::Sender::new(false),
         });
@@ -268,6 +311,22 @@ impl Drop for Ticket {
             .unwrap_or_else(|p| p.into_inner())
             .remove(&self.token);
         self.session.cancel.send_replace(true);
+    }
+}
+
+/// A run's view of what it did through the proxy, kept by whoever reports the run, so the
+/// hosts are still there once its [`Ticket`] has ended its access.
+#[derive(Clone)]
+pub struct Watch(Arc<Session>);
+
+impl Watch {
+    /// The hosts reached and refused so far.
+    pub fn seen(&self) -> Seen {
+        self.0
+            .seen
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 }
 
@@ -308,6 +367,11 @@ impl Ticket {
         // Node's own fetch honours the variables only when told to.
         vars.push(("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()));
         vars
+    }
+
+    /// What the run did on the network, readable after the ticket is gone.
+    pub fn watch(&self) -> Watch {
+        Watch(self.session.clone())
     }
 
     pub fn usage(&self) -> Usage {
@@ -417,6 +481,11 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
         Ok(upstream) => upstream,
         Err(Refusal::Policy(reason)) => {
             session.usage.refused.fetch_add(1, Ordering::Relaxed);
+            session
+                .seen
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .refused(&entry.host, entry.port, &reason);
             let body = format!("Spade's network policy for this bot refused it: {reason}.\n");
             entry.phase = "refused".to_owned();
             entry.reason = Some(reason);
@@ -437,6 +506,11 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
     entry.phase = "opened".to_owned();
     inner.log.append(&entry);
     session.usage.connections.fetch_add(1, Ordering::Relaxed);
+    session
+        .seen
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .reached(&entry.host);
     let moved = Moved::default();
     let ahead = match &target.path {
         None => {

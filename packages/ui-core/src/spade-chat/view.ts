@@ -1,4 +1,10 @@
-import type { SpadeApproval, SpadeConversationState, SpadeEntry, SpadeOutsideAsk } from "./fold.ts";
+import type {
+  SpadeApproval,
+  SpadeConversationState,
+  SpadeEntry,
+  SpadeOutsideAsk,
+  SpadeReported,
+} from "./fold.ts";
 import type { SpadeDecision } from "./decisions.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 import { spadeHelperApprovalSentence } from "./helper-words.ts";
@@ -7,7 +13,10 @@ import { spadeSoonestWake, type SpadeWake } from "./wakes.ts";
 /** The conversation's Working line: what runs, in words, and since when. */
 export interface SpadeWorking {
   label: string;
-  /** When the open reply began; undefined for a job that runs between replies. */
+  /**
+   * When the open reply began, moved on by the time it waited on the person, so the clock counts
+   * only the bot's own work; undefined for a job that runs between replies.
+   */
   since: number | undefined;
   /** False while Spade waits on the person rather than working itself. */
   moving: boolean;
@@ -27,6 +36,11 @@ export interface SpadeView {
   working: SpadeWorking | undefined;
   /** The agent's own few words on what it does now, while it works (ADR 0127). */
   status: string | undefined;
+  /**
+   * The agent's state as the live stream last reported it (Spade's roster rules: workers, wakes
+   * and jobs included), while no stored event has come since; undefined otherwise.
+   */
+  reported: Omit<SpadeReported, "seq"> | undefined;
   /** Approvals waiting on the person, oldest first, each with its sentence. */
   approvals: readonly (SpadeApproval & { sentence: string })[];
   /** Plugins asking to run outside the sandbox, oldest first (ADR 0167). */
@@ -77,11 +91,19 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     answering: reply !== undefined,
     busy:
       reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,
-    working: working(state, reply?.startedAt, approvals.length > 0 || state.question !== undefined),
+    working: working(
+      state,
+      reply && reply.startedAt + state.waited,
+      approvals.length > 0 || state.question !== undefined,
+    ),
     // Its words only while anything is open: the line goes when the reply ends.
     status:
       reply !== undefined || state.jobs.size > 0
         ? plainStatus(state.status, [...state.running.values()].at(-1)?.name)
+        : undefined,
+    reported:
+      state.reported?.seq === state.lastSeq
+        ? { state: state.reported.state, status: state.reported.status }
         : undefined,
     approvals,
     outsideAsks: [...state.outsideAsks],

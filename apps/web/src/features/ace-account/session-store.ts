@@ -2,7 +2,7 @@ import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account"
 import { AceAccountGrant, type AceLogin } from "@ace/protocol/ace-account";
 import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accountSessionKey, windowAccountSession } from "@/boot/account-config.ts";
-import { browserSignIn } from "./sign-in.ts";
+import { browserSignIn, type SignInOutcome } from "./sign-in.ts";
 
 export type AceAccountClient = ReturnType<typeof aceAccountClient>;
 
@@ -155,29 +155,16 @@ export function aceAccountStore(backend: AceAccountBackend) {
      */
     signIn(open: (address: Promise<string>) => Promise<void>): void {
       if (signingIn || state.session) return;
-      const controller = new AbortController();
-      signingIn = controller;
-      update({ error: "", signIn: { login: undefined, openBlocked: false } });
-      const progress = (patch: Partial<NonNullable<AceAccountState["signIn"]>>) => {
-        if (signingIn === controller && state.signIn)
-          update({ signIn: { ...state.signIn, ...patch } });
-      };
-      void browserSignIn({
-        client,
-        returnTo: backend.returnTo,
-        signal: controller.signal,
-        open: (address) =>
-          void open(address).catch(() => {
-            if (!controller.signal.aborted) progress({ openBlocked: true });
-          }),
-        started: (login) => progress({ login }),
-        interrupted: () => update({ error: "Connection interrupted. Retrying sign-in…" }),
-      }).then(async (outcome) => {
-        if (signingIn !== controller) return;
-        signingIn = undefined;
-        update({ signIn: null, error: outcome.kind === "failed" ? outcome.error : "" });
-        if (outcome.kind === "signed-in") await signedIn(outcome.session);
-      });
+      void browser(open);
+    },
+    /**
+     * A fresh browser sign-in while signed in, for an action that needs a recent one (ADR 0174
+     * §2): the new session replaces the old once the browser finishes. Resolves whether it did;
+     * false at once while another sign-in runs.
+     */
+    signInAgain(open: (address: Promise<string>) => Promise<void>): Promise<boolean> {
+      if (signingIn) return Promise.resolve(false);
+      return browser(open).then((kind) => kind === "signed-in");
     },
     /** Stops the sign-in in progress; its link stops working. */
     cancelSignIn(): void {
@@ -187,5 +174,34 @@ export function aceAccountStore(backend: AceAccountBackend) {
       update({ signIn: null, error: "" });
     },
   };
+  /** One browser sign-in for this window; resolves how it ended once its session is kept. */
+  function browser(
+    open: (address: Promise<string>) => Promise<void>,
+  ): Promise<SignInOutcome["kind"] | "replaced"> {
+    const controller = new AbortController();
+    signingIn = controller;
+    update({ error: "", signIn: { login: undefined, openBlocked: false } });
+    const progress = (patch: Partial<NonNullable<AceAccountState["signIn"]>>) => {
+      if (signingIn === controller && state.signIn)
+        update({ signIn: { ...state.signIn, ...patch } });
+    };
+    return browserSignIn({
+      client,
+      returnTo: backend.returnTo,
+      signal: controller.signal,
+      open: (address) =>
+        void open(address).catch(() => {
+          if (!controller.signal.aborted) progress({ openBlocked: true });
+        }),
+      started: (login) => progress({ login }),
+      interrupted: () => update({ error: "Connection interrupted. Retrying sign-in…" }),
+    }).then(async (outcome) => {
+      if (signingIn !== controller) return "replaced" as const;
+      signingIn = undefined;
+      update({ signIn: null, error: outcome.kind === "failed" ? outcome.error : "" });
+      if (outcome.kind === "signed-in") await signedIn(outcome.session);
+      return outcome.kind;
+    });
+  }
 }
 export type AceAccountStore = ReturnType<typeof aceAccountStore>;

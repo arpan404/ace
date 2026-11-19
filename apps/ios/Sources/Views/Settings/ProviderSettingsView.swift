@@ -66,17 +66,11 @@ struct ProviderSettingsView: View {
             .insetRowBackground()
             OtherProvidersSections(model: model, others: others)
             Section {
-                NavigationLink { AcpRegistryView(model: model) } label: { InsetRow("Add agent", systemImage: "plus") }
+                NavigationLink { AcpRegistryView(model: model) } label: { AddRow("Add agent") }
             }
             .insetRowBackground()
-            if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
-            if let checkProblem {
-                Section {
-                    ServiceProblem(message: checkProblem)
-                    Button("Retry") { Task { await checkAgain() } }.buttonStyle(.textAction())
-                }
-                .insetRowBackground()
-            }
+            if let problem = model.providers?.problem { ProblemRow(problem, id: "providers.problem") }
+            if let checkProblem { ProblemRow(checkProblem, id: "providers.check.problem") { Task { await checkAgain() } } }
         }
         .insetGroupedList()
         .followOtherProviders(model, $others)
@@ -132,6 +126,7 @@ struct ProviderSignInView: View {
                 Section {
                     Text("Sign in to the coding agent installed on your paired machine.")
                     Button("Sign in") { request(["type": "provider.login.start", "provider": provider]) }
+                        .buttonStyle(.rowAction)
                         .disabled(busy || progress.map { !$0.finished } == true || !model.canOperate)
                 }
                 if let progress {
@@ -156,31 +151,31 @@ struct ProviderSignInView: View {
                         }
                         if progress.state == "awaiting_input", progress.codeEntry != true, (progress.choices ?? []).isEmpty {
                             Button("Continue") { request(["type": "provider.login.input", "session": progress.session, "input": ["value": "enter"]]) }
+                                .buttonStyle(.rowAction)
                         }
                         if progress.codeEntry == true {
                             SecureField("Code from provider", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
                             Button("Continue") {
                                 let entry = code; code = ""
                                 request(["type": "provider.login.input", "session": progress.session, "input": ["code": entry]])
-                            }.disabled(code.isEmpty)
+                            }.buttonStyle(.rowAction).disabled(code.isEmpty)
                         }
                         if progress.returnUrlEntry == true {
                             // The page after signing in points at the paired machine and can't load here.
-                            SecureField("Address the page ended on", text: $returnAddress).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                            SecureField("Paste return address", text: $returnAddress).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                             Button("Continue") {
                                 let entry = returnAddress.trimmingCharacters(in: .whitespacesAndNewlines); returnAddress = ""
                                 request(["type": "provider.login.input", "session": progress.session, "input": ["returnUrl": entry]])
-                            }.disabled(returnAddress.isEmpty)
+                            }.buttonStyle(.rowAction).disabled(returnAddress.isEmpty)
                         }
                         if !progress.finished { Button("Cancel sign-in", role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } }
                     } header: { InsetHeader(progress.finished ? "Result" : "Continue sign-in") }.disabled(busy || !model.canOperate)
                 }
-                ServiceProblem(message: problem ?? pollProblem)
-                if problem != nil || pollProblem != nil {
-                    Button("Retry", action: retry).buttonStyle(.textAction()).disabled(busy)
-                }
             }
             .insetRowBackground()
+            if let failure = problem ?? pollProblem {
+                ProblemRow(failure, id: "provider.signIn.problem", disabled: busy, retry: retry)
+            }
         }
         .insetGroupedList()
         .modifier(ServiceSearch(enabled: (progress?.choices?.count ?? 0) > Self.searchFrom, query: $query))

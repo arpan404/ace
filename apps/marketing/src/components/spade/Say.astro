@@ -1,0 +1,187 @@
+---
+/*
+ * A bot opening a section in its own words: its face, then its bubbles in the messenger's style.
+ * The first bubble is the section's heading, set large; the rest are one or two short lines,
+ * the last of which types in once the section is on screen. Spade speaks with its own mark.
+ */
+import { cast, type CastName } from "../../content/spade.ts";
+import type { FacePose } from "./BotFace.astro";
+import CastFace from "./CastFace.astro";
+
+interface Props {
+  who: CastName;
+  heading: string;
+  lines?: readonly string[];
+  state?: FacePose;
+  /** Where the face looks while the pointer is away, "x,y". */
+  rest?: string;
+  /** h1 for the page's own heading; h2 everywhere else. */
+  level?: "h1" | "h2";
+  id?: string;
+}
+
+const { who, heading, lines = [], state = "idle", rest = "0.6,0.1", level = "h2", id } = Astro.props;
+const member = cast[who];
+const Heading = level;
+const last = lines.length - 1;
+---
+
+<div class="say reveal" data-say>
+  <div class="face">
+    <CastFace who={who} size={64} uid={`say-${id ?? who}-${heading.length}`} state={state} rest={rest} />
+  </div>
+  <div class="bubbles">
+    <span class="who">{member.name}</span>
+    <Heading id={id} class="bubble big section-title">{heading}</Heading>
+    {
+      lines.map((line, index) => (
+        <p class:list={["bubble", { typed: index === last }]}>
+          {index === last && (
+            <span class="dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          )}
+          <span class="words">{line}</span>
+        </p>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .say {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: end;
+    gap: 14px;
+  }
+
+  .face {
+    color: var(--foreground);
+  }
+
+  .bubbles {
+    display: grid;
+    justify-items: start;
+    gap: 4px;
+  }
+
+  .who {
+    padding-left: 18px;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  /* The messenger's bot bubble: a faint wash, 18 corners, the tail corner squared toward the face. */
+  .bubble {
+    position: relative;
+    max-width: 34em;
+    padding: 10px 18px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--foreground) 7%, var(--background));
+    color: var(--foreground);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .bubble:last-child {
+    border-bottom-left-radius: 6px;
+  }
+
+  .big {
+    max-width: 14em;
+    padding: 14px 22px 16px;
+    border-radius: 24px;
+    font-size: clamp(30px, 4.4vw, 54px);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+  }
+
+  /* The last line types in: three dots, then the words, in the same box so nothing moves. */
+  .dots {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    display: none;
+    gap: 4px;
+    translate: 0 -50%;
+  }
+
+  .dots i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--subtle);
+  }
+
+  html.motion .typed .dots {
+    display: flex;
+    opacity: 0;
+  }
+
+  html.motion .typed .words {
+    opacity: 0;
+  }
+
+  html.motion :global(.is-in) .typed .dots {
+    animation: dots 1100ms 500ms both;
+  }
+
+  html.motion :global(.is-in) .typed .dots i {
+    animation: bounce 600ms ease-in-out 500ms 2 both;
+  }
+
+  html.motion :global(.is-in) .typed .dots i:nth-child(2) {
+    animation-delay: 620ms;
+  }
+
+  html.motion :global(.is-in) .typed .dots i:nth-child(3) {
+    animation-delay: 740ms;
+  }
+
+  html.motion :global(.is-in) .typed .words {
+    animation: words 400ms var(--ease-out) 1600ms both;
+  }
+
+  @keyframes dots {
+    0%,
+    90% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes bounce {
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+
+  @keyframes words {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @media (max-width: 599px) {
+    .say {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .face :global(svg) {
+      width: 52px;
+      height: 52px;
+    }
+  }
+</style>
+

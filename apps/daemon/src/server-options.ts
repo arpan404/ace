@@ -201,6 +201,8 @@ export interface ServerOptions {
   log?: (error: unknown) => void;
   /** A warn-level line in the daemon's redacting log: a request refused for a reason worth fixing. */
   warn?: (message: string, fields: object) => void;
+  /** An info-level line in the daemon's log: how long a start took, network by network. */
+  info?: (message: string, fields: object) => void;
   health?: () => Promise<DiagnosticsHealth>;
   doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
   toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;

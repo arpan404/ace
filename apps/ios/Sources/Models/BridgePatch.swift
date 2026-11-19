@@ -350,7 +350,9 @@ enum BridgePatch: Decodable, Sendable {
     /// its copy until `thread.ready` with the same revision commits. Cold opens use
     /// `threadReset` (with revision); warm reopens diffing against the ledger use this.
     case snapshotBegin(String, Int, Int, Int?)
-    case connection(String, Int?)
+    /// The state, the inbox's confirmation generation, and the daemon socket while ready (a
+    /// number that changes with every reconnect, `ClientCore.connectionGeneration`).
+    case connection(String, Int?, socket: Int?)
     /// A connection drop or recovery as the client reported it, for the device log.
     case connectionEvent(String)
     case pending(String, PendingRow?)
@@ -428,7 +430,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -477,7 +479,9 @@ enum BridgePatch: Decodable, Sendable {
             let (id, epoch) = try scope()
             self = .snapshotBegin(id, epoch, try box.decode(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
         case "connection.event": self = .connectionEvent(try box.decode(String.self, forKey: .text))
-        case "connection": self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation))
+        case "connection":
+            self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation),
+                               socket: try box.decodeIfPresent(Int.self, forKey: .socket))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))

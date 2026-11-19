@@ -1,6 +1,6 @@
 # Spade
 
-Spade is ace's cloud agent: a main bot, crews of bots people make and share, group chats between
+Spade is ace's cloud agent: a main bot, crews of bots people make and share, club chats between
 people and bots, a bot marketplace, connectors to other apps, and its own memory. It acts on a
 person's machines through their ace daemons. The design and the decisions so far are in
 [docs/design.md](docs/design.md).

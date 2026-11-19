@@ -1,0 +1,78 @@
+---
+/* Automations: what runs, what starts it, and the agent that does it. They list in one by one. */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import { sampleAutomations } from "../../../content/showcase.ts";
+import BrandMark from "../../BrandMark.astro";
+---
+
+<div class="win autos">
+  {
+    sampleAutomations.map((item) => {
+      const brand = providerIcon({ provider: item.provider }).brand;
+      return (
+        <div class="auto">
+          <span>
+            <b>{item.name}</b>
+            <span>{item.when}</span>
+          </span>
+          {brand && <BrandMark brand={brand} size={16} />}
+        </div>
+      );
+    })
+  }
+</div>
+
+<style>
+  .autos {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .auto {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auto:last-child {
+    border-bottom: 0;
+  }
+
+  .auto > span {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .auto b {
+    font-weight: 600;
+  }
+
+  .auto span span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  :global(html.motion .piece.is-in) .auto {
+    animation: rise 0.5s var(--ease-out) both;
+  }
+
+  :global(html.motion .piece.is-in) .auto:nth-child(1) {
+    animation-delay: 0.35s;
+  }
+
+  :global(html.motion .piece.is-in) .auto:nth-child(2) {
+    animation-delay: 0.45s;
+  }
+
+  :global(html.motion .piece.is-in) .auto:nth-child(3) {
+    animation-delay: 0.55s;
+  }
+
+  :global(html.motion .piece.is-in) .auto:nth-child(4) {
+    animation-delay: 0.65s;
+  }
+</style>

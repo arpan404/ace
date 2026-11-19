@@ -1,0 +1,84 @@
+---
+/*
+ * The row of tabs over a set of panels, drawn as one segmented control (the home page's parts
+ * use the same look). scripts/tabs.ts makes it work; until it has, the root carries no
+ * `data-enhanced`, the tabs stay hidden and every panel shows. Panel `index` must carry the id
+ * `${prefix}-panel-${index}` and `aria-labelledby` `${prefix}-tab-${index}`.
+ */
+interface Props {
+  prefix: string;
+  label: string;
+  tabs: { name: string; label: string }[];
+}
+
+const { prefix, label, tabs } = Astro.props;
+---
+
+<div class="tabs" role="tablist" aria-label={label}>
+  {
+    tabs.map((tab, index) => (
+      <button
+        type="button"
+        role="tab"
+        id={`${prefix}-tab-${index}`}
+        aria-controls={`${prefix}-panel-${index}`}
+        aria-selected={index === 0 ? "true" : "false"}
+        tabindex={index === 0 ? 0 : -1}
+        data-tab={tab.name}
+      >
+        {tab.label}
+      </button>
+    ))
+  }
+</div>
+
+<style>
+  .tabs {
+    display: none;
+  }
+
+  :global([data-enhanced]) .tabs {
+    display: flex;
+    gap: 4px;
+    max-width: 100%;
+    width: fit-content;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  button {
+    flex: 1 0 auto;
+    height: 38px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--motion-base) var(--ease-out),
+      color var(--motion-fast) var(--ease-out);
+  }
+
+  button:hover {
+    background: var(--wash);
+    color: var(--foreground);
+  }
+
+  /* The chosen tab carries the app's own wash, not a filled pill. */
+  button[aria-selected="true"] {
+    background: var(--active);
+    color: var(--foreground);
+  }
+
+  @media (max-width: 519px) {
+    button {
+      padding: 0 12px;
+      font-size: 14px;
+    }
+  }
+</style>

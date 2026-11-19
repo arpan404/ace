@@ -6,7 +6,9 @@ mod support;
 
 use spade_connect::{ConnectError, ConnectRequest, Started};
 use spade_testkit::{FakeCloud, FakeConnector};
-use support::{FAKE_ENTRY, Result, app_tools, from_catalogue, spade_with_cloud, wait_for};
+use support::{
+    FAKE_ENTRY, Result, SPADE_CLIENT, app_tools, from_catalogue, spade_with_cloud, wait_for,
+};
 
 #[tokio::test]
 async fn signing_in_through_spade_cloud_keeps_the_sealed_tokens_in_the_keychain() -> Result {
@@ -28,6 +30,11 @@ async fn signing_in_through_spade_cloud_keeps_the_sealed_tokens_in_the_keychain(
         .get(&id)
         .ok_or("no view while signing in")?;
     assert_eq!((waiting.state, waiting.via), ("signing_in", Some("cloud")));
+    assert_eq!(
+        cloud.clients(),
+        vec![Some(SPADE_CLIENT.to_owned())],
+        "Spade names itself to the cloud"
+    );
 
     cloud.approve();
     wait_for(|| {

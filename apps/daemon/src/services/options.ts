@@ -16,6 +16,12 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /**
+   * A daemon the app started on a saved PATH (`login-path-handoff.ts`): provider discovery, and
+   * so restart recovery and sessions, waits for its final PATH, and environments copied at
+   * start take it.
+   */
+  loginPath?: import("../login-path-handoff.ts").LoginPath;
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
   /** The storage-full watch's timer and thresholds (ADR 0176); tests drive them. */

@@ -8,7 +8,7 @@ export function browserCredential(target: DaemonTarget): () => Promise<Credentia
     if (!target.pairedDeviceId) {
       if (target.url.startsWith("wss:") || !isLoopbackUrl(target.url))
         throw new ClientError("auth", "Pair this device before connecting to a remote daemon.");
-      return target.appProof ? { token: target.token, appProof: target.appProof } : target.token;
+      return target.token;
     }
     const { pairedSocketCredential } = await import("@ace/client/access-ticket");
     return pairedSocketCredential({

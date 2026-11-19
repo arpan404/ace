@@ -415,3 +415,26 @@ private final class BrowserRecorder: ClientSession, @unchecked Sendable {
     func acknowledge(accepted: Bool) {}
     func stop(completion: @escaping @Sendable () -> Void) { completion() }
 }
+
+/// Which browser-help request the browser's Done and Skip answer.
+@Suite struct BrowserHelpPickTests {
+    private func help(_ id: String, elsewhere: Bool = false) -> ApprovalRow {
+        ApprovalRow(id: id, kind: "browser_help", state: "pending", title: "", description: "", command: "", options: [],
+                    truncated: false, help: HelpRequest(title: "Sign in", detail: "", elsewhere: elsewhere))
+    }
+
+    @Test func theBrowserAnswersTheRequestWhoseCardOpenedItNotTheFirstOne() {
+        let picked = BrowserHelpPick.help(in: [help("first"), help("second")], chosen: "second")
+        #expect(picked?.id == "second")
+    }
+
+    @Test func withNoCardChosenOrTheChosenOneAnsweredTheBrowserTakesTheFirstStillOpen() {
+        #expect(BrowserHelpPick.help(in: [help("first"), help("second")], chosen: nil)?.id == "first")
+        #expect(BrowserHelpPick.help(in: [help("second")], chosen: "first")?.id == "second")
+    }
+
+    @Test func aRequestFromAnotherMachineIsNeverAnsweredFromThisBrowser() {
+        #expect(BrowserHelpPick.help(in: [help("there", elsewhere: true)], chosen: "there") == nil)
+        #expect(BrowserHelpPick.help(in: [help("there", elsewhere: true), help("here")], chosen: nil)?.id == "here")
+    }
+}

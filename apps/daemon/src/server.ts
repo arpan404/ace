@@ -83,6 +83,12 @@ export async function startServer(options: ServerOptions): Promise<{
   fingerprint?: string | undefined;
   /** Shutdown stages that started and have not finished. */
   pendingShutdown(): string[];
+  /**
+   * Remote access's first start, which listening never waits for: `direct` settles once the LAN
+   * and Tailscale listener started or failed, `networks` once every network did (relays too).
+   * Both settle on close and never reject; status says how each network is doing meanwhile.
+   */
+  remoteStarted: { direct: Promise<void>; networks: Promise<void> };
   outsideReach(): ReachFacts;
   close(): Promise<void>;
 }> {
@@ -829,6 +835,7 @@ export async function startServer(options: ServerOptions): Promise<{
   );
   let port: number;
   let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
+  let remoteStarted = { direct: Promise.resolve(), networks: Promise.resolve() };
   try {
     port = await bind(local, "127.0.0.1", options.port);
     if (remote && options.remote) {
@@ -856,7 +863,12 @@ export async function startServer(options: ServerOptions): Promise<{
         },
       );
       options.applyRemoteSetting = dynamicRemote.set;
-      await dynamicRemote.start();
+      // In the background: a relay or a Tailscale read that never answers must not hold the
+      // daemon's listening. Each network reports its own state in status meanwhile, and a stop
+      // while it starts gives up what waits on the network (`close`).
+      const starting = dynamicRemote;
+      void starting.start().catch((error: unknown) => options.log?.(error));
+      remoteStarted = { direct: starting.directStarted, networks: starting.started };
     }
     if (options.preview)
       preview = await createDaemonPreview(options.store, options.preview, auth.now);
@@ -881,6 +893,7 @@ export async function startServer(options: ServerOptions): Promise<{
     trackStage(closingStages, name, task);
   return {
     pendingShutdown: () => [...closingStages],
+    remoteStarted,
     ...(preview ? { preview } : {}),
     get relayHostId() {
       return dynamicRemote?.relayHostId ?? transports?.relayHostId;

@@ -6,7 +6,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingAddRow, SettingList, SettingListItem } from "@/components/setting-row.tsx";
+import { SettingList, SettingListItem } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -21,7 +21,7 @@ import {
 } from "./spade-knowledge-api.ts";
 import { LibraryRow, plainLine, topicOf } from "./spade-library-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileEmpty, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** Pages shown before Show all. */
@@ -31,7 +31,8 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 
 /**
  * Pages: what the bot looks things up in, newest change first. Two pages alike enough to be one
- * wait at the top with Keep both and Merge; Add a page writes one in place.
+ * wait at the top with Keep both and Merge; Add a page (on the heading) writes one in place. None:
+ * one quiet line.
  */
 export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }) {
   const { bot } = props;
@@ -39,33 +40,43 @@ export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }
   const machine = useSpadeMachine().key;
   const now = useNow();
   const [all, setAll] = useState(false);
+  const [adding, setAdding] = useState(false);
   const pages = useQuery({
     queryKey: [...knowledgeKey, machine, bot.id, "pages", ""],
     queryFn: ({ signal }) => readKnowledge(client, bot.id, { signal }),
   });
   const entries = pages.data ?? [];
   const shown = all ? entries : entries.slice(0, shownPages);
+  const none = pages.isSuccess && entries.length === 0 && !adding;
   return (
     <ProfileSection
       label="Pages"
+      bare={none}
       actions={
-        entries.length > shownPages && (
-          <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAll(!all)}>
-            {all ? "Show fewer" : `All ${entries.length}`}
-          </Button>
-        )
+        <>
+          {entries.length > shownPages && (
+            <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : `All ${entries.length}`}
+            </Button>
+          )}
+          {!adding && (
+            <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAdding(true)}>
+              Add a page
+            </Button>
+          )}
+        </>
       }
     >
       {pages.isPending ? (
         <ListSkeleton label="pages" shape="row" rows={2} />
       ) : pages.isError && !pages.data ? (
         <ProfileProblem text="Couldn't read the pages." onRetry={() => void pages.refetch()} />
+      ) : none ? (
+        <ProfileNone>No pages yet.</ProfileNone>
       ) : (
         <>
           <Merges bot={bot} pages={entries} />
-          {entries.length === 0 ? (
-            <ProfileEmpty>No pages yet.</ProfileEmpty>
-          ) : (
+          {entries.length > 0 && (
             <SettingList aria-label={`${bot.name}'s pages`}>
               {shown.map((page) => (
                 <LibraryRow
@@ -79,7 +90,7 @@ export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }
               ))}
             </SettingList>
           )}
-          <AddPage bot={bot} onAdded={props.onOpen} />
+          {adding && <AddPage bot={bot} onAdded={props.onOpen} onClose={() => setAdding(false)} />}
         </>
       )}
     </ProfileSection>
@@ -149,22 +160,15 @@ function Merges(props: { bot: RosterBot; pages: SpadeKnowledgeEntry[] }) {
 }
 
 /** A page the person writes, in place: its title, then its text. ⌘↵ adds it, Esc gives up. */
-function AddPage(props: { bot: RosterBot; onAdded(id: string): void }) {
+function AddPage(props: { bot: RosterBot; onAdded(id: string): void; onClose(): void }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [problem, setProblem] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const close = () => {
-    setOpen(false);
-    setTitle("");
-    setBody("");
-    setProblem(undefined);
-  };
-  if (!open) return <SettingAddRow onClick={() => setOpen(true)}>Add a page</SettingAddRow>;
+  const close = props.onClose;
   const ready = title.trim() !== "" && body.trim() !== "" && !saving;
   const add = async () => {
     if (!ready) return;

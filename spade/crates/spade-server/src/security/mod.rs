@@ -6,6 +6,7 @@
 pub mod checkpoints;
 mod confine;
 pub mod grants;
+pub mod read_only;
 pub mod settings;
 pub mod toolchains;
 

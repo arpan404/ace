@@ -38,11 +38,6 @@ export const DaemonTargetShape = {
    */
   localHostId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
   /**
-   * Set only by the desktop app for the daemon it started: the proof its hello carries with
-   * the token, so the daemon knows the socket is the app's (ADR 0178 §12.8). Never stored.
-   */
-  appProof: z.optional(z.string().check(z.regex(/^[A-Za-z0-9_-]{43}$/))),
-  /**
    * A machine paired through a self-hosted relay: the relay host key to pin. `url` is then the
    * relay's address and the daemon is reached only through it (`daemon-route.ts`).
    */

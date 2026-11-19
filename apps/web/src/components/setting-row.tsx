@@ -192,7 +192,11 @@ export function SettingsGroupTitle(props: {
   return (
     <div className="mb-1.5 flex min-w-0 flex-col gap-0.5">
       <div className="flex min-h-7 items-center gap-2">
-        <h3 id={props.id} className="text-base font-semibold text-foreground">
+        <h3
+          {...part("section-title")}
+          id={props.id}
+          className="text-base font-semibold text-foreground"
+        >
           {props.children}
         </h3>
         {props.actions && (

@@ -145,7 +145,7 @@ struct RemoteScreenView: View {
                         Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
                     }
                     // Borderless, so only the button asks and the rest of the row stays still.
-                    .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.accent)
+                    .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.action)
                     .disabled(screen.busy)
                     .accessibilityIdentifier("screen.permission.\(row.id).request")
                 }

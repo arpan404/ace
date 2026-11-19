@@ -1,0 +1,675 @@
+---
+/*
+ * The home page's opening: one prompt in ace's composer, then the camera pulls back as the
+ * visitor scrolls, to the thread it became, the app around it, the machines it reached and the
+ * phone it calls. Everything is drawn once in one coordinate space (the "world", in the app's
+ * own pixels) and scripts/zoom-story.ts moves a camera over it. Labels and captions sit
+ * outside the world, so they keep their size at every zoom. The machines are drawn as hardware
+ * (components/devices) with their own desktops on screen. Each drawing carries its place
+ * twice: side by side for wide screens (`--x`, `--y`) and stacked for narrow or upright ones (`--tx`,
+ * `--ty`). Without the script the story reads as the headline and its captions, in order.
+ */
+import { builtInAgents, currentModels } from "../../content/agents.ts";
+import { product } from "../../content/product.ts";
+import {
+  agentSlot,
+  zoomCaptions,
+  zoomCast,
+  zoomHeadline,
+  zoomLinks,
+  type CastId,
+} from "../../content/zoom.ts";
+import { shotOrder } from "../../scripts/zoom-camera.ts";
+import { links } from "../../site.ts";
+import BrandMark from "../BrandMark.astro";
+import DownloadButton from "../DownloadButton.astro";
+import Icon from "../Icon.astro";
+import Laptop from "../devices/Laptop.astro";
+import LinuxScreen from "../devices/LinuxScreen.astro";
+import MacBook from "../devices/MacBook.astro";
+import Monitor from "../devices/Monitor.astro";
+import WindowsScreen from "../devices/WindowsScreen.astro";
+import MacDesktop from "../mac/MacDesktop.astro";
+import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
+
+/* Where each drawing stands: side by side on wide screens, stacked on narrow ones. */
+const places: Record<CastId, { wide: [number, number]; tall: [number, number] }> = {
+  mac: { wide: [0, 0], tall: [0, 0] },
+  build: { wide: [1856, -36], tall: [40, 1190] },
+  workstation: { wide: [1886, 540], tall: [876, 1190] },
+  phone: { wide: [-560, 46], tall: [602, 1810] },
+};
+const place = (id: CastId) => {
+  const { wide, tall } = places[id];
+  return `--x: ${wide[0]}; --y: ${wide[1]}; --tx: ${tall[0]}; --ty: ${tall[1]}`;
+};
+
+const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
+---
+
+<section class="zoom" data-zoom style={`--moves: ${shotOrder.length - 1}`}>
+  <div class="stage" data-zoom-stage>
+    <div class="lens" data-zoom-lens>
+    <div class="world" data-zoom-world aria-hidden="true">
+      <svg class="links" width="1" height="1">
+        {zoomLinks.map((line) => <path data-link data-from={line.from} data-to={line.to} />)}
+      </svg>
+
+      <div class="thing" data-thing="mac" style={place("mac")}>
+        <MacBook><MacDesktop /></MacBook>
+      </div>
+
+      <div class="thing far" data-thing="build" style={place("build")}>
+        <Laptop><LinuxScreen /></Laptop>
+      </div>
+
+      <div class="thing far" data-thing="workstation" style={place("workstation")}>
+        <Monitor><WindowsScreen /></Monitor>
+      </div>
+
+      <div class="thing phone" data-thing="phone" data-phone-shown style={place("phone")}>
+        <PhoneLockScreen />
+      </div>
+    </div>
+    </div>
+
+    <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
+    <div class="dial" data-zoom-dial hidden>
+      <div class="well" data-dial-well></div>
+      {
+        builtInAgents.map((agent, index) => (
+          <button
+            type="button"
+            class="seat"
+            data-dial-seat
+            data-model={currentModels[agent.label]?.model}
+            data-effort={currentModels[agent.label]?.effort}
+            aria-pressed={index === 0 ? "true" : "false"}
+          >
+            <BrandMark brand={agent.brand} size={18} />
+            <span>{agent.label}</span>
+          </button>
+        ))
+      }
+    </div>
+    <p class="cue" data-zoom-cue aria-hidden="true">
+      Scroll to send
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+        ><path d="M6 1.5v9M2.5 7 6 10.5 9.5 7"></path></svg
+      >
+    </p>
+
+    <div class="marks" aria-hidden="true">
+      {
+        cast.map(([id, entry]) => (
+          <span class:list={["mark", id === "phone" ? "near" : id === "mac" ? "home" : "far"]} data-label={id}>
+            <b>{entry.name}</b>
+            <span class="os">{entry.note}</span>
+          </span>
+        ))
+      }
+      {
+        zoomLinks.map((line) => (
+          <span class:list={["verb", line.to === "phone" ? "near" : "far"]} data-verb>
+            {line.verb}
+          </span>
+        ))
+      }
+    </div>
+
+    <div class="hero" data-zoom-hero>
+      <div class="page">
+        <h1 data-zoom-edge>
+          {zoomHeadline.map((line) => <span>{line}</span>)}
+        </h1>
+        <p class="summary">{product.summary}</p>
+        <div class="actions">
+          <DownloadButton />
+          <a class="button button-secondary" href={links.source}>
+            <Icon name="github-logo" size={16} />
+            Star on GitHub
+          </a>
+        </div>
+        <div class="facts">
+          <ul aria-label="Agents ace runs">
+            {
+              builtInAgents.map((agent, index) => (
+                <li>
+                  <button
+                    type="button"
+                    title={agent.label}
+                    data-zoom-pick
+                    aria-pressed={index === 0 ? "true" : "false"}
+                  >
+                    <BrandMark brand={agent.brand} size={18} />
+                    <span class="sr-only">{agent.label}</span>
+                  </button>
+                </li>
+              ))
+            }
+          </ul>
+          <p>{product.heroFacts.join(". ")}.</p>
+        </div>
+      </div>
+    </div>
+
+    <ol class="captions page" data-zoom-captions>
+      {
+        zoomCaptions.map((caption, index) => (
+          <li data-caption={caption.shot}>
+            <span class="steps" aria-hidden="true">
+              {zoomCaptions.map((_, step) => (
+                <i class:list={{ on: step === index }} />
+              ))}
+            </span>
+            <h2>{caption.title}</h2>
+            <p>
+              {caption.body.split(agentSlot).flatMap((part, at) =>
+                at === 0 ? [part] : [<span data-zoom-agent>{builtInAgents[0]?.label}</span>, part],
+              )}{" "}
+              <a href={caption.href}>More</a>
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>
+
+<style>
+  /* Each move of the camera takes a little over a screen of scrolling. */
+  .zoom[data-live] {
+    position: relative;
+    height: calc(var(--moves) * 115vh + 100vh);
+    --machines: 0;
+    --phone: 0;
+  }
+
+  .stage {
+    position: relative;
+  }
+
+  .zoom[data-live] .stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    height: 100svh;
+    overflow: hidden;
+  }
+
+  /* Without the script there is no camera: the drawing is left out and the story is its words. */
+  .zoom:not([data-live]) :is(.world, .marks) {
+    display: none;
+  }
+
+  /* What the camera sees. It fades into the page above the captions, so nothing runs under them. */
+  .lens {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    /* Clear under the floating header as well, so the drawing never shows through it. */
+    --fade:
+      linear-gradient(to top, transparent var(--band, 0px), #000 calc(var(--band, 0px) + 48px)),
+      linear-gradient(to bottom, transparent 58px, #000 100px);
+    -webkit-mask-image: var(--fade);
+    mask-image: var(--fade);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
+  /*
+   * The opening shows the composer alone on the page: this copy of it stands exactly where the
+   * camera holds the real one, and gives way once the app has faded in around it.
+   */
+  .ghost {
+    inset: auto;
+    left: 0;
+    top: 0;
+    overflow: visible;
+    background: none;
+    transform-origin: 0 0;
+  }
+
+  /* The chosen agent's mark, at the size the app's picker draws it. */
+  .zoom :global(.ace .composer .model .provider svg),
+  .ghost :global(.model .provider svg) {
+    width: 15px;
+    height: 15px;
+  }
+
+  .ghost :global(.composer) {
+    box-shadow: 0 24px 60px -30px var(--frame-shadow);
+  }
+
+  /* On a narrow screen the copy is drawn at reading size, so the prompt wraps inside it. */
+  @media (max-width: 759px) {
+    .ghost :global(.composer) {
+      height: auto;
+      min-height: 112px;
+      gap: 14px;
+    }
+
+    .verb {
+      display: none;
+    }
+  }
+
+  .zoom:not([data-live]) .ghost {
+    display: none;
+  }
+
+  .world {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    transform-origin: 0 0;
+  }
+
+  .thing {
+    position: absolute;
+    left: calc(var(--x) * 1px);
+    top: calc(var(--y) * 1px);
+  }
+
+  /* Stacked wherever the screen is narrow or taller than it is wide, such as a tablet held upright. */
+  @media (max-width: 759px), (max-aspect-ratio: 11 / 10) {
+    .thing {
+      left: calc(var(--tx) * 1px);
+      top: calc(var(--ty) * 1px);
+    }
+  }
+
+  .far {
+    opacity: var(--machines);
+  }
+
+  /* The phone is drawn a quarter larger than life, so its Lock Screen reads from further back. */
+  .phone {
+    width: 412px;
+    height: 875px;
+    opacity: var(--phone);
+  }
+
+  .phone :global(.lock) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: auto;
+    transform: scale(1.25);
+    transform-origin: 0 0;
+    opacity: 1;
+    transition: none;
+  }
+
+  .links {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+  }
+
+  .links path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: var(--machines);
+  }
+
+  .links path[data-to="phone"] {
+    opacity: var(--phone);
+  }
+
+  /* Labels: outside the scaled world, moved into place by the script. */
+  .marks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .mark,
+  .verb {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    color: var(--subtle);
+    white-space: nowrap;
+  }
+
+  /* A label stands just above its drawing's top left corner. */
+  .mark {
+    margin: -28px 0 0 2px;
+    opacity: var(--machines);
+  }
+
+  .mark b {
+    margin-right: 8px;
+    color: var(--line);
+    font-weight: 600;
+  }
+
+  /* On a narrow screen the labels stand close together, so only the names show. */
+  @media (max-width: 759px) {
+    .os {
+      display: none;
+    }
+  }
+
+  .verb {
+    padding: 5px 7px;
+    color: var(--line);
+    font-size: 11px;
+    border-radius: 999px;
+    background: var(--background);
+    opacity: var(--machines);
+  }
+
+  .mark.near,
+  .verb.near {
+    opacity: var(--phone);
+  }
+
+  .hero {
+    position: relative;
+    padding-top: calc(clamp(88px, 11vh, 112px) + var(--lift, 0px));
+  }
+
+  .zoom[data-live] .hero {
+    position: absolute;
+    inset: 0 0 auto;
+  }
+
+  h1 {
+    font-size: clamp(42px, 7.2vw, 96px);
+    font-weight: 600;
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  h1 span {
+    display: block;
+  }
+
+  .summary {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 34em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+
+  /* The agents ace runs as bare marks, then what it costs and where it runs. Where the wheel
+     beside the composer already names the agents, the marks are left out. */
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+    margin-top: 18px;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  .facts ul {
+    display: flex;
+    gap: 12px;
+    color: var(--muted);
+  }
+
+  .facts li {
+    display: grid;
+  }
+
+  /* Where the wheel doesn't fit, the marks choose the agent: the chosen one stands at full ink. */
+  .facts button {
+    display: grid;
+    padding: 4px;
+    margin: -4px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.45;
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+
+  .facts button:hover,
+  .facts button[aria-pressed="true"] {
+    opacity: 1;
+  }
+
+  .zoom[data-team="dial"] .facts ul {
+    display: none;
+  }
+
+
+  /*
+   * "A whole team out", drawn: the agents ace runs turn on a wheel beside the composer, as a
+   * phone's picker does. The one level with it is chosen and shows in the composer; the wheel
+   * turns to the next by itself until someone picks one. The script seats the chips (zoom-camera.ts `dialSeats`).
+   */
+  .dial {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .dial[hidden],
+  .zoom:not([data-live]) .dial {
+    display: none;
+  }
+
+  /* The wheel's reach: scrolling or dragging anywhere in it turns the wheel. No scroll bar. */
+  .well {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: auto;
+    touch-action: none;
+    cursor: ns-resize;
+  }
+
+  .seat {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 38px;
+    padding: 0 16px 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: 0 10px 24px -16px var(--frame-shadow);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    pointer-events: auto;
+    /* Each chip leans back as it leaves the middle, the way a row turns on a wheel. */
+    transform: perspective(420px) rotateX(var(--tilt, 0deg));
+    transform-origin: 0 50%;
+    transition:
+      translate 0.7s var(--ease-out),
+      transform 0.7s var(--ease-out),
+      scale 0.7s var(--ease-out),
+      opacity 0.45s var(--ease-out),
+      background-color var(--motion-base) var(--ease-out),
+      color var(--motion-base) var(--ease-out);
+  }
+
+  .seat[aria-pressed="true"] {
+    border-color: transparent;
+    background: var(--ink);
+    color: var(--ink-foreground);
+  }
+
+  /* A seat out of sight can't be pressed or tabbed to. */
+  .seat[data-out] {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seat {
+      transition: none;
+    }
+  }
+
+  /* Under the composer: what to do next. It leaves with the first scroll. */
+  .cue {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .zoom:not([data-live]) .cue {
+    display: none;
+  }
+
+  /* Which of the story's five stops this is. */
+  .steps {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 16px;
+  }
+
+  .steps i {
+    width: 22px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border-strong);
+  }
+
+  .steps .on {
+    background: var(--foreground);
+  }
+
+
+  .captions {
+    display: grid;
+    gap: 40px;
+    padding-block: 56px;
+  }
+
+  .zoom[data-live] .captions {
+    position: absolute;
+    inset: auto 0 0;
+    gap: 0;
+    padding-block: 0 clamp(20px, 4vh, 40px);
+  }
+
+  .zoom[data-live] .captions li {
+    grid-area: 1 / 1;
+    align-self: end;
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+      opacity 0.2s var(--ease-out),
+      transform 0.2s var(--ease-out);
+    pointer-events: none;
+  }
+
+  .zoom[data-live] .captions li.on {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.4s var(--ease-out) 0.15s,
+      transform 0.5s var(--ease-out) 0.15s;
+    pointer-events: auto;
+  }
+
+  .captions h2 {
+    max-width: 16em;
+    font-size: clamp(26px, 3.4vw, 44px);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+  }
+
+  .captions p {
+    margin-top: 10px;
+    max-width: 38em;
+    color: var(--muted);
+    font-size: clamp(15px, 1.25vw, 17px);
+    line-height: 1.5;
+  }
+
+  .captions a {
+    color: var(--foreground);
+    text-underline-offset: 3px;
+  }
+
+  /* The drawn window, as this story needs it: the prompt waits in the composer, then the thread
+     appears a line at a time. */
+  .zoom :global(.ace .composer) {
+    background: var(--a-canvas);
+  }
+
+  /* One account per agent in this story, so the picker carries no account letter. */
+  .zoom :global(.ace .composer [data-account]) {
+    display: none;
+  }
+
+  .zoom :global(.ace .placeholder.filled) {
+    color: var(--a-fg);
+  }
+
+  .zoom :global(.ace .thread[data-for="cold-start"] > *),
+  .zoom :global(.ace .dock .strip) {
+    transition:
+      opacity 0.35s var(--ease-out),
+      transform 0.45s var(--ease-out);
+  }
+
+  .zoom :global(.ace[data-lines="0"] .thread[data-for="cold-start"] > *),
+  .zoom :global(.ace[data-lines="1"] .thread[data-for="cold-start"] > :nth-child(n + 2)),
+  .zoom :global(.ace[data-lines="2"] .thread[data-for="cold-start"] > :nth-child(n + 3)),
+  .zoom :global(.ace[data-lines="3"] .thread[data-for="cold-start"] > :nth-child(n + 4)) {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  .zoom :global(.ace:not([data-lines="4"]) .dock .strip) {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoom :global(.ace .thread > *),
+    .zoom :global(.ace .dock .strip),
+    .captions li {
+      transition: none !important;
+    }
+  }
+</style>
+
+<script>
+  import { startZoomStory } from "../../scripts/zoom-story.ts";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-zoom]")) startZoomStory(root);
+</script>

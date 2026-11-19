@@ -91,6 +91,15 @@ pub fn main(args: &[OsString]) -> ExitCode {
     })
     .join()
     .unwrap_or(0);
+    // A read-only settled run (ADR 0172, amendment 7) is enforced fully or not at all: it needs
+    // the file boundary that contains truncation (ABI 3) and the seccomp filter that denies
+    // sockets. Without either, the launcher refuses, so a settled command never runs half-confined.
+    if plan.offline && (abi < 3 || plan.network != Network::Filtered) {
+        return refused(
+            "a read-only command needs the full file and network boundary, which this machine \
+             can't apply here",
+        );
+    }
     let private = plan.processes == Processes::Private;
     if plan.network == Network::Filtered && abi < 6 && !private {
         return refused(
@@ -204,11 +213,13 @@ fn run(plan: &Plan, program: &OsStr, args: &[OsString], io: Io) -> Result<ExitCo
     let relay = terminal.map(Dedicated::relay).transpose()?;
     let (send, started) = mpsc::channel();
     let network = plan.network;
+    let offline = plan.offline;
     let (program, args) = (program.to_owned(), args.to_vec());
     std::thread::spawn(move || {
         confined(
             ruleset,
             network,
+            offline,
             Start {
                 program: &program,
                 args: &args,
@@ -226,6 +237,7 @@ fn run(plan: &Plan, program: &OsStr, args: &[OsString], io: Io) -> Result<ExitCo
                 let rules = Rules {
                     proxy_port: plan.proxy_port,
                     sockets: plan.sockets.clone(),
+                    offline: plan.offline,
                 };
                 let metadata = std::sync::Arc::clone(&metadata);
                 std::thread::spawn(move || {
@@ -256,6 +268,7 @@ struct Start<'a> {
 fn confined(
     ruleset: RulesetCreated,
     network: Network,
+    offline: bool,
     start: Start<'_>,
     send: &mpsc::Sender<Started>,
 ) {
@@ -268,7 +281,7 @@ fn confined(
         Err(error) => return fail(format!("the sandbox could not be applied: {error}")),
     };
     if network == Network::Filtered {
-        let loaded = seccomp::filter(abi >= 3).and_then(|filter| {
+        let loaded = seccomp::filter(abi >= 3, offline).and_then(|filter| {
             filter.load().map_err(|e| e.to_string())?;
             filter.get_notify_fd().map_err(|e| e.to_string())
         });

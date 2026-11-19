@@ -1,0 +1,159 @@
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test, vi } from "vitest";
+import { loginShellPath } from "./login-path.ts";
+
+test.skipIf(process.platform === "win32")(
+  "desktop waits for a slow login shell instead of selecting a different provider installation",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    try {
+      await writeFile(
+        shell,
+        "#!/bin/sh\n/bin/sleep 3.2\nprintf '__ACE_PATH__/provider/current/bin:/usr/bin__ACE_PATH__'\n",
+      );
+      await chmod(shell, 0o755);
+      expect(await loginShellPath({ SHELL: shell, PATH: "/provider/old/bin:/usr/bin" })).toBe(
+        "/provider/current/bin:/usr/bin:/provider/old/bin",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a login shell that ignores being stopped still answers the current PATH at the deadline, and is killed",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        `#!/bin/sh\ntrap '' TERM\necho $$ > ${JSON.stringify(pidFile)}\nwhile :; do /bin/sleep 0.05; done\n`,
+      );
+      await chmod(shell, 0o755);
+      const started = performance.now();
+      const path = await loginShellPath(
+        { SHELL: shell, PATH: "/usr/bin:/bin" },
+        { timeoutMs: 300, killGraceMs: 200 },
+      );
+      expect(path).toBe("/usr/bin:/bin");
+      expect(performance.now() - started).toBeLessThan(2_000);
+      const pid = Number(await readFile(pidFile, "utf8"));
+      // SIGTERM is ignored; SIGKILL follows the grace period.
+      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test.skipIf(process.platform === "win32")(
+  "a profile that leaves a background process holding the shell's output still answers, and that process is ended",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        [
+          "#!/bin/sh",
+          // Started by the profile, never exits, and keeps the shell's stdout open.
+          `/bin/sleep 30 & echo $! > ${JSON.stringify(pidFile)}`,
+          "printf '__ACE_PATH__/login/bin__ACE_PATH__'",
+        ].join("\n"),
+      );
+      await chmod(shell, 0o755);
+      const started = performance.now();
+      expect(await loginShellPath({ SHELL: shell, PATH: "/usr/bin" }, { killGraceMs: 200 })).toBe(
+        "/login/bin:/usr/bin",
+      );
+      expect(performance.now() - started).toBeLessThan(2_000);
+      const pid = Number(await readFile(pidFile, "utf8"));
+      await vi.waitFor(() => expect(running(pid)).toBe(false), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a shell that exits on SIGTERM while something it started ignores it leaves nothing behind",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        [
+          "#!/bin/sh",
+          `( trap '' TERM; while :; do /bin/sleep 0.05; done ) & echo $! > ${JSON.stringify(pidFile)}`,
+          // The shell itself never answers, and exits on SIGTERM.
+          "/bin/sleep 30",
+        ].join("\n"),
+      );
+      await chmod(shell, 0o755);
+      expect(
+        await loginShellPath(
+          { SHELL: shell, PATH: "/usr/bin" },
+          { timeoutMs: 300, killGraceMs: 200 },
+        ),
+      ).toBe("/usr/bin");
+      const pid = Number(await readFile(pidFile, "utf8"));
+      // SIGTERM ends the leader; the descendant ignores it and is killed with the group.
+      await vi.waitFor(() => expect(running(pid)).toBe(false), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a lookup stopped while the shell is still starting answers at once and leaves nothing behind",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        [
+          "#!/bin/sh",
+          `/bin/sleep 30 & echo $! > ${JSON.stringify(pidFile)}`,
+          // A profile still loading: no answer for a long while.
+          "/bin/sleep 30",
+        ].join("\n"),
+      );
+      await chmod(shell, 0o755);
+      const stop = new AbortController();
+      const lookup = loginShellPath(
+        { SHELL: shell, PATH: "/usr/bin" },
+        { timeoutMs: 20_000, killGraceMs: 200, signal: stop.signal },
+      );
+      await vi.waitFor(() => readFile(pidFile, "utf8"));
+      const stopped = performance.now();
+      stop.abort();
+      expect(await lookup).toBe("/usr/bin");
+      expect(performance.now() - stopped).toBeLessThan(500);
+      const pid = Number(await readFile(pidFile, "utf8"));
+      await vi.waitFor(() => expect(running(pid)).toBe(false), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

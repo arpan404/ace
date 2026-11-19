@@ -53,56 +53,40 @@ struct SkillsLibraryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-                QuietSection {
-                    // Always in place, so the rows below never move when the projects arrive.
-                    QuietSectionRow {
-                        Text("Project").aceFont(AceDesign.TextRole.rowTitle)
-                            .foregroundStyle(AceDesign.Ink.primary)
-                        Spacer(minLength: AceDesign.Space.related)
-                        Picker("Project", selection: $projectId) {
-                            Text("None").tag("")
-                            ForEach(projects) { Text($0.name).tag($0.id) }
-                        }
-                        .labelsHidden().pickerStyle(.menu).tint(AceDesign.Ink.muted)
-                        .accessibilityIdentifier("skills.project")
-                    }
-                    if model.canOperate {
-                        Button { creating = true } label: {
-                            QuietSectionRow {
-                                Text("New skill").aceFont(AceDesign.TextRole.action)
-                                    .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
-                            }
-                        }
-                        .buttonStyle(.row)
+        List {
+            Section {
+                // Always in place, so the rows below never move when the projects arrive.
+                Picker("Project", selection: $projectId) {
+                    Text("None").tag("")
+                    ForEach(projects) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("skills.project")
+                if model.canOperate {
+                    Button { creating = true } label: { AddRow("New skill") }
+                        .buttonStyle(.plain)
                         .accessibilityIdentifier("skills.new")
-                    }
-                }
-                if let projectProblem {
-                    QuietProblem(message: projectProblem, id: "skills.projects.problem") { Task { await readProjects() } }
-                }
-                skills
-                PluginsSection(model: model, plugins: plugins, components: components, reviews: reviews, query: query,
-                               problem: pluginProblem, catalogProblem: catalogProblem, more: next != nil,
-                               install: { installing = true }, review: { review = $0 },
-                               retry: { Task { await readPlugins() } },
-                               loadMore: { Task { await readCatalog(more: true) } },
-                               retryCatalog: { Task { await readCatalog(more: catalogMoreFailed) } })
-                QuietSection {
-                    NavigationLink { SkillDiscoveryView(model: model) } label: {
-                        QuietSectionRow {
-                            QuietRowText(title: "Available CLI skills")
-                            RowCaret()
-                        }
-                    }
-                    .buttonStyle(.row)
-                    .accessibilityIdentifier("skills.discovery")
                 }
             }
-            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
+            .insetRowBackground()
+            if let projectProblem {
+                Section { ProblemRow(projectProblem, id: "skills.projects.problem") { Task { await readProjects() } } }
+            }
+            skills
+            PluginsSection(model: model, plugins: plugins, components: components, reviews: reviews, query: query,
+                           problem: pluginProblem, catalogProblem: catalogProblem, more: next != nil,
+                           install: { installing = true }, review: { review = $0 },
+                           retry: { Task { await readPlugins() } },
+                           loadMore: { Task { await readCatalog(more: true) } },
+                           retryCatalog: { Task { await readCatalog(more: catalogMoreFailed) } })
+            Section {
+                NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", systemImage: nil) }
+                    .accessibilityIdentifier("skills.discovery")
+            }
+            .insetRowBackground()
         }
-        .background(AceDesign.Surface.background)
+        .insetGroupedList()
+        .searchBarEdge()
         .animation(.default, value: library)
         .animation(.default, value: plugins)
         .sensoryFeedback(.success, trigger: made)
@@ -135,36 +119,34 @@ struct SkillsLibraryView: View {
     /// rows, a still skeleton while the first read is on its way, then what is there.
     @ViewBuilder private var skills: some View {
         if let libraryProblem {
-            QuietProblem(message: libraryProblem, id: "skills.library.problem") { Task { await readLibrary() } }
+            Section { ProblemRow(libraryProblem, id: "skills.library.problem") { Task { await readLibrary() } } }
         } else if library == nil {
-            SkeletonRows(count: 4, label: "Reading skills")
+            Section { SkeletonRows(count: 4, label: "Reading skills").listRowInsets(EdgeInsets()) }
+                .listRowBackground(Color.clear)
         }
         ForEach(groups) { group in
-            QuietSection(group.title) {
+            Section {
                 ForEach(group.rows) { row in
                     // A direct link: Settings' stack is driven by its own typed routes, so a
                     // value link of another type would never push.
                     NavigationLink {
                         SkillPageView(model: model, route: SkillRoute(id: row.id, title: row.title), workspaceId: project?.id, project: project?.name)
-                    } label: {
-                        QuietSectionRow {
-                            SkillRowLabel(row: row)
-                            RowCaret()
-                        }
-                    }
-                    .buttonStyle(.row)
+                    } label: { SkillRowLabel(row: row) }
                     .accessibilityIdentifier("skills.row.\(row.name)")
                 }
-            }
+            } header: { InsetHeader(group.title) }
+            .insetRowBackground()
         }
         if let library, libraryProblem == nil {
             if library.groups.isEmpty {
-                EmptyState(icon: .sparkle, title: "No skills yet",
-                           line: "Skills your agents keep appear here, whichever project you pick.")
-                    .padding(.vertical, AceDesign.Space.section)
+                Section {
+                    EmptyState(icon: .sparkle, title: "No skills yet")
+                        .padding(.vertical, AceDesign.Space.group)
+                }
+                .listRowBackground(Color.clear)
             } else if groups.isEmpty, PluginsSection.matching(plugins, components: components, query: query).isEmpty {
-                EmptyState.search(query)
-                    .padding(.vertical, AceDesign.Space.section)
+                Section { EmptyState.search(query).padding(.vertical, AceDesign.Space.group) }
+                    .listRowBackground(Color.clear)
             }
         }
     }

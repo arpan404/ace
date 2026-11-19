@@ -7,6 +7,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 import type { Choice } from "./project-choices.tsx";
 import { chatChoice } from "./chat-project.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const DeferredChoices = deferredComponent(() =>
   import("./project-choices.tsx").then((module) => module.ProjectChoices),
@@ -50,6 +51,7 @@ export function ProjectPicker(props: {
           onPointerEnter={warm}
           onFocus={warm}
           aria-label={chat ? "Project: none" : `Project: ${value}`}
+          {...part("link", undefined, "picker")}
           className="inline max-w-full rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-2 underline-offset-[0.2em] transition-colors duration-(--motion-fast) focus-ring hover:decoration-foreground data-popup-open:decoration-foreground"
         >
           {value}

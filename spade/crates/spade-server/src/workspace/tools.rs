@@ -490,20 +490,58 @@ impl Tool for ShellTool {
         if asks && !asks_outside(arguments) {
             return Classed::sandboxed();
         }
-        let start = match &self.shell {
-            Commands::Terminal(terminals) => self
-                .place
-                .bots
-                .agent_for_key(key)
-                .and_then(|bot| terminals.of(&bot).ok())
-                .map(|terminal| terminal.start_dir(&self.place.bots.session_for_key(key)))
-                .filter(|dir| !dir.as_os_str().is_empty()),
-            Commands::OneShot(_) => None,
-        }
-        .unwrap_or_else(|| workspace.clone());
-        let classed = match super::place::FsPlace::new(start, &workspace) {
+        // Where the command starts, and the environment it starts with.
+        let (start, env) = match &self.shell {
+            Commands::Terminal(terminals) => {
+                let terminal = self
+                    .place
+                    .bots
+                    .agent_for_key(key)
+                    .and_then(|bot| terminals.of(&bot).ok());
+                let session = self.place.bots.session_for_key(key);
+                let start = terminal
+                    .as_ref()
+                    .map(|t| t.start_dir(&session))
+                    .filter(|dir| !dir.as_os_str().is_empty());
+                let env = terminal.map(|t| t.start_environment(&session));
+                (start, env)
+            }
+            Commands::OneShot(shell) => (None, Some(shell.environment(&workspace))),
+        };
+        let start = start.unwrap_or_else(|| workspace.clone());
+        // The folder the classifier places paths against, when the command starts in it.
+        // As Spade names it to the bot, so the paths the bot writes match it.
+        let folder = std::fs::canonicalize(&workspace)
+            .ok()
+            .filter(|root| std::fs::canonicalize(&start).is_ok_and(|start| start.starts_with(root)))
+            .map(|_| workspace.clone());
+        let classed = match super::place::FsPlace::new(start.clone(), &workspace) {
             Some(place) => classify_shell(arguments, &place),
             None => classify_shell(arguments, &Lexical),
+        };
+        // What configuration around the folder could make git, a package manager, cargo or
+        // ripgrep run (ADR 0172, amendment 2); unknown without the command's environment.
+        let config_clean = match (&folder, env) {
+            (Some(_), Some(env)) => {
+                spade_classify::inspect(&super::ambient::Disk { env }, &start, &workspace)
+            }
+            _ => spade_core::autonomy::ConfigTools::default(),
+        };
+        // A command settles only if a read-only sandbox is available and every program it runs
+        // resolves on the clean PATH (ADR 0172, amendment 7); otherwise it goes to the reviewer.
+        let command = arguments
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let sandboxable = match &self.shell {
+            Commands::OneShot(shell) => shell.read_only_settles(command),
+            Commands::Terminal(terminals) => terminals.read_only_settles(command),
+        };
+        let classed = spade_core::autonomy::Classed {
+            workspace: folder.map(|root| root.to_string_lossy().into_owned()),
+            config_clean,
+            sandboxable,
+            ..classed
         };
         // Asking to run outside: what it would run there is read now, so the request is bound
         // to those files and a script it reads secrets in is refused.
@@ -581,6 +619,23 @@ impl Tool for ShellTool {
                 Err(refused) => return ToolOutput::error(refused),
             };
             let (outside, sandboxed) = (plan.outside, plan.sandboxed);
+            // A call Spade's classifier settled runs only in the form it was settled for, with
+            // the overrides that make it ignore configuration that could run a program, whatever
+            // the files say now (ADR 0172, amendment 3). Checked again from the command itself.
+            let form = place
+                .bots
+                .get()
+                .and_then(|engine| engine.take_hardening(&key));
+            if let Some(form) = &form
+                && spade_classify::hardening(&args.command).as_ref() != Some(form)
+            {
+                return ToolOutput::error(
+                    "Not run: it can't run with Spade's configuration overrides now. Call it \
+                     again to have it reviewed."
+                        .to_owned(),
+                );
+            }
+            let overrides: &[(String, String)] = form.as_ref().map_or(&[], |f| f.env.as_slice());
             let ran = match &shell {
                 Commands::OneShot(shell) => {
                     shell
@@ -588,7 +643,7 @@ impl Tool for ShellTool {
                             dir: &dir,
                             script: &args.command,
                             timeout,
-                            env: &[],
+                            env: overrides,
                             tee: None,
                             cleanup: None,
                             stdin: None,
@@ -597,11 +652,22 @@ impl Tool for ShellTool {
                             // Only a call reviewed or approved without relying on the sandbox
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
+                            clean: form.is_some(),
+                            read_only: form.is_some(),
                         })
                         .await
                 }
                 Commands::Terminal(terminals) => {
-                    in_terminal(&place, &key, terminals, &args.command, timeout, outside).await
+                    in_terminal(
+                        &place,
+                        &key,
+                        terminals,
+                        &args.command,
+                        timeout,
+                        outside,
+                        overrides,
+                    )
+                    .await
                 }
             };
             // Whatever the command did to the folder, the app looks again.
@@ -625,10 +691,16 @@ impl Tool for ShellTool {
             let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
                 .await
                 .unwrap_or_else(|_| "The output could not be read.".to_owned());
-            if failed {
+            let output = if failed {
                 ToolOutput::error(shown)
             } else {
                 ToolOutput::ok(shown)
+            };
+            ToolOutput {
+                // Where it ran and what the sandbox did with it, for the reply's steps; a
+                // command that never started has nothing to say there beyond its result.
+                command: ran.ok().map(|ran| Box::new(command_run(ran))),
+                ..output
             }
         })
     }
@@ -646,6 +718,7 @@ async fn in_terminal(
     command: &str,
     timeout: Duration,
     outside: bool,
+    overrides: &[(String, String)],
 ) -> Result<Ran, String> {
     let bot = place
         .bots
@@ -674,8 +747,36 @@ async fn in_terminal(
     let session = place.bots.session_for_key(key);
     terminals
         .of(&bot)?
-        .run_in_state(&session, command, timeout, expected.as_deref(), outside)
+        .run_in_state(
+            &session,
+            command,
+            timeout,
+            expected.as_deref(),
+            outside,
+            overrides,
+            !overrides.is_empty(),
+        )
         .await
+}
+
+/// Where a command ran and how it went, as its step shows it (`command_ran`).
+fn command_run(ran: Ran) -> crate::tools::CommandRun {
+    crate::tools::CommandRun {
+        contained: ran.contained,
+        exit_code: ran.code,
+        timed_out: ran.timed_out,
+        reached: ran.network.reached,
+        refused: ran
+            .network
+            .refused
+            .into_iter()
+            .map(|r| spade_core::event::RefusedHost {
+                host: r.host,
+                port: r.port,
+                reason: r.reason,
+            })
+            .collect(),
+    }
 }
 
 /// A run as the model reads it: how it ended, then its output.

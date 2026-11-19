@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { failureSentence } from "./market-model.ts";
 import { Avatar } from "./market-marks.tsx";
 import { useMarketPicture, usePublishAction } from "./market-publishing.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * Making and editing your publisher profile (ADR 0174 §3): a handle and a name to start, then
@@ -52,7 +53,9 @@ export function MakeProfile() {
   };
   return (
     <div className="mk-form" style={{ maxWidth: 480, marginTop: 8 }}>
-      <h1 className="mk-display-sm">Make your publisher profile</h1>
+      <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+        Make your publisher profile
+      </h1>
       <p className="mk-lead" style={{ fontSize: 15 }}>
         People see it on everything you publish.
       </p>
@@ -139,8 +142,18 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
   return (
     <div className="mk-profile-head">
       <div style={{ display: "grid", gap: 12, justifyItems: "center" }}>
-        <Avatar name={name || profile.displayName} size={96} picture={picture} />
-        <button type="button" className="mk-quiet" onClick={() => file.current?.click()}>
+        <Avatar
+          name={name || profile.displayName}
+          size={96}
+          ace={profile.official}
+          picture={picture}
+        />
+        <button
+          type="button"
+          {...part("link")}
+          className="mk-quiet"
+          onClick={() => file.current?.click()}
+        >
           Change picture
         </button>
         <input
@@ -184,7 +197,12 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
             {links.map((link, at) => (
               <div
                 key={link.id}
-                style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8 }}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "140px minmax(0, 1fr) auto",
+                  gap: 8,
+                  alignItems: "center",
+                }}
               >
                 <input
                   className="mk-field"
@@ -201,11 +219,22 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
                   value={link.url}
                   onChange={(event) => setLink(at, { url: event.target.value })}
                 />
+                <button
+                  type="button"
+                  {...part("link")}
+                  className="mk-quiet"
+                  style={{ margin: 0 }}
+                  aria-label={`Remove link ${at + 1}`}
+                  onClick={() => setLinks((before) => before.filter((_, index) => index !== at))}
+                >
+                  Remove
+                </button>
               </div>
             ))}
             {links.length < 5 && (
               <button
                 type="button"
+                {...part("link")}
                 className="mk-quiet"
                 style={{ justifySelf: "start" }}
                 onClick={() =>

@@ -1,6 +1,6 @@
 import type { MarketEntrySummary } from "@ace/protocol/marketplace";
 import { Button } from "@/components/ui/button.tsx";
-import { Card } from "./market-card.tsx";
+import { Card, cardForm } from "./market-card.tsx";
 import { Foot, Steps } from "./market-publish-parts.tsx";
 import {
   useListingCategories,
@@ -132,7 +132,7 @@ export function Describe(props: {
         </div>
         <aside className="mk-listing-preview" inert>
           <span className="mk-label">In the marketplace</span>
-          <Card entry={preview} />
+          <Card entry={preview} form={cardForm([preview])} />
         </aside>
       </div>
       <Foot>

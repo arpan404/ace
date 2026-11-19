@@ -1,0 +1,58 @@
+/*
+ * A review page's readable parts: a Suit's looks side by side, the facts as a compact list in
+ * the secondary ink, Show files, and the text button a footer sentence ends with.
+ */
+@layer components {
+  .mk-review-looks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 24px 0 0;
+  }
+  .mk-review-looks figure {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    min-width: 0;
+  }
+  .mk-review-looks .mk-stage {
+    border-radius: var(--radius-lg);
+  }
+  .mk-review-facts {
+    list-style: none;
+    margin: 24px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    font-size: var(--text-ui);
+    line-height: 20px;
+    color: var(--mk-muted);
+  }
+  .mk-show-files {
+    margin-top: 32px;
+  }
+  .mk-show-files > summary {
+    font-size: var(--text-ui);
+    font-weight: 500;
+  }
+  .mk-show-files .mk-hash {
+    margin: 12px 0 0;
+  }
+  /* A whole text keeps the room every quiet head has, also when it leads its own block. */
+  .mk-review-text {
+    margin-top: 40px;
+  }
+  .mk-review-text > .mk-quiet-head {
+    margin-top: 0;
+  }
+  .mk-text-button {
+    color: var(--ring-text);
+    font-weight: 500;
+    border-radius: var(--radius-xs);
+    white-space: nowrap;
+  }
+  .mk-text-button:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}

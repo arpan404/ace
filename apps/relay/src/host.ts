@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { ACE_CLIENT_PARAM } from "@ace/protocol/ace-client";
 import { watchLiveness } from "./liveness.ts";
 import { setMaxListeners } from "node:events";
 import type { KeyPair } from "@ace/secure-channel";
@@ -92,6 +93,8 @@ export async function connectHostToRelay(options: {
    * older daemon, and the client falls back to XX.
    */
   nk?: NkHost;
+  /** This app's `ace-client` name (ADR 0189), sent on every upgrade this host makes. */
+  aceClient?: string;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -142,6 +145,8 @@ export async function connectHostToRelay(options: {
         signal,
         clock,
         limits.handshakeTimeoutMs,
+        [],
+        options.aceClient,
       );
       watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
       sockets.add(socket);
@@ -246,6 +251,8 @@ export async function connectHostToRelay(options: {
         controller.signal,
         clock,
         limits.handshakeTimeoutMs,
+        [],
+        options.aceClient,
       );
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
@@ -299,6 +306,7 @@ export async function connectHostToRelay(options: {
           clock,
           limits.handshakeTimeoutMs,
           grant ? [GRANT_SUBPROTOCOL_PREFIX + grant] : [],
+          options.aceClient,
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
@@ -364,9 +372,12 @@ export async function connectHostToRelay(options: {
             }
             if (message.type !== "client") throw new Error("Invalid client ticket");
             if (message.purpose === "media") {
+              // ace-media dials this itself with its own minimal upgrade, so the daemon's
+              // name rides on the URL (ADR 0189).
               const joinUrl = relayAddress(options.relayUrl, "/join", {
                 ticket: message.ticket,
                 hostId: id,
+                ...(options.aceClient ? { [ACE_CLIENT_PARAM]: options.aceClient } : {}),
               });
               const ticket = message.ticket;
               const control = socket;

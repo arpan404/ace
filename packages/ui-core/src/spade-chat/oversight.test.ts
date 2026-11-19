@@ -157,6 +157,7 @@ describe("activity", () => {
     expect(words({ kind: "connector", name: "slack__send_message", outcome: "ok" })).toBe(
       "Used send message in slack",
     );
+    expect(words({ kind: "tool", name: "ask_user", outcome: "ok" })).toBe("Asked you a question");
     expect(words({ kind: "bot", name: "Travel", outcome: "received" })).toBe("Message from Travel");
     expect(words({ kind: "approval", name: "send_email", outcome: "asked" })).toBe(
       "Asked you to send an email",
@@ -306,7 +307,7 @@ describe("the chat", () => {
     c.stored({ type: "step_finished", reply: "r1", text: "Saved your plan." });
     c.stored({ type: "reply_finished", reply: "r1", text: "Saved your plan." });
     expect(
-      c.bubbles().map((bubble) => (bubble.kind === "bot" ? [bubble.text, bubble.files] : [])),
+      c.bubbles().flatMap((bubble) => (bubble.kind === "bot" ? [[bubble.text, bubble.files]] : [])),
     ).toEqual([
       ["Writing it down.", undefined],
       ["Saved your plan.", ["notes/plan.md"]],

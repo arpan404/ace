@@ -26,7 +26,7 @@ struct OtherProvidersSections: View {
                         NavigationLink { ProviderPageView(model: model, provider: row.provider, name: row.name, start: row.installable ? "install" : nil) } label: {
                             providerRow(row) {
                                 if row.installable {
-                                    Text("Install").font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.accent)
+                                    Text("Install").font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.action)
                                 }
                             }
                         }

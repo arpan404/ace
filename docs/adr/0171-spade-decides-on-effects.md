@@ -185,6 +185,128 @@ denied" joins the sandbox-failure markers. On a kernel without Landlock, or wher
 can't run, Linux keeps the review path with a one-line reason in the sandbox status. Windows is
 unchanged.
 
+## Amendment 3: driving a page or app is reviewed, and asks where it matters (2026-11-17)
+
+Replaces amendment 1's "Driving a page or app is the person's" and removes `drive` from its
+"Person-only effects come first". Decided by the owner (2026-11-17: Spade asked them to approve
+every click, keystroke and scroll of a computer-use session, so a session in an ordinary app was
+a stream of requests). A request for each step taught the person to press Allow without reading,
+which is worse than no request.
+
+- **A step goes to the reviewer.** A `browser_*`, `screen_*` or `sim_*` call ace doesn't mark
+  read-only is still `drive`, and still never runs unreviewed on a grant. Its review is told
+  where it acts and that it acts there as the person, and to escalate a step that sends, pays,
+  buys, changes access or enters a password, or that the person's request doesn't explain. With
+  untrusted content in view the review is the strict one, as for other effects: it checks the
+  step serves the person's request, not that content.
+- **Where it acts, resolved right before the step.** The place is never inferred from earlier
+  answers. Right before the gate decides, Spade asks ace, as the bot and with the call's
+  `machine` and `browser`: for a page, `browser_tabs list`, and the step acts in its `tabId`,
+  else in the tab ace marks `current`; for an app, `screen_apps` with the name given, and the
+  step may act in every app whose name or id holds it (ace opens an app by part of its name).
+  A step that opens an address (`url`) acts where it opens. A `sim_*` step that opens an app or
+  an address acts there, and the device's own operations (start, stop, install, record,
+  posture) act on the device.
+- **Anything Spade can't place goes to the person.** A tab ace doesn't list, a tab still
+  loading (a redirect in flight), a private tab, a page that isn't a web address, a name that
+  matches several apps and none exactly, an answer ace couldn't give within 15 seconds, and
+  input on a simulator or device (a tap, typing, a key, the clipboard: ace reports no app in a
+  device's foreground) are asked, with a line that says which. No grant and no Always allow
+  places them.
+- **The place is checked again right before the step runs.** The gate keeps where it found the
+  step acts, and the request the person answers keeps where they were told it acts (its
+  `acts_in`). Right before the step starts, Spade asks ace again; if the page or app is no
+  longer the same, the step doesn't run (`Not run: the page or app it acts in changed since
+Spade checked it.`) and the bot looks again, so the gate decides on where it acts then. A
+  click that navigates, Back, a redirect or another tab becoming current therefore never
+  carries the place of the page before it.
+- **And inside ace, right before each input.** A page's place is its tab and its whole address
+  (scheme, host, port, path, query and fragment). Spade hands the step to ace with
+  `expect {tabId, url}` (an app with `expect {app}`, its id), where ace's tool takes it. ace
+  checks it when the step's turn comes in the tab's queue (an agent's input can wait there for
+  the person) and again right before every input it sends; on `screen_*` the name must still
+  find that app, and the helper sends every step of the batch, conditions included, to its id.
+  A mismatch fails the step with `place_changed` and nothing more is done. The field is
+  optional: ace's other callers leave it out. The reviewer alone may let a step that sends input
+  to a tab or an app (`browser_act`, `_evaluate`, `_history`, `_measure`, `screen_act`,
+  `_state`) run only where ace's tool takes it: against an older ace the step goes to the person,
+  with a line saying an update lets Spade act there with only its review, and right before it
+  runs a step the reviewer alone let run doesn't run if ace can't hold it after all.
+- **One table of tools and operations.** Where each operation of ace's driving tools acts is
+  one table (`spade_core::effect::drive::table`, shown in spade/docs/autonomy.md): what it acts
+  on in ace, the only fields the gate reads to find it, and whether ace must hold it there. A
+  field an operation ignores (a `url` on a tab's `close`) never moves the place; a tool or
+  operation missing from the table has none. Closing the whole browser (`browser_settings
+close`) has no place either, so the person decides it.
+- **Checked where input leaves, and a script is the person's.** The place is checked in each
+  backend's transport, for every input command of every session it holds, inside the held
+  command's own async context, so the person's input and other commands are never held to it.
+  The check runs with the transport's command slot in hand, right before the write, and asks the
+  page itself where it is first: a real Chromium reports a route a mousedown handler changed only
+  after the press is acknowledged, so the browser's own report alone let a release through. A
+  gesture's end whose press moved the page isn't sent. `browser_evaluate` runs any script the page
+  allows, which no check on its calls confines: unrestricted, it always goes to the person; only
+  ace's side-effect-free mode (`mode: read-only`) may be left to the reviewer.
+- **A dialog's answer acts where the dialog is.** ace sends an answer to the tab that raised
+  the dialog, whichever tab the call names, so Spade places it in that tab (the one whose
+  `pending_dialog` has the call's `dialogId`); a dialog no tab shows asks.
+- **A stored review holds only where it was given.** `call_reviewed` keeps where the step acted
+  when it was reviewed (`acts_in`). A turn resumed after a restart reuses the verdict only if the
+  step acts there now; otherwise, or with no place stored, the step is reviewed again.
+- **The person decides in the places that matter.** A step goes to the person (`ask: drive`)
+  when it acts in mail, messages or chat; a bank, wallet, payment, checkout or cart; a password
+  manager or Keychain; the system's settings; a sign-in, account, security, settings, keys or
+  members page; a social site; a web browser driven through the screen (Spade can't see the
+  site); or a place Spade can't name. The list is `spade_core::effect::drive`: app words and
+  names, hosts and their parent domains, parts of a host (`bank`, `pay`, `login`) and of a path
+  (`/checkout`, `/settings`), of a `#/route` or of a route in the query (`?view=settings`; a search key's plain text, `?q=cheap flights`, doesn't count, but a value there that reads as a route, `?q=/settings` or `?s=checkout`, does). An address is read as a browser reads it (WHATWG
+  parsing with IDNA mapping, so `%70aypal.com` and full-width letters are `paypal.com`, and
+  escapes in a path are decoded). The apps are one table: each word comes with the full names it
+  is found in, and a part of any of them (`cord` for Discord, `ail` for Mail) counts as that
+  app, as does any app ace lists for the name that the table finds. The person's own dev server (a loopback address, `localhost`,
+  `*.localhost`, `*.local`, `*.test`; `127.example.com` is a site like any other) is no one's
+  account. Their Always allow for a driving tool still runs it elsewhere, but not
+  here: in these places each step is theirs.
+- **The reviewer can still ask.** A step it escalates, or one too long for it to read whole,
+  goes to the person, as any reviewed call does.
+- **Allow one app or site for a bot.** A request for a step in a place that isn't sensitive
+  offers "Allow \<app\> for this bot". It answers always and makes a typed grant (ADR 0167
+  decision 5) for the place the request kept: `drive_app {app}` for the app's id as ace lists
+  it, or `drive_site {host}` for the site. An app grant never covers a site and a site grant
+  never an app, whatever their words, and a device or simulator is never granted: a page a
+  simulator opens (`sim_act open_url`) is the device's, so no site grant covers it or is made
+  from it, though it is still read for where it is. Every step on a simulator or device goes to
+  the person, whatever the operation and whatever a grant or an Always allow says: a device place
+  is the person's alone by its kind, so an operation added later can't reach the reviewer. A step
+  ace can't hold to its place asks too, even under an Always allow. An app on this computer whose window
+  shows another device or computer (simulators, emulators, device mirrors, remote desktops and VM
+  apps, and Xcode, Android Studio and QuickTime Player as a whole, since a window can't be told apart) is in the
+  sensitive-app table, so input through the screen tools reaches the person the same way. A step a drive grant covers is still reviewed, told the person allowed the app, and the
+  review escalates only a send, a payment, a purchase, an access change or a password, so the
+  rest of the session there runs without asking. A drive grant is refused at creation for a
+  sensitive place, and one stored by hand covers nothing. The request's always never stores an
+  Always allow for the tool. A `tool` grant still never covers a driving tool: it would cover
+  every page.
+- **ace's own list is ace's.** An app under ace's Apps agents can't use, and the apps ace always
+  refuses (terminals, Keychain Access, Passwords, sign-in prompts), are refused by ace before a
+  step reaches them, whatever Spade decided, so Spade doesn't keep a copy.
+- **Stored events still fold.** `approval_requested` gains `ask: drive`, an optional `app` (the
+  name the card offers to allow) and an optional `acts_in` (the place); a client that doesn't
+  know them shows the usual request, with no always.
+- **What is left.** ace checks the place before each input it sends, not inside the browser's
+  own dispatch of it, so a navigation that starts in the same instant can still take an input.
+  A step the person allows, or allows always, against an ace whose tools don't take `expect`
+  runs with Spade's own check right before handing it over as the last one. Device input asks each step until ace reports which app is in a
+  device's foreground.
+
+Tested in `spade_core::effect` (each place to its route, a granted app, a sensitive one, an
+unplaced step and a tainted one), `spade_core::effect::drive` (the current tab against another
+tab, Back and a redirect, device input, parts of app names, addresses as a browser reads them,
+what may be granted), `spade_core::grant` (an app and a site with the same words) and, through
+the API, in `spade-server/tests/effects.rs` (a click in TextEdit is reviewed, typing in Mail
+asks, allowing TextEdit stops the asking, and a step whose page changed after its review doesn't
+run).
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

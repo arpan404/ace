@@ -54,3 +54,5 @@ export { AccountMachines, AddMachineDialog, type MachineWay } from "./no-machine
 export { SettingsBody } from "./settings-body.tsx";
 /** The ace window in miniature in a look, for previews outside Settings (a Suit in the marketplace). */
 export { AppPreview } from "./app-preview.tsx";
+/** This computer's daemon's account controls, for a slice that signs it in again (the marketplace). */
+export { useMachineAccountAccess } from "./machine-account.tsx";

@@ -12,6 +12,7 @@ import {
   WarningCircleIcon,
 } from "@ace/icons";
 import type { CSSProperties, ReactNode } from "react";
+import { AceLogo } from "@/components/ace-logo.tsx";
 import { part } from "@/lib/suit-part.ts";
 
 /*
@@ -64,27 +65,37 @@ export function toneOf(name: string): string {
   return tones[sum % tones.length] ?? "#AEB4C2";
 }
 
-/** A publisher or person: their picture when they have one, else initials in their tone. */
+/**
+ * A publisher or person: their picture when they have one, else initials in their tone. ace's
+ * own publisher (`ace`, by the daemon's check of the signed official list, never a name) is drawn
+ * as ace's logo, the app icon, whatever picture or name it carries.
+ */
 export function Avatar(props: {
   name: string;
   size: number;
   ace?: boolean | undefined;
   picture?: string | undefined;
 }) {
+  if (props.ace)
+    return (
+      <span
+        aria-hidden
+        {...part("avatar", undefined, "ace")}
+        data-ace=""
+        className="mk-avatar"
+        style={{ "--size": `${props.size}px` } as CSSProperties}
+      >
+        <AceLogo className="size-full" />
+      </span>
+    );
   const style = {
     "--size": `${props.size}px`,
     "--tone": toneOf(props.name),
     ...(props.picture ? { backgroundImage: `url(${JSON.stringify(props.picture)})` } : {}),
   } as CSSProperties;
   return (
-    <span
-      aria-hidden
-      {...part("avatar")}
-      data-ace={props.ace ? "" : undefined}
-      className="mk-avatar"
-      style={style}
-    >
-      {props.picture ? null : props.ace ? "ace" : initials(props.name)}
+    <span aria-hidden {...part("avatar")} className="mk-avatar" style={style}>
+      {props.picture ? null : initials(props.name)}
     </span>
   );
 }
@@ -120,7 +131,13 @@ export function Byline(props: {
   // "By ace" is the official mark: only for ace's own publisher by the signed list, never a name.
   const label = props.ace ? "By ace" : `Published by ${props.name}`;
   return props.onOpen ? (
-    <button type="button" className="mk-by" aria-label={label} onClick={props.onOpen}>
+    <button
+      type="button"
+      {...part("link", undefined, "publisher")}
+      className="mk-by"
+      aria-label={label}
+      onClick={props.onOpen}
+    >
       {inner}
     </button>
   ) : (
@@ -162,12 +179,7 @@ export function Move(props: { move: TrendMove }) {
         New
       </span>
     );
-  if (move.kind === "same")
-    return (
-      <span className="mk-move" aria-label="No change">
-        –
-      </span>
-    );
+  if (move.kind === "same") return <span className="mk-move" aria-label="No change" />;
   const Glyph = move.kind === "up" ? ArrowUpIcon : ArrowDownIcon;
   return (
     <span className="mk-move" aria-label={`${move.kind === "up" ? "Up" : "Down"} ${move.by}`}>

@@ -5,17 +5,16 @@ import { ClientError } from "./errors.ts";
 /**
  * What a hello presents: a device token, a one-use ticket, or a device grant from the ace
  * account backend (ADR 0111) with the machine code when the daemon asked for one, and the proof
- * of this install's paired credential on that machine (`link`, ADR 0115) when it has one. The
- * desktop app's page adds its `appProof` to the host token (ADR 0178 §12.8).
+ * of this install's paired credential on that machine (`link`, ADR 0115) when it has one.
  */
 export type Credential =
   | string
-  | { token: string; appProof?: string | undefined }
+  | { token: string }
   | { ticket: string }
   | { grant: string; machineCode?: string; link?: PairingLinkProof };
 const HelloCredential = z.union([
   z.string().transform((token) => ({ token })),
-  z.strictObject({ token: z.string(), appProof: z.string().optional() }),
+  z.strictObject({ token: z.string() }),
   z.strictObject({ ticket: z.string() }),
   z.strictObject({
     grant: z.string(),
@@ -26,7 +25,7 @@ const HelloCredential = z.union([
 export function parseCredential(
   credential: Credential,
 ):
-  | { token: string; appProof?: string | undefined }
+  | { token: string }
   | { ticket: string }
   | { grant: string; machineCode?: string | undefined; link?: PairingLinkProof | undefined } {
   return HelloCredential.parse(credential);

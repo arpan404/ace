@@ -265,6 +265,8 @@ pub(super) async fn step(
                 }
                 match next {
                 Some(Ok(Frame::Text { text: piece })) => {
+                    // Told before the words, so no client shows them under "Thinking".
+                    engine.writing(id);
                     text.push_str(&piece);
                     let mut current = live.current.lock().unwrap_or_else(|p| p.into_inner());
                     add_piece(&mut current, reply, &text, &piece);

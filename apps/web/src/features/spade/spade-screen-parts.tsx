@@ -16,6 +16,24 @@ export function useSpadeLine() {
   return spadeStateLine(useSpadeStatus(), enabled);
 }
 
+const scrollerClass =
+  "col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]";
+
+/** The reading column, with room under the last line for the composer floating over it. */
+const columnClass = cn(readingColumn, "w-full pb-[calc(var(--composer-clearance,0px)+1rem)]");
+
+/**
+ * A page over the composer that isn't a conversation yet (New bot): it opens at its top, so the
+ * head is in view, and stays wherever the person scrolls it while its rows load.
+ */
+export function PageScroller(props: { children: ReactNode }) {
+  return (
+    <div className={scrollerClass}>
+      <div className={cn(columnClass, "pt-6")}>{props.children}</div>
+    </div>
+  );
+}
+
 function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
   if (element && atEnd) element.scrollTop = element.scrollHeight;
 }
@@ -53,17 +71,9 @@ export function Scroller(props: {
         atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
         reportEnd(atEnd.current);
       }}
-      className="col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+      className={scrollerClass}
     >
-      {/* Room under the last line for the composer floating over the conversation. */}
-      <div
-        ref={content}
-        className={cn(
-          readingColumn,
-          "w-full pb-[calc(var(--composer-clearance,0px)+1rem)]",
-          props.top === "pill" ? "pt-18" : "pt-6",
-        )}
-      >
+      <div ref={content} className={cn(columnClass, props.top === "pill" ? "pt-18" : "pt-6")}>
         {props.children}
       </div>
     </div>

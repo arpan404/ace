@@ -18,6 +18,7 @@ import {
 } from "./market-publish-port.ts";
 import { useMarketMe } from "./market-publishing.ts";
 import { Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * Publishing (ADR 0174 §2): what you're publishing, which one, ace's checks on its files (the
@@ -98,7 +99,9 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
       <div className="mk-inner" data-width="form">
         <div className="mk-done-page">
           <Stage entry={keyOf(item)} size="card" />
-          <h1 className="mk-display-sm">{listing?.title || item.title} is waiting for review</h1>
+          <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+            {listing?.title || item.title} is waiting for review
+          </h1>
           <p className="mk-lead" style={{ fontSize: 15 }}>
             {held
               ? "A maintainer looks at it first, then it's listed once ace signs it."
@@ -120,19 +123,17 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
     return (
       <div className="mk-inner" data-width="form">
         <Steps now={now} />
-        <h1 className="mk-display-sm">What are you publishing?</h1>
-        <div
-          className="mk-cards"
-          data-cols="4"
-          data-quad=""
-          data-phone="grid"
-          style={{ marginTop: 32 }}
-        >
+        <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+          What are you publishing?
+        </h1>
+        <div className="mk-cards" data-cols="2" data-form="lockup" style={{ marginTop: 32 }}>
           {choices.map((choice) => (
             <button
               key={choice.type}
               type="button"
+              {...part("card", undefined, "market-choice")}
               className="mk-choice"
+              data-form="lockup"
               onClick={() => {
                 setType(choice.type);
                 setItem(undefined);
@@ -141,7 +142,7 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
             >
               <Stage
                 entry={{ source: "market", type: choice.type, name: choice.name.toLowerCase() }}
-                size="card"
+                size="small"
               />
               <span className="mk-card-words">
                 <span className="mk-name">{choice.name}</span>
@@ -178,7 +179,9 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
         <div className="mk-check-summary">
           <Stage entry={keyOf(item)} size="small" />
           <div style={{ display: "grid", gap: 4 }}>
-            <h1 className="mk-display-sm">{item.title}</h1>
+            <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+              {item.title}
+            </h1>
             <span className="mk-line">
               {typeWord(item.type)} · {item.version}
               {draft ? ` · ${draft.files} ${draft.files === 1 ? "file" : "files"}` : ""}

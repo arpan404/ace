@@ -56,7 +56,7 @@ export function machine(options: { sharedBeat?: boolean } = {}) {
       | undefined;
     alive = true;
     /** How the supervisor asked for this daemon to start. */
-    launch: { safeMode: boolean; appKey?: Uint8Array } = { safeMode: false };
+    launch: { safeMode: boolean } = { safeMode: false };
     /** A process that never started: signals do nothing and no exit ever follows. */
     unstarted = false;
     kill(signal: NodeJS.Signals) {

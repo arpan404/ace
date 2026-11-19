@@ -1,9 +1,15 @@
-import type { SpadeAvatar, SpadeGroup, SpadeGroupMember } from "@ace/ui-core/spade-chat";
+import {
+  spadeGroupWithLive,
+  type SpadeAvatar,
+  type SpadeGroup,
+  type SpadeGroupMember,
+} from "@ace/ui-core/spade-chat";
 import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { Machine } from "@/lib/machines.ts";
 import { spadeMachineKey, spadeMachineOf, type SpadeMachine } from "./spade-machine.tsx";
 import { readGroups } from "./spade-teams-api.ts";
+import { liveRowKey, useLiveRows } from "./spade-live-rows.ts";
 import type { RosterBot, SpadeHost } from "./use-spade-roster.ts";
 
 export const groupsKey = ["spade", "groups"] as const;
@@ -100,6 +106,8 @@ export function useSpadeGroups(roster: {
   });
   const dataKey = results.map((result) => result.dataUpdatedAt).join(",");
   const answerKey = answering.join(",");
+  // A group whose conversation is open here reads as its chat shows it (`spadeLiveGroup`).
+  const live = useLiveRows().groups;
   const groups = useMemo(
     () =>
       machines.flatMap((machine, index): RosterGroup[] => {
@@ -108,10 +116,18 @@ export function useSpadeGroups(roster: {
         const spade = spadeMachineOf(machine);
         const away = !machine.client;
         const unavailable = !away && !answering[index];
-        return data.map((group) => rosterGroup(group, spade, machine.id, away, unavailable));
+        return data.map((group) =>
+          rosterGroup(
+            spadeGroupWithLive(group, live.get(liveRowKey(spade.key, group.conversation))),
+            spade,
+            machine.id,
+            away,
+            unavailable,
+          ),
+        );
       }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `results` and `answering` are keyed
-    [machines, dataKey, answerKey],
+    [machines, dataKey, answerKey, live],
   );
   /** Some answering machine hasn't said its groups yet. */
   const loading = results.some(

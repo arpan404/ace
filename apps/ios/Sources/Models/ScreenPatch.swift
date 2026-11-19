@@ -35,7 +35,12 @@ struct FormRequest: Codable, Sendable, Equatable {
     let fields: [Field]
 }
 /// A browser tab on the agent's machine that needs the person.
-struct HelpRequest: Codable, Sendable, Equatable { let title: String; let detail: String }
+struct HelpRequest: Codable, Sendable, Equatable {
+    let title: String
+    let detail: String
+    /// Mirrored from another machine: its tab is there, not in this thread's browser.
+    var elsewhere: Bool? = nil
+}
 
 /// Effort and speed for the next message (`bridge/thread-tune.ts`).
 struct TuneRow: Codable, Sendable, Equatable {

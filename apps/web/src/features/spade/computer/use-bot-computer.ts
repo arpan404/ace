@@ -18,11 +18,14 @@ import { handBack, readComputer, takeOver } from "./computer-api.ts";
  * has stopped): never from Take over's own answer or the roster's cached read, never while a
  * take-over or hand-back is on its way, and never while the stream is down. Take over and Hand back read the
  * computer from Spade once answered; that read counts only if nothing newer (a frame, the stream
- * dropping) came while it was out.
+ * dropping) came while it was out. The bot drives a surface only while it is at work (`atWork`:
+ * a reply, a tool or a job runs, or its task carries on): Spade keeps a surface `live` for a
+ * while after its last use, and that alone is not the bot using it now.
  */
 export function useBotComputer(
   bot: RosterBot,
   side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined,
+  atWork: boolean,
 ) {
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -90,10 +93,12 @@ export function useBotComputer(
   // read nothing newer overtook), no take-over or hand-back is on its way, and no work stops.
   const fresh = streamUp && live !== undefined && pending === undefined && live.stopping === false;
   const driving = fresh && person;
-  const agentActive = (computer?.surfaces ?? []).some((each) => each.live);
+  const agentActive = atWork && (computer?.surfaces ?? []).some((each) => each.live);
   const yielding = (computer?.surfaces ?? []).some((each) => each.live && each.personActive);
   return {
     computer,
+    /** The bot is at work, so a surface Spade calls live is one it uses now. */
+    atWork,
     /**
      * Exclusive mode is the person's: the stream is up and Spade says they drive, work stopped.
      */

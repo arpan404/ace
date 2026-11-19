@@ -34,6 +34,8 @@ function setup(
   let failDownload: ((error: Error) => void) | undefined;
   let drainWaiting: ((count: number) => void) | undefined;
   let finishDrain: ((drained: boolean) => void) | undefined;
+  let clock = 0;
+  const logged: string[] = [];
   const engine: UpdateEngine = {
     canInstall: options.canInstall ?? true,
     check: async () => {
@@ -74,18 +76,22 @@ function setup(
         ? Promise.reject(options.busy)
         : Promise.resolve(options.busy ?? 0),
     prepareQuit: async (spadeMode) => {
-      effects.push("stop daemon");
+      // What the page was last told as the daemon starts to stop.
+      effects.push(reported.at(-1)?.restarting ? "stop daemon (closing said)" : "stop daemon");
       spadeModes.push(spadeMode);
+      clock += 4_000;
     },
     quit: () => effects.push("quit"),
     report: (status) => reported.push(status),
-    log: () => {},
+    log: (_level, message) => logged.push(message),
+    now: () => clock,
   });
   return {
     controller,
     reported,
     effects,
     spadeModes,
+    logged,
     states: () => reported.map((status) => status.state),
     now: () => controller.current(),
     progress: (percent: number) => progress?.(percent),
@@ -264,7 +270,7 @@ it.each(["same release", "no update", "failure"] as const)(
     await checking;
     await installing;
     await app.controller.install();
-    expect(app.effects).toEqual(["stop daemon", "install"]);
+    expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
   },
 );
 
@@ -274,7 +280,7 @@ it("the person's Restart stops running agents at once instead of waiting for the
   expect(await app.controller.busy()).toBe(2);
   await app.controller.install();
   expect(app.now().state).toBe("installing");
-  expect(app.effects).toEqual(["stop daemon", "install"]);
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
 });
 
 it("after a confirmed Restart Spade pauses its work at once; after apply it waits for idle", async () => {
@@ -310,7 +316,7 @@ it("ace update apply waits for running agents, then stops the daemon before inst
   expect(app.now()).toMatchObject({ state: "installing", waiting: 1 });
   await app.finishDrain(true);
   await applying;
-  expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
 
 it("agents still working at apply's deadline keep the update downloaded and the app running", async () => {
@@ -336,8 +342,10 @@ it("ace update apply finds, downloads and installs in one go", async () => {
     "downloading",
     "downloaded",
     "installing",
+    // Drained: now closing for the restart.
+    "installing",
   ]);
-  expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
 
 it("ace update apply with nothing newer installs nothing later", async () => {
@@ -369,6 +377,7 @@ it("a build without the release feed never asks it", async () => {
     quit: () => {},
     report: (status) => reported.push(status),
     log: () => {},
+    now: () => 0,
   });
   expect((await controller.check("person")).state).toBe("disabled");
   expect(reported).toEqual([]);
@@ -389,14 +398,14 @@ it("an update asked for from another client downloads first, then installs once 
   expect(app.effects).toEqual(["drain"]);
   await app.finishDrain(true);
   await installing;
-  expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
 
 it("an update now from another client stops agents at once without draining", async () => {
   const app = setup({ found: "1.1.0", busy: 3 });
   await downloaded(app);
   await app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
-  expect(app.effects).toEqual(["stop daemon", "install"]);
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
 });
 
 it("a remote install of a release this app doesn't offer installs nothing", async () => {
@@ -414,7 +423,7 @@ it("a remote request before the app has checked asks the feed first", async () =
   expect(app.feedRequests()).toBe(1);
   await app.finishDownload();
   await installing;
-  expect(app.effects).toEqual(["stop daemon", "install"]);
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
 });
 
 it("picking the Beta line checks it at once and offers its beta under its own release page", async () => {
@@ -501,4 +510,30 @@ describe("a switch to an older release the guard refuses by install time", () =>
     expect(app.downloads()).toBe(0);
     expect(app.now()).toMatchObject({ state: "current", blocked: why });
   });
+});
+
+it("a Restart tells the page ace is closing before the daemon stops, and logs each step's time", async () => {
+  const app = setup({ found: "1.1.0" });
+  await downloaded(app);
+  await app.controller.install();
+  // The page heard "closing" before anything stopped, and it stays that way through the install.
+  expect(app.effects).toEqual(["stop daemon (closing said)", "install"]);
+  expect(app.now()).toMatchObject({ state: "installing", restarting: true });
+  expect(app.logged).toEqual([
+    "Restart to update: asked",
+    "Restart to update: stopping the browser backend and the daemon",
+    "Restart to update: stopped in 4000 ms; starting the installer",
+  ]);
+});
+
+it("an update waiting for agents is not yet closing; it says so only once it restarts", async () => {
+  const app = setup({ found: "1.1.0" });
+  await downloaded(app);
+  const applying = app.controller.apply();
+  await settle();
+  expect(app.now()).toMatchObject({ state: "installing" });
+  expect(app.now().restarting).toBeUndefined();
+  await app.finishDrain(true);
+  await applying;
+  expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });

@@ -117,12 +117,14 @@ fn endpoint_json(view: &EndpointView, in_keychain: Option<bool>) -> Value {
         "needs_key": e.needs_key,
         "key_set": key_set,
         "key_source": source,
-        "models": view.models.iter().map(|(model, source)| json!({
-            "id": model.id,
-            "name": model.name,
-            "context": model.context,
-            "capabilities": model.capabilities.iter().map(|c| c.name()).collect::<Vec<_>>(),
-            "source": source,
+        // Only stated facts: `null` where nobody said, never Spade's own guess.
+        "models": view.models.iter().map(|shown| json!({
+            "id": shown.model.id,
+            "name": shown.model.name,
+            "context": shown.context,
+            "capabilities": shown.capabilities.as_ref()
+                .map(|all| all.iter().map(|c| c.name()).collect::<Vec<_>>()),
+            "source": shown.source,
         })).collect::<Vec<_>>(),
     })
 }

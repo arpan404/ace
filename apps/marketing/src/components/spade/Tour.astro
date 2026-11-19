@@ -1,0 +1,48 @@
+---
+/*
+ * Spade's features, walked through one a step as the features page walks through ace's
+ * (site/ScrollStory in its tour mode: the steps, an index of their names to jump from, and
+ * without the script a ruled card of the features). The drawing is the Spade messenger
+ * (Scene.astro), which acts out each feature as its step comes in (scripts/spade-scene.ts).
+ */
+import { tour } from "../../content/spade.ts";
+import ScrollStory from "../site/ScrollStory.astro";
+import Scene from "./Scene.astro";
+---
+
+<ScrollStory steps={[...tour.steps]} label={tour.label} index={tour.index}>
+  <div slot="art" class="stage">
+    <Scene />
+  </div>
+</ScrollStory>
+
+<style>
+  /* The messenger fills the stage with room round it, at most as tall as a laptop window. */
+  .stage {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    padding: 72px var(--gutter) 16px;
+  }
+
+  @media (min-width: 900px) {
+    .stage {
+      padding: 104px 0 48px;
+    }
+  }
+
+  @media (min-width: 1200px) {
+    .stage {
+      padding-right: var(--gutter);
+    }
+  }
+</style>
+
+<script>
+  import { startScene } from "../../scripts/spade-scene.ts";
+
+  for (const scene of document.querySelectorAll<HTMLElement>(".scene")) {
+    const root = scene.closest<HTMLElement>("[data-scroll-story]");
+    if (root) startScene(root);
+  }
+</script>

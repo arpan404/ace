@@ -1,70 +1,134 @@
 ---
-/* The agents ace runs, as a quiet strip of marks under the hero; /agents/ has the full list. */
+/*
+ * The agents ace runs, right after the story that shows them at work: the statement on one side
+ * and, on the other, the six built in, each with its mark and a link to its page, over one row
+ * for every other agent that speaks the Agent Client Protocol, with a few of their marks.
+ */
 import { agentGuides } from "../content/agent-guides.ts";
+import { acpAgents, builtInAgents } from "../content/agents.ts";
 import BrandMark from "./BrandMark.astro";
-import Icon from "./Icon.astro";
+
+const page = (label: string) => {
+  const guide = agentGuides.find((entry) => entry.label === label);
+  return guide ? `/agents/${guide.slug}/` : "/agents/";
+};
+/** The ACP agents whose marks stand for the rest, and how many more the app's registry lists. */
+const shown = acpAgents.slice(0, 7);
+const more = acpAgents.length - shown.length;
 ---
 
-<section class="page strip reveal" aria-label="Agents ace runs">
-  <p class="label">Runs the agents you already pay for, through their own CLIs</p>
-  <ul data-stagger>
+<section class="section page agents" aria-label="Agents ace runs">
+  <div class="say reveal">
+    <h2 class="section-title">It runs the agents you already pay for.</h2>
+    <p class="lede">
+      Each one signs in through its own CLI, on the subscription you have. ace never asks for a key.
+    </p>
+  </div>
+  <ul class="card reveal">
     {
-      agentGuides.map((guide) => (
+      builtInAgents.map((agent) => (
         <li>
-          <a href={`/agents/${guide.slug}/`}>
-            <BrandMark brand={guide.brand} size={20} />
-            {guide.label}
+          <a href={page(agent.label)}>
+            <BrandMark brand={agent.brand} size={24} />
+            {agent.label}
           </a>
         </li>
       ))
     }
-    <li>
-      <a href="/agents/" class="any">
-        and any ACP agent
-        <Icon name="arrow-right" size={14} />
+    <li class="any">
+      <a href="/agents/">
+        <span>and any other agent that speaks ACP</span>
+        <span class="marks" aria-hidden="true">
+          {shown.map((agent) => <BrandMark brand={agent.brand} size={18} />)}
+          {more > 0 && <b>+{more}</b>}
+        </span>
       </a>
     </li>
   </ul>
 </section>
 
 <style>
-  .strip {
+  .agents {
     display: grid;
-    justify-items: center;
-    gap: 22px;
-    padding-top: 96px;
-    text-align: center;
+    gap: 32px clamp(40px, 7vw, 96px);
+    align-items: start;
   }
 
-  .label {
-    color: var(--subtle);
-    font-size: 14px;
+  @media (min-width: 900px) {
+    .agents {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
   }
 
+  .say h2 {
+    max-width: 10em;
+    font-size: clamp(36px, 5vw, 64px);
+  }
+
+  /* One grid ruled with hairlines: the gaps between the cells are the rules. */
   ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  @media (min-width: 520px) {
+    ul {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  li {
+    display: grid;
+    background: var(--surface);
+  }
+
+  li > a {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 14px 36px;
-  }
-
-  a {
-    display: inline-flex;
     align-items: center;
-    gap: 10px;
-    color: var(--muted);
-    font-size: 16px;
+    gap: 13px;
+    min-height: 76px;
+    padding: 0 20px;
+    color: var(--foreground);
+    font-size: 17px;
     font-weight: 500;
+    letter-spacing: -0.015em;
     text-decoration: none;
-    transition: color var(--motion-fast) var(--ease-out);
+    white-space: nowrap;
+    transition: background-color var(--motion-fast) var(--ease-out);
   }
 
-  a:hover {
+  li > a:hover {
+    background: var(--wash);
+  }
+
+  /* Every other agent: one row across the grid, a few of their marks standing for the rest. */
+  .any {
+    grid-column: 1 / -1;
+  }
+
+  .any > a {
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    padding-block: 18px;
+    color: var(--muted);
+    font-size: 15px;
+    white-space: normal;
+  }
+
+  .marks {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
     color: var(--foreground);
   }
 
-  .any {
+  .marks b {
     color: var(--subtle);
-    font-weight: 400;
+    font-size: 13px;
+    font-weight: 500;
   }
 </style>

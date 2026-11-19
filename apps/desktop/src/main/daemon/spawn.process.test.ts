@@ -1,11 +1,20 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { spawnDaemon } from "./spawn.ts";
+import { decodeLoginPathLine } from "@ace/service/login-path";
+import { z } from "zod";
 
 const roots: string[] = [];
+/** The lines the daemon wrote to its home's launch log so far. */
+async function launchLog(home: string): Promise<string[]> {
+  const text = await readFile(join(home, "daemon-start.log"), "utf8").catch(() => "");
+  return text.split("\n").filter(Boolean);
+}
 afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
@@ -20,13 +29,13 @@ it("reports a daemon process that could not be started as exited, with the reaso
     path: "",
     version: "0.0.0",
     env: {},
-    onOutput: () => {},
+    report: () => {},
   });
   const exit = await new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
   expect(exit).toEqual([null, null, expect.stringContaining("ENOENT")]);
 });
 
-it("passes on each output line with its stream, including a last line without a newline", async () => {
+it("writes the daemon's output to its home's launch log, never through the app, and reports its exit code", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
   roots.push(root);
   const entry = join(root, "ace.mjs");
@@ -39,24 +48,23 @@ it("passes on each output line with its stream, including a last line without a 
       "process.exitCode = 65;",
     ].join("\n"),
   );
-  const output: [string, string][] = [];
+  const reported: string[] = [];
   const child = spawnDaemon({
     home: root,
     resources: { entry, node: process.execPath, packaged: false },
     path: "",
     version: "0.0.0",
     env: {},
-    onOutput: (line, stream) => output.push([stream, line]),
+    report: (line) => reported.push(line),
   });
   const exit = await new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
   expect(exit).toEqual([65, null]);
-  // The output streams may close just after the exit.
-  await vi.waitFor(() => expect(output).toHaveLength(3));
-  expect(output.toSorted()).toEqual([
-    ["stderr", "A newer version of ace wrote this data"],
-    ["stdout", "Daemon listening"],
-    ["stdout", "second line"],
+  expect(await launchLog(root)).toEqual([
+    "Daemon listening",
+    "second line",
+    "A newer version of ace wrote this data",
   ]);
+  expect(reported).toEqual([]);
 });
 
 it.runIf(process.platform === "darwin")(
@@ -75,7 +83,6 @@ it.runIf(process.platform === "darwin")(
         "setInterval(() => {}, 1000);",
       ].join("\n"),
     );
-    const output: string[] = [];
     const policy = daemonLaunchPolicy(systemLaunchPort());
     await policy.ready();
     const child = spawnDaemon({
@@ -84,12 +91,14 @@ it.runIf(process.platform === "darwin")(
       path: "",
       version: "0.0.0",
       env: {},
-      onOutput: (line) => output.push(line),
+      report: () => {},
       prioritize: policy.wrap,
     });
     const exit = new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
     try {
-      await vi.waitFor(() => expect(output).toContain("priority 46"), { timeout: 10_000 });
+      await vi.waitFor(async () => expect(await launchLog(root)).toContain("priority 46"), {
+        timeout: 10_000,
+      });
     } finally {
       child.kill("SIGTERM");
     }
@@ -98,40 +107,109 @@ it.runIf(process.platform === "darwin")(
   },
 );
 
-it("gives the daemon it spawns the app's key on stdin, and its environment only says one is there", async () => {
+it("a daemon spawned on a saved PATH gets the login shell's PATH on stdin exactly, bundled tools first", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
   roots.push(root);
   const entry = join(root, "ace.mjs");
+  // The daemon stand-in reports what it started with, then the line the app sends it.
   await writeFile(
     entry,
     [
-      'let read = "";',
-      'process.stdin.setEncoding("utf8").on("data", (chunk) => (read += chunk));',
-      'process.stdin.on("end", () => {',
-      "  const env = JSON.stringify(process.env);",
-      '  process.stdout.write(JSON.stringify({ read, flag: process.env.ACE_APP_KEY, env }) + "\\n");',
-      "});",
+      "console.log(JSON.stringify({ pending: process.env.ACE_LOGIN_PATH_PENDING, path: process.env.PATH }));",
+      'let text = "";',
+      'process.stdin.setEncoding("utf8").on("data", (chunk) => (text += chunk));',
+      'process.stdin.on("end", () => console.log(JSON.stringify({ line: text })));',
     ].join("\n"),
   );
-  const key = new Uint8Array(32).fill(0xab);
-  const hex = "ab".repeat(32);
-  const output: string[] = [];
+  const login = Promise.withResolvers<string>();
+  const output = async () => (await launchLog(root)).map((line): unknown => JSON.parse(line));
   const child = spawnDaemon({
     home: root,
-    resources: { entry, node: process.execPath, packaged: false },
-    path: "",
+    resources: { entry, node: process.execPath, packaged: false, binDirectory: "/bundled" },
+    path: "/saved/bin",
+    loginPath: login.promise,
     version: "0.0.0",
-    // A flag inherited from whatever started the app means nothing.
-    env: { ACE_APP_KEY: "inherited" },
-    appKey: key,
-    onOutput: (line, stream) => {
-      if (stream === "stdout") output.push(line);
-    },
+    env: { PATH: "/usr/bin" },
+    report: () => {},
   });
-  await new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
-  await vi.waitFor(() => expect(output).toHaveLength(1));
-  const seen = JSON.parse(output[0] ?? "{}") as { read: string; flag: string; env: string };
-  expect(seen.read).toBe(`${hex}\n`);
-  expect(seen.flag).toBe("stdin");
-  expect(seen.env).not.toContain(hex);
+  const exit = new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
+  await vi.waitFor(async () =>
+    expect(await output()).toContainEqual({
+      // What the daemon needs to ask the login shell itself, as this app would.
+      pending: JSON.stringify({ prefix: "/bundled", inherited: "/usr/bin" }),
+      path: `/bundled${delimiter}/saved/bin`,
+    }),
+  );
+  const fresh = `/My Tools/bin${delimiter}/odd\nfolder ${delimiter}/saved/bin`;
+  login.resolve(fresh);
+  expect(await exit).toEqual([0, null]);
+  const lines = await output();
+  expect(lines).toHaveLength(2);
+  const { line } = z.object({ line: z.string() }).parse(lines[1]);
+  expect(line.split("\n")).toHaveLength(2);
+  expect(decodeLoginPathLine(line)).toBe(`/bundled${delimiter}${fresh}`);
+});
+
+it("the daemon keeps running and logging after the app that started it exits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
+  roots.push(root);
+  const entry = join(root, "ace.mjs");
+  // The daemon stand-in says when its stdin ends, and keeps writing.
+  await writeFile(
+    entry,
+    [
+      'process.stdin.on("end", () => console.log("stdin ended"));',
+      "process.stdin.resume();",
+      "let tick = 0;",
+      "setInterval(() => console.log(`tick ${tick++}`), 50);",
+    ].join("\n"),
+  );
+  // The app: spawns the daemon, still owing it the login shell's PATH, and exits at once.
+  const app = join(root, "app.mjs");
+  await writeFile(
+    app,
+    [
+      `import { spawnDaemon } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, "spawn.ts")).href)};`,
+      "const child = spawnDaemon({",
+      `  home: ${JSON.stringify(root)},`,
+      `  resources: { entry: ${JSON.stringify(entry)}, node: process.execPath, packaged: false },`,
+      '  path: "",',
+      "  loginPath: new Promise(() => {}),",
+      '  version: "0.0.0",',
+      "  env: {},",
+      "  report: () => {},",
+      "});",
+      "console.log(JSON.stringify({ pid: child.pid }));",
+      "process.exit(0);",
+    ].join("\n"),
+  );
+  const launched = await new Promise<string>((resolve, reject) =>
+    execFile(process.execPath, [app], { timeout: 15_000 }, (error, stdout) =>
+      error ? reject(error) : resolve(stdout),
+    ),
+  );
+  const { pid } = z.object({ pid: z.number() }).parse(JSON.parse(launched.trim()));
+  try {
+    // Its stdin closing with the app is harmless: it goes on, and asks the login shell itself.
+    await vi.waitFor(async () => expect(await launchLog(root)).toContain("stdin ended"), {
+      timeout: 10_000,
+    });
+    const ticks = (await launchLog(root)).filter((line) => line.startsWith("tick")).length;
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await launchLog(root)).filter((line) => line.startsWith("tick")).length,
+        ).toBeGreaterThanOrEqual(ticks + 5),
+      { timeout: 10_000 },
+    );
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    // Its own process group: a signal to the app's group never reaches it.
+    if (process.platform !== "win32") expect(() => process.kill(-pid, 0)).not.toThrow();
+  } finally {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
 });

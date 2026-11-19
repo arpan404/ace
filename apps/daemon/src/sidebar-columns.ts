@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { sidebarFactColumns, sidebarReadable } from "./sidebar-facts.ts";
+import { inSavepoint } from "./sidebar-revisions.ts";
 
 /**
  * The sidebar's facts per thread in real columns (`sidebar-facts.ts`), so its lists, totals and
@@ -9,9 +10,12 @@ import { sidebarFactColumns, sidebarReadable } from "./sidebar-facts.ts";
  * A row holds the facts of its thread at one row revision. Triggers on
  * sidebar_thread_revisions recompute it whenever that revision changes, which every write to a
  * threads or thread_cold row does, from any connection or build (sidebar-revisions.ts), and drop
- * it with the thread, so it is written in the same transaction as the thread. At open, rows whose
- * revision isn't the thread's current one, or that a different definition of the facts made, are
- * recomputed. A thread whose JSON the facts can't be read from has `readable = 0`; while any does,
+ * it with the thread, so it is written in the same transaction as the thread. Rows whose
+ * revision isn't the thread's current one are recomputed at open only when something could have
+ * changed threads without the triggers: the first open of a home, a different definition of the
+ * facts, or either trigger found missing. A marker records that the repair ran, so other opens
+ * never read every thread (ADR 0170). Builds without these triggers don't drop them, and their
+ * writes still fire them. A thread whose JSON the facts can't be read from has `readable = 0`; while any does,
  * the sidebar evaluates the facts from threads instead, failing as it always did.
  *
  * The table is created at open, so it needs no migration step.
@@ -81,19 +85,30 @@ export function openSidebarColumns(db: DatabaseSync, schema: "main" | "temp" = "
     db.exec(
       `CREATE INDEX IF NOT EXISTS ${schema}.sidebar_columns_${name} ON sidebar_thread_columns${on} WHERE ${where}`,
     );
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS ${schema}.sidebar_columns_complete (id INTEGER PRIMARY KEY CHECK (id = 1))`,
+  );
+  // Rows written while either trigger was gone may be stale, so they need the repair again.
+  const kept = Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM ${schema}.sqlite_master WHERE type = 'trigger' AND name IN ('sidebar_columns_insert', 'sidebar_columns_delete')`,
+      )
+      .get()?.n,
+  );
   const recorded = db
     .prepare(`SELECT shape FROM ${schema}.sidebar_columns_shape WHERE id = 1`)
     .get()?.shape;
-  if (recorded !== shape) {
-    db.exec(`DELETE FROM ${schema}.sidebar_thread_columns`);
-    db.prepare(
-      `INSERT INTO ${schema}.sidebar_columns_shape VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET shape = excluded.shape`,
-    ).run(shape);
-  }
+  // One savepoint for clearing the marker, a new definition's reset and the triggers: an open
+  // stopped after recreating the triggers never leaves a marker a later open would believe.
   // Delete, then insert: the writing statement's conflict rule replaces a trigger's own (see
   // sidebar-revisions.ts). Recreated on every start, so older bodies are replaced.
-  db.exec(`
-    SAVEPOINT sidebar_columns_triggers;
+  inSavepoint(
+    db,
+    "sidebar_columns_triggers",
+    `
+    ${kept < 2 || recorded !== shape ? `DELETE FROM ${schema}.sidebar_columns_complete;` : ""}
+    ${recorded !== shape ? `DELETE FROM ${schema}.sidebar_thread_columns; INSERT INTO ${schema}.sidebar_columns_shape VALUES (1, '${shape}') ON CONFLICT(id) DO UPDATE SET shape = excluded.shape;` : ""}
     DROP TRIGGER IF EXISTS ${schema}.sidebar_columns_insert;
     DROP TRIGGER IF EXISTS ${schema}.sidebar_columns_delete;
     CREATE TRIGGER ${schema}.sidebar_columns_insert AFTER INSERT ON sidebar_thread_revisions BEGIN
@@ -103,9 +118,19 @@ export function openSidebarColumns(db: DatabaseSync, schema: "main" | "temp" = "
     CREATE TRIGGER ${schema}.sidebar_columns_delete AFTER DELETE ON sidebar_thread_revisions BEGIN
       DELETE FROM sidebar_thread_columns WHERE thread_id = OLD.thread_id;
     END;
-    RELEASE sidebar_columns_triggers;
-  `);
-  repairSidebarColumns(db);
+  `,
+  );
+  if (db.prepare(`SELECT 1 FROM ${schema}.sidebar_columns_complete`).get()) return;
+  // With the marker in the same savepoint, so a stop part way repairs again at the next open.
+  db.exec("SAVEPOINT sidebar_columns_complete");
+  try {
+    repairSidebarColumns(db);
+    db.exec(`INSERT INTO ${schema}.sidebar_columns_complete VALUES (1)`);
+  } catch (error) {
+    db.exec("ROLLBACK TO sidebar_columns_complete; RELEASE sidebar_columns_complete");
+    throw error;
+  }
+  db.exec("RELEASE sidebar_columns_complete");
 }
 
 /**

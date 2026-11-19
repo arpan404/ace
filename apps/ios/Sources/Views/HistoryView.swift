@@ -81,8 +81,8 @@ struct HistoryView: View {
             case .loading:
                 SkeletonRows(count: 5, label: "Loading history")
             case .failed:
-                EmptyState(icon: nil, title: "Couldn’t load history", line: "Check that a machine is connected.", failed: true) {
-                    Button("Retry") { retry() }.accessibilityIdentifier("history.retry")
+                EmptyState(icon: nil, title: "Couldn't load history.", line: "Check that a machine is connected.", failed: true) {
+                    Button("Try again") { retry() }.accessibilityIdentifier("history.retry")
                 }
                 .padding(.vertical, AceDesign.Space.group)
             case .ready:
@@ -93,19 +93,16 @@ struct HistoryView: View {
                     } else if !project.isEmpty {
                         EmptyState(icon: .clockCounterClockwise, title: "No settled threads in \(chosenName ?? "this project")")
                     } else {
-                        EmptyState(icon: .clockCounterClockwise, title: "No settled threads yet",
-                                   line: "Threads you settle show here, newest first.")
+                        EmptyState(icon: .clockCounterClockwise, title: "No settled threads yet")
                     }
                 }
                 .padding(.vertical, AceDesign.Space.group)
             }
         }
         if !inbox.merged.more.isEmpty {
-            Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
-                Text("Show older threads").meta()
-                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
-            }
-            .buttonStyle(.row)
+            Button("Show older threads") { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } }
+                .buttonStyle(.rowAction)
+                .padding(.horizontal, AceTheme.Spacing.rowInner)
             .accessibilityIdentifier("history.more")
         }
     }

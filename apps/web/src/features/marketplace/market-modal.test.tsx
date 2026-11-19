@@ -126,7 +126,7 @@ test("a withdrawn entry says why and can't be installed, even from its review's 
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Marketplace" })).toBeNull());
   app.history.push("/chats?market=plugin/old-tools/review");
   const again = await findMarket();
-  expect(await within(again).findByRole("heading", { name: "Review Old tools" })).toBeTruthy();
+  expect(await within(again).findByRole("heading", { name: "Old tools" })).toBeTruthy();
   expect(within(again).queryByRole("button", { name: "Install" })).toBeNull();
   expect(app.daemon.marketplace.accepted).toEqual([]);
 });

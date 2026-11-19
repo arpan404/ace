@@ -74,7 +74,7 @@ struct PromptsView: View {
                 .insetRowBackground()
             }
             Section {
-                NavigationLink { PromptEditor(model: model, file: nil, workspaceId: workspaceId) } label: { InsetRow("New prompt", systemImage: "plus") }
+                NavigationLink { PromptEditor(model: model, file: nil, workspaceId: workspaceId) } label: { AddRow("New prompt") }
                     .disabled(!model.canOperate)
             }
             .insetRowBackground()

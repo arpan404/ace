@@ -84,7 +84,7 @@ reply like any job result (`needs_reply`), and nothing is delivered again.
 
 ## Typed messages
 
-A message the person types (not another bot's, a routine's or a group's) while a card waits
+A message the person types (not another bot's, a routine's or a club's) while a card waits
 answers it, as before. When exactly one card waits and it is a single `text` question, or a single
 `choice` or `choices` question whose message names an option or allows `other`, the message is
 stored with a `question_answered {typed: true}` holding the answer it stands for, so the card

@@ -134,7 +134,12 @@ filesystem and network isolation are both required.
    - `pr_comment {repo, own_only}`: comment on pull requests in a repo, or only on ones the bot
      opened;
    - `folder {path, write}`: a consented project folder, read-only or read-write in the sandbox;
-   - `tool {tool, arguments}`: one tool, with each named argument matching a pattern.
+   - `tool {tool, arguments}`: one tool, with each named argument matching a pattern;
+   - `drive_app {app}` and `drive_site {host}`: steps in one app (by its id) or on one site,
+     still reviewed but without asking the person
+     ([ADR 0171](0171-spade-decides-on-effects.md) amendment 3). One kind never covers the
+     other, a device is never granted, a sensitive place (mail, chat, money, passwords,
+     settings, sign-in pages) can't be, and no `tool` grant covers a driving tool.
 
    Patterns are globs: `*` matches within a segment, `**` across `/`. A call a grant covers runs
    without a review while no untrusted content is in view. Under taint it's still reviewed, with

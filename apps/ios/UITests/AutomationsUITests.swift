@@ -23,6 +23,13 @@ import XCTest
         // The schedule's zone shows when it isn't the phone's.
         XCTAssertTrue(when.label.hasPrefix("Every day at 2:00 AM"), when.label)
         screenshot("detail")
+        // Row actions sit at the pitch of the list's other rows, not in tall padded bands.
+        let pause = app.buttons["automation.toggle"], edit = app.buttons["automation.edit"]
+        reveal(app, edit)
+        XCTAssertTrue(pause.exists && edit.exists)
+        let pitch = edit.frame.midY - pause.frame.midY
+        XCTAssertGreaterThanOrEqual(pitch, 44, "a row action is a full tap tall")
+        XCTAssertLessThanOrEqual(pitch, 54, "a row action is no taller than the list's other rows")
         // The run waiting on an approval says so; it never reads as working or done.
         let asking = element(app, "automation.run.run-nightly-4")
         reveal(app, asking)
@@ -48,9 +55,16 @@ import XCTest
         XCTAssertTrue(title.waitForExistence(timeout: 15))
         title.tap()
         title.typeText("Weekly report")
+        // Without a prompt there is nothing to run: Save waits and the foot says why.
+        let save = app.buttons["automation.save"]
+        expectation(for: NSPredicate(format: "isEnabled == false"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(element(app, "automation.problem").waitForExistence(timeout: 10), "the foot says what Save waits for")
         let prompt = app.textViews["automation.prompt"].exists ? app.textViews["automation.prompt"] : app.textFields["automation.prompt"]
         prompt.tap()
         prompt.typeText("Summarise what merged this week")
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
         screenshot("new")
         choose(app, "automation.cadence", "Weekly")
         choose(app, "automation.day", "Friday")
@@ -66,13 +80,37 @@ import XCTest
         screenshot("once")
         choose(app, "automation.cadence", "Custom")
         let expression = app.textFields["automation.expression"]
+        // The list builds the field once it comes near, so it is scrolled to first.
+        reveal(app, expression)
         XCTAssertTrue(expression.waitForExistence(timeout: 10))
         expression.tap()
         expression.typeText("FREQ=BOGUS")
-        app.buttons["automation.save"].tap()
         XCTAssertTrue(element(app, "automation.problem").waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "isEnabled == false"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
         screenshot("custom-problem")
+        // Closing with changes asks first: Keep editing keeps the draft, Discard changes closes.
         app.buttons["automation.cancel"].tap()
+        let keep = app.buttons["Keep editing"].firstMatch
+        XCTAssertTrue(keep.waitForExistence(timeout: 5), "closing a changed draft asks first")
+        keep.tap()
+        // The title has scrolled out of the list by now; the recurrence typed last is still on screen.
+        XCTAssertEqual(expression.value as? String, "FREQ=BOGUS", "Keep editing keeps the draft")
+        app.buttons["automation.cancel"].tap()
+        let discard = app.buttons["Discard changes"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 10), "Discard changes closes the editor")
+    }
+
+    func testClosingAnUnchangedEditorAsksNothing() throws {
+        let app = launchIntoAutomations()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 20))
+        app.buttons["automations.new"].tap()
+        XCTAssertTrue(app.textFields["automation.title"].waitForExistence(timeout: 15))
+        app.buttons["automation.cancel"].tap()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Discard changes"].exists, "an untouched draft closes without asking")
     }
 
     func testGitHubAndFileTriggersAreMadeOnThePhone() throws {
@@ -181,15 +219,20 @@ import XCTest
         XCTAssertTrue(option.waitForExistence(timeout: 5), "\(label) isn't offered in \(identifier)")
         option.tap()
     }
-    /// Short slow drags, down the list then back up, until `target` shows clear of the bars.
+    /// Short slow drags, down the list then back up, until `target` shows clear of the bars. The
+    /// drags stay in the list above the keyboard while it is up (a field the test typed in keeps it
+    /// open), since a drag that starts on the keyboard never scrolls the list.
     private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
-        let top = app.frame.height * 0.15, bottom = app.frame.height * 0.8
+        let keyboard = app.keyboards.firstMatch
+        let visible = keyboard.exists ? keyboard.frame.minY : app.frame.height
+        let top = app.frame.height * 0.15, bottom = visible * 0.8
         for attempt in 0..<16 {
             if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
                target.frame.minY > top, target.frame.maxY < bottom { return }
             let below = !target.exists ? attempt < 8 : target.frame.minY >= bottom
-            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.65 : 0.35))
-            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.4 : 0.6))
+            let share = visible / app.frame.height
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (below ? 0.65 : 0.35) * share))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (below ? 0.4 : 0.6) * share))
             from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
         }
     }
