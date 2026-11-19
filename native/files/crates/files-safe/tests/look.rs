@@ -317,7 +317,6 @@ fn a_burst_of_twenty_thousand_creates_costs_a_stat_a_look() {
     }
     let each = looks / created;
 
-    let started = Instant::now();
     let mut floor = Duration::ZERO;
     for set in 0..20 {
         for file in 0..1_000 {
