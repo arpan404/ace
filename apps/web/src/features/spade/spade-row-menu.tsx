@@ -93,7 +93,7 @@ function BotMenu(props: { bot: RosterBot; children: ReactNode }) {
         label={`Actions for ${bot.name}`}
         items={
           <>
-            {/* Spade, the main bot, is the list's head: always first, so nothing to pin. */}
+            {/* Spade, the main bot, is the list's first row: always first, so nothing to pin. */}
             {bot.kind !== "main" && (
               <MenuItem
                 onClick={() =>

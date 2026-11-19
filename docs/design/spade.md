@@ -14,8 +14,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Rail.** ace's rail, the only one: Threads · Chats · Spade │ Code review · Automations · Skills
   … Settings · account. While a bot needs the person and they are elsewhere, Spade carries the
   8px needs-you dot.
-- **List** (Spade's panel). The main bot's head, then one row per bot or club, then the person at
-  the foot.
+- **List** (Spade's panel). One row per bot or club, the main Spade the first of them as an
+  ordinary row. No head, no foot: the profile and Settings live in the rail.
 - **Conversation** (the main column). The floating pill, bubbles, raised cards, folded steps, the
   working line and the composer. The top bar carries no title here.
 - **Profile** (ace's side panel). One place per bot: Details, Library, Computer. The person keeps
@@ -26,13 +26,16 @@ Spade is one of ace's places. It adds no navigation of its own.
 
 ## 2. List
 
-- **Head.** The main bot in place of a title row: its 44px face, its name in 18/24 at 600, then
-  Search and + as round 32px buttons. Its dot is its state, never "online": no dot at rest or
-  while working (its eyes move), amber while it needs the person, grey while Spade is off on this
-  machine (its chat then says "Turn on").
+- **Toolbar.** A slim row above the rows, the list's and not Spade's: Search, Apps, plugins and
+  skills, and + as round 32px buttons.
+- **Spade.** The first row, drawn exactly as any other bot's: same row, same size, same face and
+  line, same hover, open and right-click states. Its dot is its state, never "online": no dot at
+  rest or while working (its eyes move), amber while it needs the person, grey while Spade is off
+  on this machine (its chat then says "Turn on"). It is never pinned and never leaves the first
+  place.
 - **Rows.** 64px, a 40px face, the name in 14/20 at 500 and one line in 13/20. No time, no glyph
   at the end: the order already says what is recent.
-- **Order.** Needs you, then working, failed, finished and not seen, then the rest.
+- **Order.** Spade first, then needs you, then working, failed, finished and not seen, then the rest.
 - **Row states.**
 
   | State              | Face           | Dot   | Line                                     |
@@ -47,8 +50,7 @@ Spade is one of ace's places. It adds no navigation of its own.
 
 - **Search** opens in place over the rows and finds conversations by their words. **+** holds New
   bot (⌘N), New club and Import bot.
-- **Foot.** The person (initials or picture, name) opens About you in Spade's Library; the gear
-  beside it opens Settings › Spade.
+- **Nothing below the rows.** No person, no gear: the rail holds the profile and Settings.
 - **Empty:** Spade alone and one way on. **Loading:** skeleton rows at row size. **Couldn't
   read:** one sentence and Try again.
 
@@ -164,24 +166,24 @@ Themed values come from `apps/web/src/theme/chat-surfaces.ts` for every theme in
 fixed sizes from `apps/web/src/styles/tokens.css`. Components read them through Tailwind
 (`bg-chat-bubble`, `text-chat-mine-foreground`, `size-(--spade-list-face)`), never as literals.
 
-| Token                                                                                                          | Use                                                                                                |
-| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `--chat-bubble`                                                                                                | The bot's bubble: ink 7% over the page in dark, 6% in light                                        |
-| `--chat-mine` / `--chat-mine-foreground`                                                                       | The person's bubble: the accent and its label                                                      |
-| `--chat-mine-meta`                                                                                             | Quieter text in the person's bubble, AA on the accent                                              |
-| `--chat-mine-code`                                                                                             | Inline code in the person's bubble, pushed away from the label                                     |
-| `--chat-code`                                                                                                  | Code inside a bot's bubble, darker than the bubble in both modes                                   |
-| `--chat-raised` / `shadow-chat-raised`                                                                         | The card that needs the person: white in light, ink 10% in dark (less where quiet text would fail) |
-| `--chat-well`                                                                                                  | Fields and chosen options inside a card                                                            |
-| `--face-dot-needs-you` / `--face-dot-failed` / `--face-dot-off`                                                | A face's status dot, the thread rows' colours                                                      |
-| `--chat-bubble-radius`, `--chat-bubble-x`, `--chat-bubble-y`                                                   | 18, 18px, 10px                                                                                     |
-| `--chat-code-inset`, `--chat-code-radius`                                                                      | 6px, 12                                                                                            |
-| `--chat-run-gap`, `--chat-turn-gap`                                                                            | 4px, 16px                                                                                          |
-| `--spade-round-button`, `--spade-pill-button`, `--spade-composer-button`                                       | 32, 36, 40                                                                                         |
-| `--spade-list-row`, `--spade-list-face`                                                                        | 64, 40                                                                                             |
-| `--spade-head-face`, `--spade-pill-face`, `--spade-working-face`, `--spade-profile-face`, `--spade-phone-face` | 44, 28, 32, 96, 52                                                                                 |
-| `--spade-profile-width`                                                                                        | 360                                                                                                |
-| `--face-dot`, `--face-dot-ring`, `--face-dot-lg`, `--face-dot-ring-lg`                                         | 12 and 2.5, 14 and 3                                                                               |
+| Token                                                                                     | Use                                                                                                |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `--chat-bubble`                                                                           | The bot's bubble: ink 7% over the page in dark, 6% in light                                        |
+| `--chat-mine` / `--chat-mine-foreground`                                                  | The person's bubble: the accent and its label                                                      |
+| `--chat-mine-meta`                                                                        | Quieter text in the person's bubble, AA on the accent                                              |
+| `--chat-mine-code`                                                                        | Inline code in the person's bubble, pushed away from the label                                     |
+| `--chat-code`                                                                             | Code inside a bot's bubble, darker than the bubble in both modes                                   |
+| `--chat-raised` / `shadow-chat-raised`                                                    | The card that needs the person: white in light, ink 10% in dark (less where quiet text would fail) |
+| `--chat-well`                                                                             | Fields and chosen options inside a card                                                            |
+| `--face-dot-needs-you` / `--face-dot-failed` / `--face-dot-off`                           | A face's status dot, the thread rows' colours                                                      |
+| `--chat-bubble-radius`, `--chat-bubble-x`, `--chat-bubble-y`                              | 18, 18px, 10px                                                                                     |
+| `--chat-code-inset`, `--chat-code-radius`                                                 | 6px, 12                                                                                            |
+| `--chat-run-gap`, `--chat-turn-gap`                                                       | 4px, 16px                                                                                          |
+| `--spade-round-button`, `--spade-pill-button`, `--spade-composer-button`                  | 32, 36, 40                                                                                         |
+| `--spade-list-row`, `--spade-list-face`                                                   | 64, 40                                                                                             |
+| `--spade-pill-face`, `--spade-working-face`, `--spade-profile-face`, `--spade-phone-face` | 28, 32, 96, 52                                                                                     |
+| `--spade-profile-width`                                                                   | 360                                                                                                |
+| `--face-dot`, `--face-dot-ring`, `--face-dot-lg`, `--face-dot-ring-lg`                    | 12 and 2.5, 14 and 3                                                                               |
 
 `theme/readability.test.ts` holds them to AA: every text tier on the bot bubble, raised card,
 well and code well; the person's text and meta text on the accent and their text on its code, for

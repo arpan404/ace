@@ -125,7 +125,7 @@ test("the rail counts what waits on the person, groups included, and nothing tha
   expect(spadeNeedsYouCount(bots, [group({ id: "g", name: "G", state: "waiting" })])).toBe(2);
 });
 
-test("pinned conversations leave the rows and read oldest pin first, Spade's included", () => {
+test("pinned conversations leave the rows and read oldest pin first, but Spade never leaves the first row", () => {
   const entries = spadeListEntries(
     [
       bot({ id: "main", kind: "main", name: "Spade" }),
@@ -142,7 +142,9 @@ test("pinned conversations leave the rows and read oldest pin first, Spade's inc
   const spadePinned = splitPinned(
     spadeListEntries([bot({ id: "main", kind: "main", name: "Spade", pinned_at: 5 })], []),
   );
-  expect(spadePinned.pinned.map(name)).toEqual(["Spade"]);
+  // Even a Spade pinned in an older build stays the first row and is not in the strip.
+  expect(spadePinned.pinned).toEqual([]);
+  expect(spadePinned.rest.map(name)).toEqual(["Spade"]);
 });
 
 const maker = { id: "gh", name: "Github watcher" };

@@ -108,9 +108,9 @@ test("the Skills Add menu offers the marketplace only while it is on", async () 
 
 const appsButton = async () => {
   const search = await screen.findByRole("button", { name: "Search conversations" });
-  const head = search.parentElement;
-  if (!head) throw new Error("Spade's list head is missing");
-  return within(head).queryByRole("button", { name: "Apps, plugins and skills" });
+  const toolbar = search.parentElement;
+  if (!toolbar) throw new Error("Spade's list toolbar is missing");
+  return within(toolbar).queryByRole("button", { name: "Apps, plugins and skills" });
 };
 
 test("Spade's apps button leads to the marketplace while it is on", async () => {
