@@ -34,6 +34,25 @@ export type MentionResolution =
 const searchLimit = 50;
 /** Answers remembered per connection; the oldest go first past this. */
 const cacheLimit = 2000;
+/** How long one mention waits on a building index, and how often it asks again. */
+const building = { deadlineMs: 10_000, retryMs: 250 };
+type BuildingWait = typeof building;
+
+/** Wait `ms`, or fail with the signal's reason the moment it aborts. */
+async function pause(signal: AbortSignal, ms: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
 
 // One path lookup at a time per connection, so a long answer doesn't flood the daemon.
 const tails = new WeakMap<ClientApi, Promise<unknown>>();
@@ -57,24 +76,33 @@ async function lookup(
   threadId: string,
   path: string,
   signal: AbortSignal,
-): Promise<FileResolution> {
-  const reply = await queued(client, signal, () =>
-    client.request(
-      {
-        type: "context.request",
-        operation: {
-          op: "mention.complete",
-          threadId: ThreadId.parse(threadId),
-          query: path.slice(0, 128),
-          limit: searchLimit,
+  wait: BuildingWait = building,
+): Promise<FileResolution | undefined> {
+  const deadline = Date.now() + wait.deadlineMs;
+  for (;;) {
+    signal.throwIfAborted();
+    const reply = await queued(client, signal, () =>
+      client.request(
+        {
+          type: "context.request",
+          operation: {
+            op: "mention.complete",
+            threadId: ThreadId.parse(threadId),
+            query: path.slice(0, 128),
+            limit: searchLimit,
+          },
         },
-      },
-      { signal },
-    ),
-  );
-  const result = reply.result;
-  if (result.kind !== "completion") return { kind: "none" };
-  return resolveFileReference(path, result.paths.filter(isCheckoutPath));
+        { signal },
+      ),
+    );
+    const result = reply.result;
+    if (result.kind !== "completion") return { kind: "none" };
+    if (result.ready) return resolveFileReference(path, result.paths.filter(isCheckoutPath));
+    // The index is still building: an empty answer here is not a miss, so ask again until the
+    // deadline. Past it the mention stays plain text, and a later draw asks afresh.
+    if (Date.now() + wait.retryMs > deadline) return undefined;
+    await pause(signal, wait.retryMs);
+  }
 }
 
 // Settled answers only: the same mention in a thread never asks twice.
@@ -89,13 +117,14 @@ export async function resolveFileMention(
   thread: { threadId: string; root: string | undefined; itemId?: string | undefined },
   reference: FileReference,
   signal: AbortSignal,
+  wait: BuildingWait = building,
 ): Promise<MentionResolution> {
   const { itemId } = thread;
   const outside: MentionResolution =
     itemId && isMachinePath(reference.path)
       ? { kind: "outside", path: reference.path, threadId: thread.threadId, itemId }
       : { kind: "none" };
-  const found = await checkoutFile(client, thread, reference, signal);
+  const found = await checkoutFile(client, thread, reference, signal, wait);
   return found.kind === "none" ? outside : found;
 }
 
@@ -104,6 +133,7 @@ async function checkoutFile(
   thread: { threadId: string; root: string | undefined },
   reference: FileReference,
   signal: AbortSignal,
+  wait: BuildingWait,
 ): Promise<FileResolution> {
   const relative = workspaceRelative(reference.path, thread.root);
   if (!relative) return { kind: "none" };
@@ -112,10 +142,11 @@ async function checkoutFile(
   const key = `${thread.threadId}\u0000${relative}`;
   const known = cache.get(key);
   if (known) return known;
-  const resolution = await lookup(client, thread.threadId, relative, signal);
+  const found = await lookup(client, thread.threadId, relative, signal, wait);
+  if (found === undefined) return { kind: "none" };
   if (cache.size >= cacheLimit) cache.delete(cache.keys().next().value ?? "");
-  cache.set(key, resolution);
-  return resolution;
+  cache.set(key, found);
+  return found;
 }
 
 function objectData(data: unknown): Record<string, unknown> {

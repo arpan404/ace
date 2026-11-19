@@ -9,6 +9,8 @@ export type FilesListOptions = FilesRequestOptions & {
   limit?: number | undefined;
   cursor?: string | undefined;
   hide?: string[] | undefined;
+  /** Page one pinned listing, for a traversal that must not fail on a changing folder. */
+  snapshot?: boolean | undefined;
 };
 export type FilesReadOptions = FilesRequestOptions & {
   offset?: number | undefined;
@@ -69,6 +71,7 @@ export class FilesClient {
         limit: options.limit ?? filesListDefaults.limit,
         ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
         hide: options.hide ?? [...filesListDefaults.hide],
+        ...(options.snapshot === undefined ? {} : { snapshot: options.snapshot }),
       },
       options,
     );

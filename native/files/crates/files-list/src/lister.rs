@@ -2,6 +2,7 @@
 
 //! One lister per checkout: it answers folder listings and stats, and remembers what it read.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::cache::Lru;
@@ -9,7 +10,7 @@ use crate::cache::Lru;
 use files_safe::Root;
 
 use crate::clock::{Clock, SystemClock};
-use crate::cursor::Cursor;
+use crate::cursor::{Cursor, Pin, Resume, decode as decode_cursor};
 use crate::entry::{Entry, Kind, kind_of, millis, size_of, symlink_kind};
 use crate::error::Error;
 use crate::hide::Hidden;
@@ -36,6 +37,16 @@ pub struct Lister {
     clock: Arc<dyn Clock>,
     rules: Mutex<Lru<Rules>>,
     snapshots: Mutex<Lru<Snapshot>>,
+    /// Listings a caller pinned for a multi-page traversal, by token.
+    pinned: Mutex<Lru<Pinned>>,
+    next_pin: AtomicU64,
+}
+
+/// One folder as a traversal first read it, kept until its pages are done.
+#[derive(Debug)]
+struct Pinned {
+    dir: String,
+    snapshot: Arc<Snapshot>,
 }
 
 impl Lister {
@@ -53,6 +64,8 @@ impl Lister {
             clock,
             rules: Mutex::new(Lru::new(MAX_CACHED_CHAINS)),
             snapshots: Mutex::new(Lru::new(MAX_CACHED_ENTRIES)),
+            pinned: Mutex::new(Lru::new(MAX_CACHED_ENTRIES)),
+            next_pin: AtomicU64::new(1),
         }
     }
 
@@ -62,6 +75,21 @@ impl Lister {
     /// held then, and once the folder is past the racy window; otherwise it is `INVALID_CURSOR`
     /// and the caller starts again from the top.
     pub fn list(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
+        self.page(dir, options, false)
+    }
+
+    /// Lists one page of a traversal that pins `dir` for as long as it pages through it.
+    ///
+    /// A traversal that walks a whole checkout is not showing a person a folder: it must see
+    /// every entry once, even when the folder changed a moment ago and keeps changing. The first
+    /// page reads the folder and keeps that listing under a token; later pages read from it, so a
+    /// folder inside the racy window or edited mid-walk cannot refuse the traversal's cursor or
+    /// skip a file. The listing is dropped when its pages are done, or evicted past the cache cap.
+    pub fn list_pinned(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
+        self.page(dir, options, true)
+    }
+
+    fn page(&self, dir: &str, options: &ListOptions, pinned: bool) -> Result<Page, Error> {
         if options.limit == 0 || options.limit > MAX_LIMIT {
             return Err(Error::InvalidArgument(format!(
                 "limit {} is outside 1..={MAX_LIMIT}",
@@ -72,9 +100,45 @@ impl Lister {
         let cursor = match options.cursor.as_deref() {
             None => None,
             Some(text) => Some(
-                Cursor::decode(text)
+                decode_cursor(text)
                     .ok_or_else(|| Error::InvalidCursor(format!("not a listing cursor: {text}")))?,
             ),
+        };
+        if let Some(Resume::Pinned(pin)) = cursor {
+            if !pinned {
+                return Err(Error::InvalidCursor(
+                    "this cursor belongs to a pinned traversal".into(),
+                ));
+            }
+            let handle = self.root.open_dir(dir)?;
+            let listing = self.pinned_listing(dir, &pin)?;
+            let total = listing.total();
+            let offset = pin.offset(total)?;
+            let end = offset.saturating_add(options.limit).min(total);
+            return Ok(Page {
+                entries: listing.entries(&handle, offset..end),
+                next_cursor: (end < total).then(|| {
+                    Pin {
+                        token: pin.token,
+                        offset: end as u64,
+                    }
+                    .encode()
+                }),
+                total,
+            });
+        }
+        let cursor = match cursor {
+            None => None,
+            Some(Resume::Folder(cursor)) => {
+                if pinned {
+                    // A traversal pages its own pinned listing, never a folder stamp cursor.
+                    return Err(Error::InvalidCursor(
+                        "a pinned traversal starts from the first page".into(),
+                    ));
+                }
+                Some(cursor)
+            }
+            Some(Resume::Pinned(_)) => None,
         };
         let hidden = Hidden::build(self.root.path(), &options.hide)?;
         let handle = self.root.open_dir(dir)?;
@@ -107,12 +171,22 @@ impl Lister {
         };
         let end = offset.saturating_add(options.limit).min(total);
         let next_cursor = (end < total).then(|| {
-            Cursor {
-                stamp: snapshot.stamp,
-                count: total as u64,
-                offset: end as u64,
+            if pinned {
+                let token = self.next_pin.fetch_add(1, Ordering::Relaxed);
+                self.pin(dir, token, Arc::clone(&snapshot), total);
+                Pin {
+                    token,
+                    offset: end as u64,
+                }
+                .encode()
+            } else {
+                Cursor {
+                    stamp: snapshot.stamp,
+                    count: total as u64,
+                    offset: end as u64,
+                }
+                .encode()
             }
-            .encode()
         });
         Ok(Page {
             entries: snapshot.entries(&handle, offset..end),
@@ -152,6 +226,36 @@ impl Lister {
                 .unwrap_or(0),
             kind,
         })
+    }
+
+    /// Keeps `snapshot` as the pinned listing `token` names, until its traversal finishes or the
+    /// cache passes its cap.
+    fn pin(&self, dir: &str, token: u64, snapshot: Arc<Snapshot>, weight: usize) {
+        let pinned = Pinned {
+            dir: dir.to_owned(),
+            snapshot,
+        };
+        if let Ok(mut cache) = self.pinned.lock() {
+            cache.insert(&token.to_string(), Arc::new(pinned), weight);
+        }
+    }
+
+    /// The listing `pin` names, which must be the one this folder's traversal pinned.
+    fn pinned_listing(&self, dir: &str, pin: &Pin) -> Result<Arc<Snapshot>, Error> {
+        let found = self
+            .pinned
+            .lock()
+            .ok()
+            .and_then(|mut cache| cache.get(&pin.token.to_string()));
+        match found {
+            Some(listing) if listing.dir == dir => Ok(Arc::clone(&listing.snapshot)),
+            Some(_) => Err(Error::InvalidCursor(format!(
+                "the pinned listing is not for {dir:?}"
+            ))),
+            None => Err(Error::InvalidCursor(format!(
+                "the pinned listing of {dir:?} expired; start again"
+            ))),
+        }
     }
 
     /// Forgets the rules and listings cached for `dirs` and everything below them. Empty string

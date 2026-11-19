@@ -166,12 +166,15 @@ import type { WorkspaceFileEntry } from "@ace/context";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** A folder mention's files: ace-files' paged listing, with ignored entries left out. */
-async function* contextFiles(
+export async function* contextFiles(
   tool: FilesTool,
   root: string,
   folder: string,
 ): AsyncGenerator<WorkspaceFileEntry> {
-  for await (const entry of aceFilesIo(tool).walk(root, folder))
+  // `.` names the checkout to a person, but ace-files' paths are root-relative and never `.`: a
+  // root mention lists from the empty path.
+  const path = folder === "." ? "" : folder;
+  for await (const entry of aceFilesIo(tool).walk(root, path))
     if (entry.type === "file" && !entry.ignored) yield { path: entry.path, size: entry.size };
 }
 

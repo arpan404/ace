@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import type { AutomationEvent } from "@ace/protocol";
-import type { EventPayload } from "@ace/files-native";
+import { FilesRequestError, type EventPayload } from "@ace/files-native";
 import { automationWorkspace } from "./automation-workspace.ts";
 import type { ServiceContext } from "./services/types.ts";
 
@@ -29,7 +29,17 @@ test("a file trigger fires for matching non-ignored changes and reconciles a res
     await mkdir(join(root, "build"));
     let listener: ((payload: EventPayload) => void) | undefined;
     let disposed = 0;
-    const files = ["src/a.ts"];
+    // The checkout's versions, shared by the listing and the stat so a save moves one version.
+    const versions = new Map([["src/a.ts", { size: 1, mtime: 1 }]]);
+    const entries = () =>
+      [...versions].map(([path, entry]) => ({
+        name: path.split("/").at(-1) ?? path,
+        path,
+        kind: "file" as const,
+        size: entry.size,
+        mtimeMs: entry.mtime,
+        ignored: false,
+      }));
     const tool = {
       watch: async (_path: string, onBatch: (payload: EventPayload) => void) => {
         listener = onBatch;
@@ -37,18 +47,28 @@ test("a file trigger fires for matching non-ignored changes and reconciles a res
           disposed++;
         };
       },
-      listFolder: async () => ({
-        entries: files.map((path) => ({
-          name: path.split("/").at(-1) ?? path,
-          path,
-          kind: "file" as const,
-          size: 1,
-          mtimeMs: 1,
-          ignored: false,
-        })),
-        nextCursor: null,
-        total: files.length,
-      }),
+      listFolder: async () => ({ entries: entries(), nextCursor: null, total: versions.size }),
+      run: async <T>(
+        _path: string,
+        task: (client: {
+          stat: (
+            root: number,
+            path: string,
+          ) => Promise<{
+            path: string;
+            kind: { type: string };
+            size: number;
+            mtimeMs: number;
+          }>;
+        }) => Promise<T>,
+      ): Promise<T> =>
+        task({
+          stat: async (_root, path) => {
+            const entry = versions.get(path);
+            if (!entry) throw new FilesRequestError("NOT_FOUND", `${path} is gone`);
+            return { path, kind: { type: "file" }, size: entry.size, mtimeMs: entry.mtime };
+          },
+        }),
     };
     const context = {
       id: () => "trigger",
@@ -68,6 +88,8 @@ test("a file trigger fires for matching non-ignored changes and reconciles a res
       { onReady: () => ready.resolve() },
     );
     await ready.promise;
+    // A save moves the file's version before the watcher's batch names it.
+    versions.set("src/a.ts", { size: 2, mtime: 2 });
     listener?.({
       type: "changes",
       changes: [
@@ -84,12 +106,151 @@ test("a file trigger fires for matching non-ignored changes and reconciles a res
       count: "1",
     });
 
-    files.push("src/b.ts");
+    versions.set("src/b.ts", { size: 1, mtime: 1 });
     listener?.({ type: "rescan" });
     await until(() => received.length === 2);
     expect(received[1]?.variables).toMatchObject({ path: "src/b.ts", kind: "created" });
     dispose();
     await until(() => disposed === 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an event that lands while the baseline is read is delivered once, after ready", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
+  try {
+    const order: string[] = [];
+    let listener: ((payload: EventPayload) => void) | undefined;
+    const versions = new Map([
+      ["src/main.ts", { size: 1, mtime: 1 }],
+      ["src/late.ts", { size: 2, mtime: 2 }],
+    ]);
+    const tool = {
+      watch: async (_path: string, onBatch: (payload: EventPayload) => void) => {
+        listener = onBatch;
+        return async () => {};
+      },
+      listFolder: async () => {
+        // The watcher reports a create while the baseline is still being read, and the walk
+        // that builds the baseline already sees the file.
+        listener?.({
+          type: "changes",
+          changes: [{ path: "src/late.ts", kind: "created", directory: false }],
+        });
+        return {
+          entries: [...versions].map(([path, entry]) => ({
+            name: path.split("/").at(-1) ?? path,
+            path,
+            kind: "file" as const,
+            size: entry.size,
+            mtimeMs: entry.mtime,
+            ignored: false,
+          })),
+          nextCursor: null,
+          total: versions.size,
+        };
+      },
+      run: async <T>(
+        _path: string,
+        task: (client: {
+          stat: (
+            root: number,
+            path: string,
+          ) => Promise<{
+            path: string;
+            kind: { type: string };
+            size: number;
+            mtimeMs: number;
+          }>;
+        }) => Promise<T>,
+      ): Promise<T> =>
+        task({
+          stat: async (_root, path) => {
+            const entry = versions.get(path);
+            if (!entry) throw new FilesRequestError("NOT_FOUND", `${path} is gone`);
+            return { path, kind: { type: "file" }, size: entry.size, mtimeMs: entry.mtime };
+          },
+        }),
+    };
+    const context = {
+      id: () => "trigger",
+      log: { log: () => {} },
+      resources: { own: () => {} },
+      store: { atomic: () => ({ path: root }) },
+      services: { filesNative: { tool } },
+    } as unknown as ServiceContext;
+    const dispose = automationWorkspace(context).subscribe(
+      root,
+      ["src/**"],
+      async (event) => {
+        order.push(`${event.variables.kind}:${event.variables.path}`);
+      },
+      { onReady: () => order.push("ready") },
+    );
+    await until(() => order.includes("ready") && order.includes("created:src/late.ts"));
+    expect(order).toEqual(["ready", "created:src/late.ts"]);
+
+    // The replayed create moved the baseline, so a rescan has nothing to report again.
+    listener?.({ type: "rescan" });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(order).toEqual(["ready", "created:src/late.ts"]);
+    dispose();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a rescan of an untouched checkout reports nothing", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
+  try {
+    let listener: ((payload: EventPayload) => void) | undefined;
+    const tool = {
+      watch: async (_path: string, onBatch: (payload: EventPayload) => void) => {
+        listener = onBatch;
+        return async () => {};
+      },
+      listFolder: async () => ({
+        entries: [
+          {
+            name: "keep.ts",
+            path: "src/keep.ts",
+            kind: "file" as const,
+            size: 4,
+            mtimeMs: 7,
+            ignored: false,
+          },
+        ],
+        nextCursor: null,
+        total: 1,
+      }),
+      run: async <T>(): Promise<T> => {
+        throw new Error("a rescan of an untouched checkout reads no versions");
+      },
+    };
+    const context = {
+      id: () => "trigger",
+      log: { log: () => {} },
+      resources: { own: () => {} },
+      store: { atomic: () => ({ path: root }) },
+      services: { filesNative: { tool } },
+    } as unknown as ServiceContext;
+    const received: AutomationEvent[] = [];
+    const ready = Promise.withResolvers<void>();
+    const dispose = automationWorkspace(context).subscribe(
+      root,
+      ["src/**"],
+      async (event) => {
+        received.push(event);
+      },
+      { onReady: () => ready.resolve() },
+    );
+    await ready.promise;
+    listener?.({ type: "rescan" });
+    // Let the rescan finish; it seeds nothing new and has nothing to report.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(received).toEqual([]);
+    dispose();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

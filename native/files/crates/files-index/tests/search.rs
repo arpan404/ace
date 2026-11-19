@@ -27,8 +27,8 @@ fn file_name_match_ranks_above_folder_match() {
     let hits = fixture.index.search("ace", 10);
     assert_eq!(
         paths(&hits),
-        ["src/ace_notes.rs", "ace/notes.txt"],
-        "the match inside the file name wins"
+        ["ace/", "src/ace_notes.rs", "ace/notes.txt"],
+        "a folder named ace is offered too; among the files, the name match wins"
     );
 }
 
@@ -46,18 +46,29 @@ fn file_name_slice_lifts_a_path_whose_best_alignment_is_in_a_folder() {
 fn file_name_match_beats_a_scattered_name_match() {
     let fixture = indexed(&["x/l_i_b.rs", "lib/lib.rs"]);
     let hits = fixture.index.search("lib", 10);
-    assert_eq!(hits[0].path, "lib/lib.rs");
+    // The folder is a candidate of its own; among the files the contiguous name wins.
+    let files: Vec<&str> = hits
+        .iter()
+        .map(|hit| hit.path.as_str())
+        .filter(|path| !path.ends_with('/'))
+        .collect();
+    assert_eq!(files, ["lib/lib.rs", "x/l_i_b.rs"]);
 }
 
 #[test]
 fn slash_query_matches_path_segments() {
     let fixture = indexed(&["crates/ace/src/lib.rs", "crates/other/ace.rs"]);
     let hits = fixture.index.search("crates/ace", 10);
-    assert_eq!(hits[0].path, "crates/ace/src/lib.rs");
+    assert_eq!(hits[0].path, "crates/ace/", "the folder is a candidate too");
     assert_eq!(
         hits[0].positions,
         (0..10).collect::<Vec<u32>>(),
         "the query matches the two segments it names"
+    );
+    assert!(
+        paths(&hits).contains(&"crates/ace/src/lib.rs"),
+        "the file inside it still answers: {:?}",
+        paths(&hits)
     );
 }
 
@@ -96,10 +107,24 @@ fn positions_land_on_character_boundaries() {
 }
 
 #[test]
-fn empty_query_returns_nothing() {
-    let fixture = indexed(&["src/main.rs"]);
-    assert!(fixture.index.search("", 10).is_empty());
-    assert!(fixture.index.search("   ", 10).is_empty());
+fn empty_query_offers_the_shallowest_paths() {
+    let fixture = indexed(&["src/main.rs", "docs/deep/guide.md"]);
+    assert_eq!(
+        paths(&fixture.index.search("", 10)),
+        [
+            "docs/",
+            "src/",
+            "docs/deep/",
+            "src/main.rs",
+            "docs/deep/guide.md"
+        ],
+        "shallowest first, then by path"
+    );
+    // Whitespace is the same as nothing typed, and a zero limit still means no hits.
+    assert_eq!(
+        fixture.index.search("   ", 10),
+        fixture.index.search("", 10)
+    );
     assert!(fixture.index.search("main", 0).is_empty());
 }
 

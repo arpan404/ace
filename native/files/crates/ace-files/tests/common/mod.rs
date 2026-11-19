@@ -639,7 +639,13 @@ pub fn await_reported(client: &mut Client, base: &Path, subscription: u64, path:
             // A degraded watcher (the polling fallback) still reports batches; keep waiting.
             Some(EventPayload::Warning { .. } | EventPayload::Rescan { .. }) => {}
             Some(other) => panic!("unexpected watch event {other:?}"),
-            None => write_file(base, path, "created\n"),
+            // A change the backend did not report is nudged by writing the path. A rename into
+            // the trash names a folder, which cannot be nudged that way: keep waiting instead.
+            None => {
+                if !base.join(path).is_dir() {
+                    write_file(base, path, "created\n");
+                }
+            }
         }
     }
 }

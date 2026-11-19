@@ -71,6 +71,7 @@ export type FilesToolClient = {
     options: {
       limit?: number | undefined;
       cursor?: string | undefined;
+      snapshot?: boolean | undefined;
       signal?: AbortSignal | undefined;
     },
   ): Promise<PageReply>;
@@ -294,6 +295,8 @@ export class FilesTool {
     options: {
       limit?: number | undefined;
       cursor?: string | undefined;
+      /** Pin the listing for a multi-page traversal that must not fail on a changing folder. */
+      snapshot?: boolean | undefined;
       signal?: AbortSignal | undefined;
     } = {},
   ): Promise<FolderPage> {
@@ -306,6 +309,7 @@ export class FilesTool {
       client.list(root, dir, {
         limit,
         ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+        ...(options.snapshot === undefined ? {} : { snapshot: options.snapshot }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       }),
     );
@@ -313,8 +317,9 @@ export class FilesTool {
   }
 
   /**
-   * Quick-open paths from the checkout's index. `ready: false` means the index is still building
-   * and the client keeps its loading state; there is no TypeScript index to fall back to.
+   * Quick-open paths from the checkout's index, files and folders together; a folder's path ends
+   * in `/`. `ready: false` means the index is still building and the client keeps its loading
+   * state; there is no TypeScript index to fall back to. No query is the shallowest paths.
    */
   async quickOpen(
     path: string,

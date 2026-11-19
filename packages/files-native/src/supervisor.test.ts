@@ -191,6 +191,46 @@ describe("FilesProcess", () => {
     await watch.dispose();
   });
 
+  it("tells a re-subscribed watch to re-list only once the process answers as up", async () => {
+    const h = harness();
+    await h.files.start();
+    const root = await h.files.openRoot("/repo");
+    const states: string[] = [];
+    const watch = await h.files.watch(root, (payload) => {
+      if (payload.type === "rescan") states.push(h.files.state());
+    });
+    h.host.children.at(-1)?.kill();
+    await until(() => h.files.state() === "down");
+    await h.clock.advance(250);
+    await until(() => fakeSpawnCount(h) === 2 && states.length === 1);
+    // The rescan makes its listener list the folder, so it must not arrive while the run is
+    // still marked starting: a listing then would be refused as restarting.
+    expect(states).toEqual(["up"]);
+    await watch.dispose();
+  });
+
+  it("retries a watch whose re-open failed retryably instead of dropping it", async () => {
+    const h = registered("answer", { env: () => ({ FAKE_FILES_WATCH_FAILURES: "1" }) });
+    await h.files.start();
+    const root = await h.files.openRoot("/repo");
+    const batches: EventPayload[] = [];
+    const watch = await h.files.watch(root, (payload) => batches.push(payload));
+    await until(() => batches.length === 1);
+    h.host.children.at(-1)?.kill();
+    await until(() => h.files.state() === "down");
+    await h.clock.advance(250);
+    // The restarted process refuses its first watch with BUSY; the run stays up and asks again.
+    await until(() => fakeSpawnCount(h) === 2);
+    await until(() => h.files.state() === "up");
+    expect(batches.some((payload) => payload.type === "rescan")).toBe(false);
+    await h.clock.advance(500);
+    await until(() => batches.some((payload) => payload.type === "rescan"));
+    expect(fakeSpawnCount(h)).toBe(2);
+    // The retried watch is live: the fake's start event reaches the caller.
+    await until(() => batches.length >= 2);
+    await watch.dispose();
+  });
+
   it("keeps serving other roots when one cannot be re-opened after a restart", async () => {
     const h = registered("answer", {
       env: (dir) => ({

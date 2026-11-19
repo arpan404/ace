@@ -231,8 +231,15 @@ struct FilesScreen: View {
         do {
             var found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
             // A checkout whose index is still building answers empty with `ready: false`: keep
-            // the skeleton and ask again until it can answer, or the query changes.
+            // the skeleton and ask again, until it answers or the wait runs out. Past the
+            // deadline the screen says so and the next keystroke tries again.
+            let deadline = ContinuousClock.now.advanced(by: .seconds(8))
             while found.ready == false {
+                guard ContinuousClock.now < deadline else {
+                    results = nil
+                    searchFailure = "The checkout's file index is still building. Try again in a moment."
+                    return
+                }
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled, query.trimmingCharacters(in: .whitespaces) == text else { return }
                 found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
