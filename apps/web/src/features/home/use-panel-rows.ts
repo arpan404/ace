@@ -1,5 +1,5 @@
 import { panelPage, panelRows, type HomeRow, type ThreadsTab } from "@ace/ui-core";
-import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HomeList } from "./use-home-threads.ts";
 import { useSettledPaging } from "./settled-paging.ts";
 import type { DeviceScope } from "./device-filter-state.ts";
@@ -62,24 +62,22 @@ export function usePanelRows(input: {
   const settled = list.panel.settled.length;
   // Settled shows more than it has loaded: the daemon's next page fills it.
   const filling = settled < shown.settled;
-  // Pages asked for by itself toward this page shown, under this filter.
-  const target = `${key}\n${shown.settled}`;
-  const [filled, setFilled] = useState({ target, pages: 0 });
-  const asked = filled.target === target ? filled.pages : 0;
-  const wanted =
-    filling &&
-    asked < fillPages &&
-    settledPaging.hasMore &&
-    !settledPaging.loading &&
-    !settledPaging.error;
+  const wanted = filling && settledPaging.hasMore && !settledPaging.loading && !settledPaging.error;
   const { more: loadMore, nextAt } = settledPaging;
+  // The pages asked for by itself toward this page shown, under this filter, by where each
+  // starts: an effect run twice for one page counts it once.
+  const target = `${key}\n${shown.settled}`;
+  const filled = useRef({ target, pages: new Set<number | undefined>() });
   useEffect(() => {
     if (!wanted) return;
-    setFilled({ target, pages: asked + 1 });
+    if (filled.current.target !== target) filled.current = { target, pages: new Set() };
+    const { pages } = filled.current;
+    if (!pages.has(nextAt) && pages.size >= fillPages) return;
+    pages.add(nextAt);
     void loadMore();
     // `nextAt` moves with each page: while Settled still wants more, the next one is asked for.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, nextAt]);
+  }, [wanted, nextAt, target]);
   const paged: Paged | undefined = tab === "inbox" ? undefined : tab;
   /** A page more of the open tab's threads, from what it holds: never a request. */
   const grow = useCallback(

@@ -146,8 +146,7 @@ function useSockets(clients: readonly (ClientApi | undefined)[]): string[] {
         for (const stop of stops) stop?.();
       };
     },
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-    clients,
+    [clients],
   );
   const snapshot = () =>
     clients
