@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isLocalRemoteKey } from "@ace/git/remote-url";
 import { ProjectRemoteKey, WorkspaceId } from "@ace/protocol";
 
 /*
@@ -91,19 +92,12 @@ export function duePage(
   return { due, next: rows.length < limit || last === undefined ? undefined : String(last) };
 }
 
-/**
- * Whether a remote key names a path on this machine (`/srv/git/app.git`, a `file://` URL, a
- * drive or a share): the same path on two machines is two unrelated repositories, so it never
- * groups anything.
- */
-export const isLocalRemote = (key: string) => key.startsWith("/") || /^[a-z]:[\\/]/i.test(key);
-
 const keyText = (remotes: unknown, subpath: unknown) =>
   typeof remotes === "string" ? `${remotes}\n${String(subpath ?? "")}` : null;
 
 /**
  * Keep what a read found at `at`: `remotes` empty for a folder outside Git or without a
- * remote. Remotes on this machine's own disk are left out (`isLocalRemote`); a checkout with
+ * remote. Remotes on this machine's own disk are left out (`isLocalRemoteKey`); a checkout with
  * only those has no key. Whether the stored key changed, so the caller tells clients.
  */
 export function saveRead(
@@ -112,7 +106,7 @@ export function saveRead(
   found: { remotes: readonly string[]; subpath: string },
   at: number,
 ): boolean {
-  const shared = [...new Set(found.remotes.filter((key) => !isLocalRemote(key)))].toSorted();
+  const shared = [...new Set(found.remotes.filter((key) => !isLocalRemoteKey(key)))].toSorted();
   const remotes = shared.length ? JSON.stringify(shared) : null;
   const subpath = remotes === null ? null : found.subpath;
   db.prepare(

@@ -7,9 +7,20 @@ const schemeUrl = /^([a-z][a-z0-9+.-]*):\/\/([^/]*)(\/.*)?$/i;
 // `[user@]host:path`, as Git reads it: no slash before the colon, and not a drive letter.
 const scpUrl = /^(?:[^@/]+@)?(\[[^\]]+\]|[^:/]+):(.*)$/;
 
+/** Ports a scheme reaches by default; any other port is part of the repository's address. */
+const defaultPorts: Record<string, string> = {
+  ssh: "22",
+  "git+ssh": "22",
+  "ssh+git": "22",
+  git: "9418",
+  http: "80",
+  https: "443",
+};
+
 /**
  * One key for every spelling of the same repository: `host/owner/repo` for network remotes
- * (scheme, user, port, trailing `.git` and slashes dropped, host lowercased, path case kept),
+ * (scheme, user, the scheme's default port, trailing `.git` and slashes dropped, host
+ * lowercased, path case kept; another port stays, as `host:2222/owner/repo`),
  * and the resolved path for local paths and `file://` URLs. Relative paths resolve against
  * `base` (the checkout Git would resolve them in).
  */
@@ -17,18 +28,28 @@ export function normalizeRemoteUrl(url: string, base = "/"): string {
   const value = url.trim();
   if (/^file:\/\//i.test(value)) return localPath(fileUrlPath(value), base);
   const scheme = schemeUrl.exec(value);
-  if (scheme) return networkKey(hostOf(scheme[2] ?? ""), scheme[3] ?? "");
+  if (scheme) {
+    const port = defaultPorts[(scheme[1] ?? "").toLowerCase()];
+    return networkKey(addressOf(scheme[2] ?? "", port), scheme[3] ?? "");
+  }
   if (/^[a-z]:[\\/]/i.test(value) || value.startsWith("/") || value.startsWith("."))
     return localPath(value, base);
   const scp = scpUrl.exec(value);
-  if (scp) return networkKey(hostOf(scp[1] ?? ""), scp[2] ?? "");
+  if (scp) return networkKey(addressOf(scp[1] ?? "", undefined), scp[2] ?? "");
   return localPath(value, base);
 }
 
-function hostOf(authority: string): string {
-  const host = authority.slice(authority.lastIndexOf("@") + 1);
-  const bracketed = /^\[([^\]]+)\]/.exec(host);
-  return (bracketed ? (bracketed[1] ?? "") : host.replace(/:\d*$/, "")).toLowerCase();
+/**
+ * The authority's host, lowercased, with its port unless that is `defaultPort` or empty. An
+ * scp-style remote has no port (`host:2222/x` is the path `2222/x`), so it passes undefined.
+ */
+function addressOf(authority: string, defaultPort: string | undefined): string {
+  const hostPort = authority.slice(authority.lastIndexOf("@") + 1);
+  const parts = /^(\[[^\]]+\]|[^:]*)(?::(\d*))?$/.exec(hostPort);
+  const raw = parts?.[1] ?? hostPort;
+  const host = (raw.startsWith("[") ? raw.slice(1, -1) : raw).toLowerCase();
+  const port = parts?.[2]?.replace(/^0+(?=\d)/, "");
+  return port && port !== defaultPort ? `${host}:${port}` : host;
 }
 
 function networkKey(host: string, path: string): string {
@@ -41,8 +62,21 @@ function networkKey(host: string, path: string): string {
 }
 
 function localPath(path: string, base: string): string {
-  if (/^[a-z]:[\\/]/i.test(path)) return path.replace(/[\\/]+$/, "");
+  // A drive's root keeps its slash (`C:/`), so it still reads as a path on this machine.
+  if (/^[a-z]:[\\/]/i.test(path)) {
+    const trimmed = path.replace(/[\\/]+$/, "");
+    return /^[a-z]:$/i.test(trimmed) ? `${trimmed}/` : trimmed;
+  }
   return resolvePosix(base, path);
+}
+
+/**
+ * Whether a key names a path on this machine's own disk rather than a network address: a POSIX
+ * path, a `file://` URL's path, a share (`//host/…`), a drive or a drive's root. The same path on
+ * two machines is two unrelated repositories.
+ */
+export function isLocalRemoteKey(key: string): boolean {
+  return key.startsWith("/") || key.startsWith("\\") || /^[a-z]:([\\/]|$)/i.test(key);
 }
 
 /**

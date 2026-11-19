@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import type { WorkspaceId } from "@ace/protocol";
 import { ProjectStorage } from "./project-storage.ts";
 import { RemoteKeyReader } from "./project-remote-key-reader.ts";
@@ -31,6 +32,8 @@ async function daemon(options: { batch?: number; pageSize?: number } = {}) {
   let reading = 0;
   let widest = 0;
   const announced: WorkspaceId[] = [];
+  // How many reads had started at each pause the reader took (one before each page).
+  const pauses: number[] = [];
   const reader = new RemoteKeyReader({
     atomic: (work) => store.atomic(work),
     read: async (path) => {
@@ -44,7 +47,10 @@ async function daemon(options: { batch?: number; pageSize?: number } = {}) {
     },
     announce: (id) => announced.push(id),
     now,
-    wait: () => Promise.resolve(),
+    wait: () => {
+      pauses.push(reads.length);
+      return Promise.resolve();
+    },
     ttlMs: 60_000,
     ...(options.batch ? { batch: options.batch } : {}),
     ...(options.pageSize ? { pageSize: options.pageSize } : {}),
@@ -60,6 +66,7 @@ async function daemon(options: { batch?: number; pageSize?: number } = {}) {
     reader,
     reads,
     announced,
+    pauses,
     git,
     widest: () => widest,
     later: (ms: number) => {
@@ -146,7 +153,8 @@ test("a sweep reads a few registrations at a time, never ones removed or chats",
   home.catalog.forget(gone.id);
   home.catalog.registerChat(join(home.catalog.get(added[1]!.id).path, "..", "chat"), "Chat");
   await home.reader.poke();
-  expect(home.widest()).toBeLessThanOrEqual(3);
+  // Three at once, never more: reading one at a time would take nine round trips to Git.
+  expect(home.widest()).toBe(3);
   expect(home.reads).toHaveLength(9);
   expect(home.reads).not.toContain(gone.path);
 });
@@ -157,6 +165,8 @@ test("a sweep walks every registration in pages, reading each due one once", asy
   for (let index = 0; index < 11; index++)
     added.push(await home.add(`p${index}`, { remotes: [`host/r${index}`], subpath: "" }));
   await home.reader.poke();
+  // One page of four, a pause, the next four, a pause, the last three: never all at once.
+  expect(home.pauses).toEqual([0, 4, 8]);
   expect(home.reads.toSorted()).toEqual(added.map((each) => each.path).toSorted());
   expect(added.every((each) => home.catalog.get(each.id).remoteKey !== undefined)).toBe(true);
 });
@@ -183,7 +193,14 @@ test("remotes on this machine's own disk never group checkouts on two machines",
     subpath: "",
   });
   const mixed = await home.add("mixed", { remotes: [ace, "/srv/git/ace.git"], subpath: "" });
+  // Drive roots, as `file:///C:/` names one and as an older build keyed it (`D:`): two
+  // machines' drive roots are unrelated.
+  const roots = await home.add("roots", {
+    remotes: [normalizeRemoteUrl("file:///C:/"), "D:"],
+    subpath: "",
+  });
   await home.reader.poke();
   expect(home.catalog.get(mirror.id).remoteKey).toBeUndefined();
+  expect(home.catalog.get(roots.id).remoteKey).toBeUndefined();
   expect(home.catalog.get(mixed.id).remoteKey).toEqual({ remotes: [ace], subpath: "" });
 });

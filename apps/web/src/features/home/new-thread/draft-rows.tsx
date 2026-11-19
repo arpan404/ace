@@ -7,17 +7,20 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
-import { useMachines } from "@/lib/machines.ts";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import { useMachines, usePrimaryMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { usePreparations } from "./preparations.ts";
 import { useDiscardDraft } from "./use-discard-draft.ts";
 import { inScope, useSidebarDevice } from "../device-filter-state.ts";
+import { inProjectScope } from "../project-scope.ts";
+import { useProjectScope } from "../use-project-scope.ts";
 
 /**
  * Unsent preparations belong to a daemon and this device, outside the running thread list:
  * this window's own, then each other connected machine's (ADR 0102), each row marked with its
- * machine and reopening on it. Discard takes a row away at once, with Undo.
+ * machine and reopening on it. Discard takes a row away at once, with Undo. The organizer's
+ * project filter lets through the drafts in any checkout of the chosen project, on any machine,
+ * as it does threads (`useProjectScope`).
  */
 export function DraftRows(props: {
   /** Only this project's drafts (Chats: its chats'); otherwise the organizer's project, or all. */
@@ -25,6 +28,8 @@ export function DraftRows(props: {
 }) {
   const identity = useHostIdentity();
   const device = useSidebarDevice();
+  // The project filter keys this machine's checkouts by the id the scope uses for it.
+  const own = usePrimaryMachine().id;
   const others = useMachines().filter(
     (machine) => !machine.primary && machine.client && inScope(device, machine.id),
   );
@@ -34,6 +39,7 @@ export function DraftRows(props: {
         <MachineDrafts
           only={props.project}
           host={identity.hostId}
+          scopeAs={own}
           name={identity.displayName ?? "This machine"}
           icon={identity.icon}
         />
@@ -43,6 +49,7 @@ export function DraftRows(props: {
           <MachineDrafts
             only={props.project}
             host={machine.id}
+            scopeAs={machine.id}
             name={machine.name}
             icon={machine.icon}
             remote
@@ -57,19 +64,21 @@ export function DraftRows(props: {
 function MachineDrafts(props: {
   only: string | undefined;
   host: string;
+  /** The machine id the project filter's checkouts name this machine by. */
+  scopeAs: string;
   name: string;
   icon: MachineIcon | undefined;
   remote?: boolean;
 }) {
   const { storage } = useLayout();
-  const organized = useOrganizerState().project;
-  const project = props.only ?? organized;
+  const { checkouts } = useProjectScope();
   const directory = useProjectDirectory();
   const discard = useDiscardDraft(storage, props.host);
   const machine = useMachineSearch();
   const [error, setError] = useState<string>();
-  const rows = usePreparations(storage, props.host).filter(
-    ([, row]) => !project || row.project === project,
+  const only = props.only;
+  const rows = usePreparations(storage, props.host).filter(([, row]) =>
+    only ? row.project === only : inProjectScope(checkouts, props.scopeAs, row.project),
   );
   if (!rows.length) return null;
   return (
