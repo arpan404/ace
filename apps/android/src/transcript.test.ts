@@ -104,9 +104,6 @@ it("words turn endings, handoff-adjacent fork dividers and started threads canon
   expect(endBlockText({ kind: "end", key: "e3", ending: "failed", runId: "r", askId: "a" })).toBe(
     "Turn failed",
   );
-  expect(endBlockText({ kind: "end", key: "e4", ending: "paused", runId: "r", askId: "a" })).toBe(
-    "Paused — will resume",
-  );
   expect(forkedBlockText("source-1")).toBe("Forked from earlier conversation");
   expect(forkedBlockText("source-1", "Billing thread")).toBe("Forked from Billing thread");
   expect(startedBlockText()).toBe("Started a new thread");

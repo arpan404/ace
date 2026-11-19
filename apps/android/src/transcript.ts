@@ -80,6 +80,8 @@ export function blockTestId(block: Block): string {
       return "transcript.answer";
     case "event":
       return "transcript.event";
+    case "moment":
+      return "transcript.moment";
     case "item":
       return "transcript.item";
     case "end":
@@ -104,12 +106,11 @@ export function blockTestId(block: Block): string {
 /**
  * Canonical wording for a turn-ending block, matching iOS/web wording:
  * a personal Stop is a thin "Interrupted by you" break, a restart is plain
- * "Interrupted", a failure reads "Turn failed", a usage-limit pause reads
- * "Paused".
+ * "Interrupted", and a failure reads "Turn failed". A usage-limit pause has
+ * no ending row: the transcript shows it as a complete turn.
  */
 export function endBlockText(block: Extract<Block, { kind: "end" }>): string {
   if (block.ending === "interrupted") return block.automatic ? "Interrupted" : "Interrupted by you";
-  if (block.ending === "paused") return "Paused — will resume";
   return "Turn failed";
 }
 
