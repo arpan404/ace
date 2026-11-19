@@ -48,8 +48,15 @@ export const NativeSpadeAction = z.discriminatedUnion("type", [
 ]);
 export type NativeSpadeAction = z.infer<typeof NativeSpadeAction>;
 
-/** The bots are read again this often: faster while any works, as the web reads them. */
-const listEvery = { working: 2_000, idle: 10_000 };
+/**
+ * The bots are read again this often: faster while any works, as the web reads them. With the
+ * Spade tab and every conversation away they are still read, slower, so the tab's face knows
+ * whether any bot works (its eyes move only then).
+ */
+const listEvery = {
+  shown: { working: 2_000, idle: 10_000 },
+  away: { working: 10_000, idle: 30_000 },
+};
 
 const Setting = z.object({ entries: z.array(z.object({ value: z.unknown() })).optional() });
 
@@ -88,6 +95,8 @@ export class NativeSpade {
   private agents: SpadeAgent[] | undefined;
   private listFailed = false;
   private watching = false;
+  /** This runtime went away: nothing reads again. */
+  private stopped = false;
   private stops: (() => void)[] = [];
   private listTimer: (() => void) | undefined;
   private listReading = false;
@@ -149,7 +158,8 @@ export class NativeSpade {
     switch (action.type) {
       case "spade.watch":
         this.watching = action.on;
-        return action.on || this.open ? this.readList() : this.stopList();
+        // Shown, the list is read at once; put away, it goes on at the slower pace.
+        return action.on ? this.readList() : this.scheduleList();
       case "spade.open":
         return this.openConversation(action.conversationId);
       case "spade.retry":
@@ -162,6 +172,7 @@ export class NativeSpade {
   /** This runtime is going away: every watch, poll and stream ends. */
   stop(): void {
     for (const stop of this.stops.splice(0)) stop();
+    this.stopped = true;
     this.watching = false;
     this.stopList();
     this.openConversation(null);
@@ -222,13 +233,18 @@ export class NativeSpade {
     this.listTimer = undefined;
   }
 
+  /** The machine shows Spade and it runs: its bots are worth reading. */
+  private get listable(): boolean {
+    return !this.stopped && this.ready && this.status?.hidden !== true;
+  }
+
   /**
-   * Read the bots now, then again on their interval while the tab or a conversation shows and
-   * Spade runs: a conversation's bubbles name its bot from the list.
+   * Read the bots now, then again on their interval while Spade runs: quickly while the tab or a
+   * conversation shows (a conversation's bubbles name its bot from the list), slower otherwise.
    */
   private readList() {
     this.stopList();
-    if ((!this.watching && !this.open) || !this.ready || this.listReading) return;
+    if (!this.listable || this.listReading) return;
     this.listReading = true;
     void spadeText(this.owner, this.deps.id, "GET", "/v1/agents")
       .then(
@@ -248,12 +264,17 @@ export class NativeSpade {
         const open = this.open;
         if (open) this.publish(open.id, open.follow);
         this.markSeen();
-        if ((!this.watching && !this.open) || !this.ready) return;
-        const working = this.agents?.some((agent) => agent.state !== "idle") ?? false;
-        this.listTimer = this.deps.later(working ? listEvery.working : listEvery.idle, () =>
-          this.readList(),
-        );
+        this.scheduleList();
       });
+  }
+
+  /** The next read of the bots, at the pace for what shows and whether any works. */
+  private scheduleList() {
+    this.stopList();
+    if (!this.listable || this.listReading) return;
+    const pace = this.watching || this.open ? listEvery.shown : listEvery.away;
+    const working = this.agents?.some((agent) => agent.state !== "idle") ?? false;
+    this.listTimer = this.deps.later(working ? pace.working : pace.idle, () => this.readList());
   }
 
   private put() {
