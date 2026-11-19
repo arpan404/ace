@@ -35,6 +35,12 @@ export interface Transport {
    * one route never take each other's.
    */
   credential?(): Promise<Credential>;
+  /**
+   * The open socket's channel binding (ADR 0190): a relay stream's Noise handshake hash,
+   * base64url. Absent on a transport with no secure channel of its own (loopback, a pinned TLS
+   * path), where a proof names `none`.
+   */
+  channelBinding?(): string | undefined;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;

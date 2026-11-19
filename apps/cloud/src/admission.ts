@@ -1,4 +1,9 @@
-import { GRANT_SUBPROTOCOL_PREFIX, grantFromSubprotocols, verifyGrant } from "@ace/account-grant";
+import {
+  GRANT_SUBPROTOCOL_PREFIX,
+  grantFromSubprotocols,
+  verifyGrant,
+  verifyStandingGrant,
+} from "@ace/account-grant";
 import type { AccountSetup } from "./account/config.ts";
 
 /** Internal headers the Worker sets on upgrades it forwards to a relay object. */
@@ -28,7 +33,7 @@ export function admit(input: {
   if (input.setup.status !== "ready") return { admitted: false, status: 503 };
   const token = grantFromSubprotocols(input.subprotocols);
   if (!token) return { admitted: false, status: 401 };
-  let claims;
+  let claims: { account: string; subject: string };
   try {
     claims = verifyGrant(
       token,
@@ -37,7 +42,17 @@ export function admit(input: {
       input.endpoint === "/host" ? "machine" : "device",
     );
   } catch {
-    return { admitted: false, status: 401 };
+    // A client may also come with a format 2 device grant (ADR 0190), which a machine credential
+    // gets instead of format 1; one bound to a host opens only that host.
+    if (input.endpoint !== "/client") return { admitted: false, status: 401 };
+    try {
+      const standing = verifyStandingGrant(token, input.setup.keys, input.now);
+      if (standing.host !== undefined && standing.host !== input.hostId)
+        return { admitted: false, status: 403 };
+      claims = standing;
+    } catch {
+      return { admitted: false, status: 401 };
+    }
   }
   if (input.endpoint === "/host" && claims.subject !== input.hostId)
     return { admitted: false, status: 403 };

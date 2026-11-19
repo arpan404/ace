@@ -1,3 +1,4 @@
+import type { EnrolledPins } from "../machines/link-routes.ts";
 import type { MachinePath, ParcelFacts } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
@@ -128,7 +129,10 @@ export class ParcelRows {
       CREATE INDEX IF NOT EXISTS parcel_in_thread ON parcel_in(to_thread, created_at);
       CREATE INDEX IF NOT EXISTS parcel_in_state ON parcel_in(state, updated_at);
       CREATE TABLE IF NOT EXISTS parcel_paths (
-        profile_id TEXT PRIMARY KEY, paths TEXT NOT NULL, updated_at INTEGER NOT NULL);`),
+        profile_id TEXT PRIMARY KEY, paths TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS parcel_pins (
+        profile_id TEXT PRIMARY KEY, pairing TEXT NOT NULL, tls TEXT, relay TEXT,
+        updated_at INTEGER NOT NULL);`),
     );
   }
   insertOut(row: OutRow): void {
@@ -335,6 +339,25 @@ export class ParcelRows {
     this.store
       .statement("INSERT OR REPLACE INTO parcel_paths VALUES (?,?,?)")
       .run(profileId, JSON.stringify(paths.slice(0, 16)), now);
+  }
+  /**
+   * The keys a pairing enrolled after it was made (ADR 0192), by profile and `pairing` (its device
+   * and credential there, `pairingKey`). A row from an earlier pairing under the same profile
+   * counts for nothing: linking again starts over.
+   */
+  pins(profileId: string, pairing: string): EnrolledPins {
+    const raw = this.store
+      .statement("SELECT pairing,tls,relay FROM parcel_pins WHERE profile_id=?")
+      .get(profileId);
+    if (!raw || String(raw["pairing"]) !== pairing) return {};
+    const tls = text(raw["tls"]);
+    const relay = text(raw["relay"]);
+    return { ...(tls ? { tls } : {}), ...(relay ? { relay } : {}) };
+  }
+  savePins(profileId: string, pairing: string, pins: EnrolledPins, now: number): void {
+    this.store
+      .statement("INSERT OR REPLACE INTO parcel_pins VALUES (?,?,?,?,?)")
+      .run(profileId, pairing, pins.tls ?? null, pins.relay ?? null, now);
   }
   /** Parcels waiting for a parent to pull them since before `before`, for the deadline. */
   staleOutbox(before: number, limit = 32): OutRow[] {

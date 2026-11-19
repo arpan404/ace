@@ -88,7 +88,11 @@ export async function accountHello(
   };
 }
 
-/** An admitted account device: admin while it stays admitted, never revoked by device id. */
+/**
+ * An admitted account device: admin while it stays admitted, never revoked by device id. It is
+ * never the person by its admission; a socket proves that on its own (`account.standing`, ADR
+ * 0190).
+ */
 export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
   return {
     id,

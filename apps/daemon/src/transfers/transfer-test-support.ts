@@ -219,6 +219,11 @@ export async function transferMachines(
     transport?: (inner: TransferTransport) => TransferTransport;
     /** Both daemons write their info logs, for tests that read them. */
     logs?: boolean;
+    /**
+     * A relay the target registers with: the source's link names only it, no address, as a
+     * machine linked through a relay is saved (ADR 0182, ADR 0192).
+     */
+    relayOnly?: string;
     /** Engine limits on either side, e.g. one active thread. */
     sourceEngineLimits?: Partial<EngineLimits>;
     targetEngineLimits?: Partial<EngineLimits>;
@@ -238,7 +243,12 @@ export async function transferMachines(
     transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
     ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
   };
-  const targetEnvironment = { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...logLevel };
+  const targetEnvironment = {
+    ACE_LISTEN: "lan",
+    ACE_ADVERTISE_HOST: "127.0.0.1",
+    ...(options.relayOnly ? { ACE_RELAY_URL: options.relayOnly } : {}),
+    ...logLevel,
+  };
   let target: Side = await daemonFixture(undefined, targetOptions, targetEnvironment);
   cleanup.push(() => target.daemon.close());
   const transport = options.transport ? options.transport(transferTransport) : transferTransport;
@@ -263,11 +273,25 @@ export async function transferMachines(
     }),
   );
   const credential = await redeemPairing(pairing.url, "MacBook");
+  const relayOnly = options.relayOnly;
+  const route = relayOnly
+    ? {
+        relay: {
+          url: relayOnly,
+          relayHostId: await vi.waitFor(
+            () => {
+              if (!target.daemon.relayHostId) throw new Error("Not on the relay yet");
+              return target.daemon.relayHostId;
+            },
+            { timeout: 15_000 },
+          ),
+        },
+      }
+    : { origin: `${remoteUrl.replace("wss:", "https:").replace(/\/?$/, "/")}`, fingerprint };
   const profiles = new Profiles(join(source.h.home, "daemon"));
   profiles.add({
     name: "studio",
-    origin: `${remoteUrl.replace("wss:", "https:").replace(/\/?$/, "/")}`,
-    fingerprint,
+    ...route,
     deviceId: credential.device.id,
     token: credential.token,
   });

@@ -3,6 +3,7 @@ import { afterEach, expect, it } from "vitest";
 import type { DaemonStatus } from "../shared/contract.ts";
 import { followDaemonAccount, planHandover, resumeDaemonAccount } from "./account-follow.ts";
 import { sessionsByCurrentOrigin } from "./account-origins.ts";
+import { fakeEnrollments, relayHostId, ticket } from "./enrollment-test-support.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -10,6 +11,8 @@ afterEach(async () => {
 });
 
 const origin = "https://account.example";
+// The app gets an enrollment ticket for its daemon from here, never handing over its session.
+fakeEnrollments(origin);
 const session = "s".repeat(43);
 const person = (id: string) => ({ id, email: `${id}@example.com`, name: id });
 const signedOut = { signedIn: false, machineCode: { set: false }, sessionId: null };
@@ -93,12 +96,18 @@ async function daemon(status: unknown) {
   const url = `ws://127.0.0.1:${address.port}/`;
   return {
     seen,
-    local: { mode: "daemon", url, token: "c".repeat(64), localHostId: "host" } as const,
+    local: {
+      mode: "daemon",
+      url,
+      token: "c".repeat(64),
+      localHostId: "host",
+      localRelayHostId: relayHostId,
+    } as const,
     remote: { mode: "daemon", url, token: "c".repeat(64) } as const,
   };
 }
 
-const handover = `PUT /v1/ace-account ${JSON.stringify({ origin, token: session })}`;
+const handover = `PUT /v1/ace-account ${JSON.stringify({ origin, ticket })}`;
 const deps = (account = "user_a") => ({
   saved: async () => ({ [origin]: session }),
   accountOf: async () => account,

@@ -20,6 +20,9 @@ export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
     /\bsk-[A-Za-z0-9_-]{16,}/g,
     /\bgh[opsur]_[A-Za-z0-9]{20,}/g,
     /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+    // ace account grants (ADR 0111, ADR 0190): signed JSON claims and a signature, two parts.
+    /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{43,}/g,
+    /\bace\.grant\.[A-Za-z0-9_.-]+/g,
     /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/gi,
     QUOTED_SECRET_ASSIGNMENT,
     /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,

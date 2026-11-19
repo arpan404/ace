@@ -1,3 +1,4 @@
+import { personOnlyRoutes } from "@ace/marketplace/person-only";
 import { sha256Hex } from "@ace/marketplace";
 import { stripImage } from "@ace/marketplace/image";
 import { displayNameProblem, handleProblem, linkProblem, skeleton } from "@ace/marketplace/profile";
@@ -12,7 +13,13 @@ import {
   type MarketProblem,
 } from "@ace/protocol/marketplace";
 import { draftRoute } from "./api-publish.ts";
-import { authenticate, reauthMs, type Authed, type AuthOptions } from "./auth.ts";
+import {
+  authenticate,
+  reauthMs,
+  type Authed,
+  type AuthOptions,
+  personGrantNeeded,
+} from "./auth.ts";
 import { meEntryRoute, storePicture } from "./api-me-entries.ts";
 import { avatarKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
@@ -51,18 +58,10 @@ import { checkDomain, checkGithub } from "./verify-proofs.ts";
  * entry's publisher is the account's on every request.
  */
 
-const sensitiveKinds = new Set<Route["kind"]>([
-  "me-handle",
-  "me-entry-withdraw",
-  "me-version-withdraw",
-  "me-transfer",
-  "me-transfer-accept",
-  "me-verification-apply",
-]);
-
 function authOptions(route: Route): AuthOptions {
   return {
-    sensitive: sensitiveKinds.has(route.kind),
+    // The routes of the actions the daemon takes only from the person: one shared list.
+    sensitive: personOnlyRoutes.has(route.kind),
     allowInactive: route.kind === "me" || route.kind === "me-verification",
   };
 }
@@ -74,9 +73,13 @@ const done = () => json({ status: "done" });
 
 /** A verified profile's edits need a recent sign-in (ADR 0174 §2). */
 const staleForVerified = (authed: Authed, context: Context) =>
-  authed.publisher?.verified === true && !(context.now - authed.claims.authAt <= reauthMs)
-    ? failure(401, "reauth", "Sign in again to do this.")
-    : undefined;
+  authed.publisher?.verified !== true
+    ? undefined
+    : !authed.personAction
+      ? personGrantNeeded()
+      : !(context.now - authed.claims.authAt <= reauthMs)
+        ? failure(401, "reauth", "Sign in again to do this.")
+        : undefined;
 
 export async function meRoute(
   request: Request,

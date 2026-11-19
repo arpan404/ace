@@ -1,12 +1,20 @@
 import type { AceAccount } from "@ace/protocol/ace-account";
 import { digest } from "./crypto.ts";
 import { SESSION_LIFETIME_MS } from "./login.ts";
-import type { SessionStore } from "./sessions.ts";
+import type { SessionStanding, SessionStore } from "./sessions.ts";
 import { InvalidGrantError } from "./workos.ts";
 import type { AccountProvider } from "./workos.ts";
 
-/** `signedInAt`: when the person signed in for this session (0 for sessions from before it was kept). */
-export type ActiveSession = { account: AceAccount; expiresAt: number; signedInAt: number };
+/**
+ * `signedInAt`: when the person signed in for this session (0 for sessions from before it was
+ * kept). `standing`: whether it may still speak for the person (ADR 0190).
+ */
+export type ActiveSession = {
+  account: AceAccount;
+  expiresAt: number;
+  signedInAt: number;
+  standing: SessionStanding;
+};
 
 /** How long one reader may spend a session's refresh token before another may try. */
 const REFRESH_LEASE_MS = 15_000;
@@ -26,14 +34,15 @@ export function sessionReader(deps: {
   const { store, provider, now } = deps;
   const inflight = new Map<string, Promise<ActiveSession | undefined>>();
 
-  async function refresh(hash: string): Promise<ActiveSession | undefined> {
-    const stored = await store.get(hash, now());
+  async function refresh(hash: string, held: boolean): Promise<ActiveSession | undefined> {
+    const stored = held ? await store.held(hash, now()) : await store.get(hash, now());
     if (!stored) return undefined;
     if (!(await store.lease(hash, now(), REFRESH_LEASE_MS)))
       return {
         account: stored.account,
         expiresAt: stored.expiresAt,
         signedInAt: stored.signedInAt,
+        standing: stored.standing,
       };
     let identity;
     try {
@@ -63,22 +72,31 @@ export function sessionReader(deps: {
       account: identity.account,
       expiresAt,
       signedInAt: stored.signedInAt,
+      standing: stored.standing,
     };
   }
 
+  /** `held`: read for a machine credential, which a retired session still serves. */
+  async function readHash(hash: string, held = false): Promise<ActiveSession | undefined> {
+    const key = `${held ? "held" : "token"}:${hash}`;
+    const pending = inflight.get(key);
+    if (pending) return pending;
+    const run = refresh(hash, held);
+    inflight.set(key, run);
+    try {
+      return await run;
+    } finally {
+      inflight.delete(key);
+    }
+  }
+
   return {
+    /** The session a bearer token opens: never a retired one (ADR 0190). */
     async read(token: string): Promise<ActiveSession | undefined> {
-      const hash = await digest(token);
-      const pending = inflight.get(hash);
-      if (pending) return pending;
-      const run = refresh(hash);
-      inflight.set(hash, run);
-      try {
-        return await run;
-      } finally {
-        inflight.delete(hash);
-      }
+      return readHash(await digest(token));
     },
+    /** By the token's digest; `held` for the session a machine credential lives on. */
+    readHash,
     async revoke(token: string) {
       await store.remove(await digest(token));
     },

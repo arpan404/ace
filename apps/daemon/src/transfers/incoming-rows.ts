@@ -79,6 +79,11 @@ const decode = (row: Row): IncomingRecord => ({
 });
 
 /** The target's durable rows, keyed by transfer id, so a repeated call is idempotent. */
+/** What a write may change on a row. */
+type IncomingChange = Partial<
+  Omit<IncomingRecord, "transferId" | "deviceId" | "begin" | "updatedAt">
+>;
+
 export class IncomingRows {
   private store: Store;
   constructor(store: Store) {
@@ -219,11 +224,27 @@ export class IncomingRows {
       );
     this.index.sync(record.transferId);
   }
-  update(
+  update(transferId: string, change: IncomingChange, at: number): void {
+    this.writeChange(transferId, change, at, []);
+  }
+  /**
+   * Writes `change` only while the row is in one of `from`, in one statement, and says whether
+   * it did: two writers that race on a transfer's state never both win (ADR 0192).
+   */
+  claim(
     transferId: string,
-    change: Partial<Omit<IncomingRecord, "transferId" | "deviceId" | "begin" | "updatedAt">>,
+    from: readonly IncomingTransferState[],
+    change: IncomingChange,
     at: number,
-  ): void {
+  ): boolean {
+    return this.writeChange(transferId, change, at, from) > 0;
+  }
+  private writeChange(
+    transferId: string,
+    change: IncomingChange,
+    at: number,
+    from: readonly IncomingTransferState[],
+  ): number {
     const columns: [string, unknown][] = [];
     if (change.state) columns.push(["state", change.state]);
     if (change.method) columns.push(["method", change.method]);
@@ -243,13 +264,30 @@ export class IncomingRows {
     if ("error" in change)
       columns.push(["error", change.error ? JSON.stringify(change.error) : null]);
     columns.push(["updated_at", at]);
-    this.store.atomic(() => {
-      this.store
+    const only = from.length ? ` AND state IN (${from.map(() => "?").join(",")})` : "";
+    // The side tables (`transfer_incoming_open`, `transfer_incoming_expiry`) follow in the same
+    // transaction, whether the claim wrote or not.
+    return this.store.atomic(() => {
+      const done = this.store
         .statement(
-          `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?`,
+          `UPDATE transfer_incoming SET ${columns.map(([name]) => `${name}=?`).join(",")} WHERE transfer_id=?${only}`,
         )
-        .run(...columns.map(([, value]) => value as string | number | null), transferId);
+        .run(...columns.map(([, value]) => value as string | number | null), transferId, ...from);
       this.index.sync(transferId);
+      return Number(done.changes);
+    });
+  }
+  /**
+   * Deletes the row only while it is still in `state` and unchanged since `updatedAt`, as the
+   * sweep read it, and says whether it did (ADR 0192). Its side-table entries go with it.
+   */
+  expire(transferId: string, state: IncomingTransferState, updatedAt: number): boolean {
+    return this.store.atomic(() => {
+      const done = this.store
+        .statement("DELETE FROM transfer_incoming WHERE transfer_id=? AND state=? AND updated_at=?")
+        .run(transferId, state, updatedAt);
+      this.index.sync(transferId);
+      return Number(done.changes) > 0;
     });
   }
   delete(transferId: string): void {

@@ -37,8 +37,8 @@
       "sha256": "0f32b270cab8d68bb4a1a7a73abcb626b9dfc79079b20609c512dc766c44d4cf"
     },
     "requests.md": {
-      "bytes": 122448,
-      "sha256": "995f5227e579cc2d9d6a07e0b2659af990d0ac3caf96e8d2d49fe4ecbcba6271"
+      "bytes": 122406,
+      "sha256": "c1b1b8fa971d13526cfb74e49912cc7648443995fe57f74430b514b14882c248"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -157,8 +157,8 @@
       "sha256": "58ee9e46f8efe58b0d2ff63d94215443f1d766ecde8c24755b2c122936d5e54e"
     },
     "schema/AceGrantResponse.json": {
-      "bytes": 426,
-      "sha256": "5f0b28518d415bc282164da7d7f1f10bcb650fd220b1a3d1dcff65cc7eef95b2"
+      "bytes": 521,
+      "sha256": "e99fbbec8caffc1d9f264a9709db451b650792e98934f133ee28b5e6def96b3c"
     },
     "schema/AceLogin.json": {
       "bytes": 1009,
@@ -175,6 +175,10 @@
     "schema/AceMachine.json": {
       "bytes": 570,
       "sha256": "beab7972b1358a085bb841e637ea7f785297ce2a4a18d82a295cba8345b39f16"
+    },
+    "schema/AceMachineCredentialRequest.json": {
+      "bytes": 389,
+      "sha256": "e22115369d8afc6b780031bf47a79c7e4d1b74c31f88b08c110a011119f23717"
     },
     "schema/AceMachineList.json": {
       "bytes": 365,
@@ -1113,8 +1117,8 @@
       "sha256": "2f1e1ffc9faa51131521287da65770e27b55c0c3ea5fbc4859c5941deae224b4"
     },
     "schema/ClientMessage.json": {
-      "bytes": 65750,
-      "sha256": "dac4b0c5bae9384eb0e3b5c029352b16901f83acd16ec72f7c36125e2ff7e8f6"
+      "bytes": 65865,
+      "sha256": "edfd8687322d1a46a7be1ffa509b17a2051ec58631d25441633b619ae5dd1b32"
     },
     "schema/CollectionsUpload.json": {
       "bytes": 378,
@@ -1225,8 +1229,8 @@
       "sha256": "a5faf5a0456afa98ebf60bb00d417bb39cdb3ee2dad5b2349d07e524441f97dd"
     },
     "schema/CoreClientMessage.json": {
-      "bytes": 8873,
-      "sha256": "b12efa28394949121f42902f5ce224a29ea6904c97e0e5d204537039beb16923"
+      "bytes": 8988,
+      "sha256": "cc49c7b83261bc03975c5a298e74459ec65edfa9623264be4774c235c2f5b631"
     },
     "schema/CoreServerMessage.json": {
       "bytes": 19263,
@@ -2097,8 +2101,8 @@
       "sha256": "1502ade93a01854a09a2401681ca8ad8ccd1e2680f49fdd0f55eaf0eed6e449a"
     },
     "schema/HelloEarly.json": {
-      "bytes": 1557,
-      "sha256": "c79e943d914dc26dd43177df3f66aa2472668abc72a39aa2dd2f392798e787e8"
+      "bytes": 1652,
+      "sha256": "1475a8780a4a5ac9e036774532d07cba08194823943435efebf5baa170dabb92"
     },
     "schema/HistoryContinueRequest.json": {
       "bytes": 899,
@@ -2541,8 +2545,8 @@
       "sha256": "3397465457fdd550a10031423fd1c7aa9b7d1222fed9548017c3e54ce8431c69"
     },
     "schema/MachineAccountStatus.json": {
-      "bytes": 1945,
-      "sha256": "6ee17c5e170974d73c13a28bb5a28a812ba3a3e49d829561f84ed565214ee01f"
+      "bytes": 2018,
+      "sha256": "0dd9b2c0e02c8f834e625c872c7d633c12ce116fa2916c79614ad81c5682b407"
     },
     "schema/MachineAgentAccess.json": {
       "bytes": 204,
@@ -6449,8 +6453,8 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1310612,
-      "sha256": "783f5314eb8c6b08b3b22ef5aa6a8e404a324e6f317ed7031261ba7c4c9ba51c"
+      "bytes": 1311332,
+      "sha256": "d3ce736708d7c69a95528c7b6e29396e89d2a35b0d4ce3076f562f6b5c5e15a4"
     }
   },
   "input": "a5c731a460e2117906562b5bef2941dc99224993278e2100588a2c7608d56742",

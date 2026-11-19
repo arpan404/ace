@@ -22,11 +22,11 @@ LAN, Tailscale and self-hosted relays are unchanged and need no account.
 
 ### Who holds what
 
-| Holder                           | Keeps                                                                                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend (Cloudflare Worker + D1) | WorkOS integration; hashed ace sessions; encrypted WorkOS refresh tokens; pending logins; machines (host id, account, name, platform, last seen); the grant signing key |
-| Daemon                           | Its ace session; which devices passed its machine code, with the code's version; the code as a slow hash                                                                |
-| Client                           | Its ace session                                                                                                                                                         |
+| Holder                           | Keeps                                                                                                                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backend (Cloudflare Worker + D1) | WorkOS integration; hashed ace sessions; encrypted WorkOS refresh tokens; pending logins; machines (host id, account, name, platform, last seen); the grant signing key                                                                          |
+| Daemon                           | Its ace session (since [ADR 0190](0190-a-machine-keeps-a-machine-credential.md): a machine credential bound to its host id, never the person's session); which devices passed its machine code, with the code's version; the code as a slow hash |
+| Client                           | Its ace session                                                                                                                                                                                                                                  |
 
 ### Grants
 
@@ -61,7 +61,10 @@ machines run `ace login`, which prints the login URL). It asks the backend for a
 the hosted relay's `/host` with it. The relay's Durable Object checks the grant, completes the
 Noise handshake that proves the host key, and records host id → account in D1. Binding
 therefore rests on two proofs: the session proves the account, the handshake proves the
-machine. A machine signing in to another account moves to it.
+machine. A machine signing in to another account moves to it. (Amended by ADR 0190: the app hands
+its daemon a single-use enrollment ticket, never its session; the daemon redeems it, with proof of
+its host key, for a machine credential and keeps only that; an account device is the person only on
+a socket where it proves a person's grant with its device key.)
 
 **A device connects.** The client lists its machines (`GET /v1/machines`), gets a `device`
 grant, and connects to `/client?hostId=…`. The relay refuses unless the grant's account owns

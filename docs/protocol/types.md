@@ -986,6 +986,7 @@ Example:
 | --- | --- | --- | --- |
 | token | yes | string | {"minLength":1,"maxLength":2048} |
 | expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| standing | no | string | {"minLength":1,"maxLength":2048} |
 
 Example:
 
@@ -1094,6 +1095,25 @@ Example:
   "lastSeenAt": 8,
   "name": "example",
   "platform": "example"
+}
+```
+
+## AceMachineCredentialRequest
+
+[JSON Schema](schema/AceMachineCredentialRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+| sole | no | boolean |  |
+| exposed | no | boolean |  |
+
+Example:
+
+```json
+{
+  "exposed": true,
+  "hostId": "P7NS76W7MCVB4XPTWHGHDCKXLXI3BZKR45PYNP5QTNTUMV2DFUPN"
 }
 ```
 
@@ -11373,6 +11393,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | token | no | string |  |
 | ticket | no | string |  |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
+| standing | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | installId | no | [InstallId.json](schema/InstallId.json) |  |
 | link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
@@ -11386,10 +11407,12 @@ Example:
 
 ```json
 {
+  "channel": "browser",
+  "compression": [],
   "deviceId": "example",
-  "flowControl": [],
+  "grant": "example",
+  "mediaTicket": "gdSwVAy1GoyrJuprpMTJ3WFTYiaS6kg5091zdwSaDRC",
   "protocolVersion": 1,
-  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -16361,6 +16384,7 @@ Semantic rule: Exactly one of ticket and grant; at most 4 thread subscribes and 
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | ticket | no | string | {"pattern":"^[0-9a-f]{64}$"} |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
+| standing | no | string | {"minLength":1,"maxLength":2048} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 | framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
@@ -16371,12 +16395,10 @@ Example:
 
 ```json
 {
-  "compression": [],
   "deviceId": "example",
+  "flowControl": [],
   "protocolVersion": 1,
-  "subscribes": [],
-  "ticket": "aa17b56148ab2067ac47a6b05091cfea0f552693ab8550db243b7ea4bb63d611",
-  "trims": [],
+  "ticket": "454d634a0a7616551920471b9a437c4d6d95e6dc4a659568aabd910127b3b54b",
   "type": "hello.early"
 }
 ```
@@ -19596,6 +19618,7 @@ Example:
 | expiresAt | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | source | no | ["login","handover"] |  |
 | sessionId | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":64},{"type":"null"}]} |
+| signInAgain | no | `true` |  |
 | login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["url","expiresAt"]} |
 | machineCode | yes | object | {"properties":{"set":{"type":"boolean"},"lockedUntil":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["set"]} |
 
@@ -19608,9 +19631,11 @@ Example:
     "url": "https://example.invalid/"
   },
   "machineCode": {
-    "set": true
+    "lockedUntil": 2,
+    "set": false
   },
   "origin": "example",
+  "signInAgain": true,
   "signedIn": true
 }
 ```

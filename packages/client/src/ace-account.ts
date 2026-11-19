@@ -1,4 +1,5 @@
 import {
+  AceAccountGrant,
   AceAccountOrigin,
   AceAccountSession,
   AceGrantRequest,
@@ -7,6 +8,8 @@ import {
   AceLoginRequest,
   AceLoginStatus,
   AceMachine,
+  AceMachineCredentialRequest,
+  AceMachineEnrollment,
   AceMachineList,
 } from "@ace/protocol/ace-account";
 import { httpJson } from "./http-json.ts";
@@ -62,7 +65,7 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
           "POST",
           undefined,
           signal,
-          body.returnTo === undefined ? undefined : body,
+          body.returnTo === undefined && body.holder === undefined ? undefined : body,
         ),
       );
       const url = new URL(login.loginUrl);
@@ -92,6 +95,35 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
     async grant(token: string, request: AceGrantRequest, signal: AbortSignal) {
       return AceGrantResponse.parse(
         await call("grants", "POST", token, signal, AceGrantRequest.parse(request)),
+      );
+    },
+    /**
+     * A credential of this machine's own (ADR 0190), bound to `hostId` and proven with its host
+     * key: for an ace session the daemon holds (`token`), or for an enrollment ticket in
+     * `request` (no `token`). The daemon keeps the credential and never a session.
+     */
+    async machineCredential(
+      token: string | undefined,
+      request: AceMachineCredentialRequest,
+      signal: AbortSignal,
+    ): Promise<AceAccountGrant> {
+      return AceAccountGrant.parse(
+        await call(
+          "machine-credentials",
+          "POST",
+          token,
+          signal,
+          AceMachineCredentialRequest.parse(request),
+        ),
+      );
+    },
+    /**
+     * A single-use ticket that signs the machine `hostId` in (ADR 0190), for the person's own
+     * session: the app hands its daemon this, never the session.
+     */
+    async machineEnrollment(token: string, hostId: string, signal: AbortSignal) {
+      return AceMachineEnrollment.parse(
+        await call("machine-enrollments", "POST", token, signal, { hostId }),
       );
     },
     /**
@@ -133,3 +165,6 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
     },
   };
 }
+
+/** What a device signs to prove the person's standing on one socket (ADR 0190). */
+export { standingProofText } from "@ace/account-grant";

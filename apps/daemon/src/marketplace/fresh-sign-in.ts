@@ -1,55 +1,37 @@
+import { isPersonOnlyAction } from "@ace/marketplace/person-only";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
 /*
- * The host token (`ACE_HOME/daemon-token`) is the person's whole authority: any process that
- * can read it acts as the person, an unsandboxed coding agent included. So for person-only
- * market actions, the host token alone isn't enough (ADR 0178 §12.5): they need the app or a
- * paired device, or an ace sign-in from the last ten minutes, which takes the person in a
- * browser (ADR 0174 §2's rule). Pure.
+ * Who may do a person-only market action (ADR 0178 §12.5, ADR 0190). The host token
+ * (`ACE_HOME/daemon-token`) is readable by any process of the person's, an unsandboxed coding
+ * agent included, and so is everything else in ACE_HOME. A sign-in that happened lately proves
+ * nothing about who is asking now, so it authorizes nothing: only a socket that proved the
+ * person's standing (an ace app signed in as the person, a device paired from a link the person
+ * made) does these. Pure.
  */
-
-/** ADR 0174 §2: a sensitive action needs a sign-in this recent. */
-export const freshSignInMs = 10 * 60_000;
 
 export const reauthSentence =
-  "Do this in the app or on a paired device, or sign in to ace again (ace login) and do it within 10 minutes.";
+  "This is yours to do: do it in the ace app signed in as you, or on a device you paired from it.";
 
-/** Install, withdraw, transfers, handle changes, deleting an entry and verification. */
-export function needsFreshSignIn(operation: MarketOperation): boolean {
+/**
+ * Install, and the publish actions the market takes only from the person (`personOnlyActions`:
+ * withdraw, transfers and answering one, handle changes, deleting an entry and verification).
+ */
+export function needsPerson(operation: MarketOperation): boolean {
   if (operation.op === "install") return true;
-  if (operation.op !== "publish") return false;
-  switch (operation.request.action) {
-    case "withdraw":
-    case "transfer":
-    case "transferAnswer":
-    case "changeHandle":
-    case "deleteEntry":
-    case "applyVerification":
-    case "checkVerification":
-      return true;
-    default:
-      return false;
-  }
+  return operation.op === "publish" && isPersonOnlyAction(operation.request.action);
 }
 
 /**
- * Whether a sign-in `age` milliseconds before its grant was issued counts as fresh. A small
- * negative age is the backend's own rounding; a large one is a malformed grant.
+ * The refusal for a person-only market request from a socket that hasn't proved the person's
+ * standing, or undefined when it may run. `reauth`: the app answers it by signing in as the
+ * person, after which its socket proves it.
  */
-export function signedInRecently(age: number | undefined): boolean {
-  return age !== undefined && age <= freshSignInMs && age >= -60_000;
-}
-
-/**
- * The refusal for a market request a host-token socket makes without naming a thread, or
- * undefined when it may run. The app and paired devices aren't host-token sockets.
- */
-export async function hostMarketRefusal(input: {
+export function hostMarketRefusal(input: {
   readonly operation: MarketOperation;
-  readonly hostCredential: boolean;
-  readonly fresh: () => Promise<boolean>;
-}): Promise<MarketResult | undefined> {
-  if (!input.hostCredential || !needsFreshSignIn(input.operation)) return undefined;
-  if (await input.fresh()) return undefined;
+  /** The socket hasn't proved the person's standing (ADR 0190). */
+  readonly unproven: boolean;
+}): MarketResult | undefined {
+  if (!input.unproven || !needsPerson(input.operation)) return undefined;
   return { op: "error", code: "reauth", message: reauthSentence };
 }

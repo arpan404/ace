@@ -1,7 +1,7 @@
 //! The person's say on a change only they may make (ADR 0163, amendment 2): turning Full access
 //! on. Spade's bearer token is held by anything ace lets talk to Spade, so it can't tell the
 //! person from a process that holds the token. ace's daemon can: it forwards such a change only
-//! from the app, a paired device or a fresh sign-in, and stamps it with
+//! from a socket that proved the person's standing (ADR 0190), and stamps it with
 //! `x-ace-person: v1.<ms>.<nonce>.<hex HMAC-SHA256>` keyed with a secret only the daemon and Spade
 //! read (`<ACE_HOME>/spade-person.key`, written by the daemon, never the token), over what the
 //! change is for, so a stamp for one bot and value can't be replayed for another or twice. Each

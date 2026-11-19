@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { accountSync } from "./account-sync.ts";
+import { fakeEnrollments, relayHostId, sessionOfTicket } from "./enrollment-test-support.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -8,6 +9,8 @@ afterEach(async () => {
 });
 
 const origin = "https://account.example";
+// The app gets an enrollment ticket for its daemon from here, never handing over its session.
+fakeEnrollments(origin);
 const tokens: Record<string, string> = { ["a".repeat(43)]: "user_a", ["b".repeat(43)]: "user_b" };
 const tokenA = "a".repeat(43);
 const tokenB = "b".repeat(43);
@@ -61,8 +64,9 @@ async function daemon() {
           return response.end("{}");
         }
         if (method === "PUT") {
-          const { token } = JSON.parse(body) as { token: string };
-          adopt({ account: tokens[token] ?? "unknown", source: "handover" });
+          // The app hands over a ticket for its session, never the session (ADR 0190).
+          const { ticket: given } = JSON.parse(body) as { ticket: string };
+          adopt({ account: tokens[sessionOfTicket(given) ?? ""] ?? "unknown", source: "handover" });
         }
         if (method === "DELETE") adopt(undefined);
         response.end(JSON.stringify(status()));
@@ -78,6 +82,7 @@ async function daemon() {
     url: `ws://127.0.0.1:${address.port}/`,
     token: "c".repeat(64),
     localHostId: "host",
+    localRelayHostId: relayHostId,
   } as const;
   return {
     connection,

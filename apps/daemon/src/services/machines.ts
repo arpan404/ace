@@ -38,6 +38,7 @@ import { answersDirectly, redeemPairingThroughRelay } from "../machines/relay-pa
 import { MachineConnections } from "../machines/connections.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
+import { routedTransfers } from "../transfers/routes.ts";
 import { findHostThread } from "../spade/host-thread.ts";
 import { SpadeRemote } from "../spade/remote.ts";
 import { readLocalToken } from "../local-token.ts";
@@ -242,9 +243,14 @@ export function startMachines(context: ServiceContext): void {
   resources.own(() => saved.close());
   const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());
-  const transferBase = options.transfers?.transport ?? transferTransport;
-  const probes: TransferTransport = (profile, route, callOptions) =>
-    transferBase(profile, route, { ...callOptions, connections });
+  // A transfer probe goes by every route a transfer may (ADR 0192).
+  const probes: TransferTransport = routedTransfers({
+    direct: options.transfers?.transport ?? transferTransport,
+    connections,
+    links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
+    now,
+  });
   const directory = new MachineDirectory({
     connections,
     now,
@@ -272,27 +278,21 @@ export function startMachines(context: ServiceContext): void {
   const fleet = new FleetLinks({
     profiles: () => new Profiles(config.dataDir),
     describe: async (profile) => {
-      const description = MachineDescription.parse(
-        await directory.call(
-          profile,
-          {
-            hostId: HostId.parse(hostId),
-            hostName: ((await hostName()) || "ace").slice(0, 256),
-            threadId: ThreadId.parse("settings"),
-            threadTitle: "Settings",
-            ceiling: "operate",
-          },
-          { op: "describe" },
-          { timeoutMs: 4000 },
-        ),
+      const sent = await directory.callAs(
+        profile,
+        {
+          hostId: HostId.parse(hostId),
+          hostName: ((await hostName()) || "ace").slice(0, 256),
+          threadId: ThreadId.parse("settings"),
+          threadTitle: "Settings",
+          ceiling: "operate",
+        },
+        { op: "describe" },
+        { timeoutMs: 4000 },
       );
-      const table = new Profiles(config.dataDir);
-      try {
-        const linked = table.list().find((entry) => entry.name === profile);
-        if (linked) services.parcels?.described(linked, description);
-      } finally {
-        table.close();
-      }
+      const description = MachineDescription.parse(sent.answer);
+      // Kept for the pairing the describe went as; never looked up again by name (ADR 0192).
+      services.parcels?.described(sent.profile, description);
       return description;
     },
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.

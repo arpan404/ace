@@ -19,6 +19,15 @@ function relayRefusal(error: RelayPairingError): string {
 }
 
 /**
+ * The public half of the key this browser proves the person's standing with as a paired device
+ * (ADR 0190), named at redemption; none where it can keep no key.
+ */
+async function standingPublicKey(): Promise<string | undefined> {
+  const { pairedStandingKey } = await import("@/boot/paired-standing-key.ts");
+  return (await pairedStandingKey().catch(() => undefined))?.publicKey;
+}
+
+/**
  * Redeem a link that goes through a self-hosted relay (ADR 0070): the code travels in one
  * pinned relay channel, and the device connects through the same relay with its new token.
  */
@@ -37,6 +46,7 @@ async function redeemThroughRelay(
     link,
     name,
     installId: browserInstallId(),
+    standingKey: await standingPublicKey(),
     socket: browserDeviceSocket,
     schedule: (callback, delayMs) => {
       const timer = setTimeout(callback, delayMs);
@@ -106,7 +116,13 @@ export function PairingForm(props: {
         fetch: (input, init) => fetch(input, init),
         token: async () => "",
       });
-      const paired = await access.redeem(code, name.trim(), owned.signal, browserInstallId());
+      const paired = await access.redeem(
+        code,
+        name.trim(),
+        owned.signal,
+        browserInstallId(),
+        await standingPublicKey(),
+      );
       const url = new URL(origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       if (owned.signal.aborted) return;

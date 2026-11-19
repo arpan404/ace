@@ -36,14 +36,16 @@ const scopeNames: Record<DeviceScope, string> = {
 /**
  * One pairing link, as `POST /v1/pairings` and `fleet.request` issue it. The creator may grant
  * only scopes it holds itself (`holds`): `projects` and `accounts` are separate grants from admin
- * (ADR 0070). The code and fingerprint travel in the URL fragment, which no HTTP request carries.
- * With `app`, the link opens that web app and names this daemon in its fragment.
+ * (ADR 0070), and the person's standing only if it has it (`person`, ADR 0190). The code and
+ * fingerprint travel in the URL fragment, which no HTTP request carries. With `app`, the link
+ * opens that web app and names this daemon in its fragment.
  */
 export function issuePairing(
   auth: RemoteAuth,
   connection: PairingConnection | undefined,
   input: unknown,
   holds: (scope: DeviceScope) => boolean,
+  person: boolean,
   app?: string,
 ): IssuedPairing {
   if (!connection)
@@ -61,7 +63,7 @@ export function issuePairing(
       403,
       `You can't grant ${scopeNames[missing]}: this device doesn't have it.`,
     );
-  const { id, code, expiresAt } = auth.pairing(scopes, { label, ttlMs, deviceTtlMs });
+  const { id, code, expiresAt } = auth.pairing(scopes, { label, ttlMs, deviceTtlMs, person });
   const url = connection.relay
     ? // No address of its own to open: the link opens ace's web app (or the chosen one).
       pairingLinkUrl({ relay: connection.relay, code, scopes, app: app ?? hostedWebOrigin })

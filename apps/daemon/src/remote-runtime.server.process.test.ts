@@ -1,3 +1,4 @@
+import { keyPair as fixedKeyPair } from "@ace/secure-channel";
 import { FilesService } from "@ace/files";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { fingerprint } from "@ace/secure-channel";
@@ -683,6 +684,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
     },
     account: (store, home) => {
       account = machineAccount({
+        relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -710,7 +712,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
     expect(retries).not.toContain(1000);
     expect(backend.grantRequests).toEqual([]);
 
-    await account.handover(backend.origin, backend.token);
+    await account.handover(backend.origin, { token: backend.token });
     await expect.poll(async () => (await status()).relay).toMatchObject({ url: relay.url });
     expect((await status()).error).toBeUndefined();
     expect(backend.grantRequests).toMatchObject([{ kind: "machine" }]);
@@ -730,6 +732,7 @@ test("ace's relay waits for this machine to sign in, registers with a machine gr
 function accountOn(holder: { account?: MachineAccount }) {
   return (store: Store, home: string) => {
     holder.account = machineAccount({
+      relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -768,7 +771,7 @@ test("turning the relay on with no address of its own saves, and puts a signed-i
       relay: { state: "waiting", error: expect.stringContaining("Sign in") },
     });
 
-    await holder.account?.handover(backend.origin, backend.token);
+    await holder.account?.handover(backend.origin, { token: backend.token });
     await expect.poll(async () => (await networks()).relay?.state).toBe("on");
     expect(await networks()).toMatchObject({
       lan: { state: "on" },
@@ -805,7 +808,7 @@ test("ace's relay refusing a signed-in machine leaves the LAN serving and waits 
     },
   });
   try {
-    await holder.account?.handover(backend.origin, backend.token);
+    await holder.account?.handover(backend.origin, { token: backend.token });
     await expect
       .poll(async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks)
       .toMatchObject({
@@ -950,6 +953,7 @@ async function lastingAccount() {
   return {
     open: () => {
       const account = machineAccount({
+        relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -984,7 +988,7 @@ test("a signed-in daemon whose relay never answers its registration stops within
     });
     let closed = false;
     try {
-      await first.handover(backend.origin, backend.token);
+      await first.handover(backend.origin, { token: backend.token });
       // The relay took the connection and the machine grant; it never confirms the registration.
       await expect.poll(() => silent.connections()).toBeGreaterThan(0);
       expect(backend.grantRequests).toMatchObject([{ kind: "machine" }]);
@@ -1042,7 +1046,7 @@ test("a signed-in daemon listens and pairs over the LAN while ace's relay never 
   const accounts = await lastingAccount();
   try {
     // Signed in before the daemon starts, as a restart finds it.
-    await accounts.open().handover(backend.origin, backend.token);
+    await accounts.open().handover(backend.origin, { token: backend.token });
     const signedIn = accounts.open();
     await signedIn.load();
     const lifetime = new AbortController();
@@ -1125,7 +1129,7 @@ test("signing out while ace's relay is still registering leaves no registration 
   const backend = await startFakeAccountBackend(Date.now, { grantGate: () => grants.promise });
   const accounts = await lastingAccount();
   try {
-    await accounts.open().handover(backend.origin, backend.token);
+    await accounts.open().handover(backend.origin, { token: backend.token });
     const signedIn = accounts.open();
     await signedIn.load();
     const f = await runtime({

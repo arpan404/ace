@@ -33,6 +33,14 @@ export const DaemonConnection = z.discriminatedUnion("mode", [
      * remote daemon, whose remembered identity stays the check.
      */
     localHostId: z.string().min(1).max(256).optional(),
+    /**
+     * Only for the daemon on this computer: the host id its home's relay key proves (ADR 0190),
+     * which an enrollment ticket the app hands it is bound to.
+     */
+    localRelayHostId: z
+      .string()
+      .regex(/^[A-Z2-7]{52}$/)
+      .optional(),
   }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),

@@ -14,11 +14,9 @@ const maxStreams = 16;
 export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded"> &
   Partial<Pick<SpadeLink, "revokeGrant" | "personKey">>;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
-  Partial<Pick<SocketContext, "device" | "hostCredential">> & {
+  Partial<Pick<SocketContext, "device" | "personProven">> & {
     options: {
       spade?: SpadeAccess | undefined;
-      /** Whether this machine's ace account signed in within ten minutes. */
-      marketAgent?: { freshSignIn(): Promise<boolean> } | undefined;
     };
     /** The clock stamps are dated with. */
     now?: () => number;
@@ -69,10 +67,10 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     send: (message) => context.send(message),
     unavailable: () => unavailable(host()),
     stamp: async (write) => {
-      const refused = await personOnlyChangeRefusal({
+      // The same rule as every person-only action (ADR 0190): this socket proved it's the person.
+      const refused = personOnlyChangeRefusal({
         device: context.device?.(),
-        hostCredential: context.hostCredential?.() === true,
-        fresh: () => context.options.marketAgent?.freshSignIn() ?? Promise.resolve(false),
+        unproven: context.personProven?.() !== true,
       });
       if (refused) return { refused };
       const key = host()?.personKey?.();

@@ -29,6 +29,7 @@ function fakeRelay() {
     return value;
   };
   const relay: PortableRelay = {
+    channelBinding: "media-stream",
     send: async (message) => void sent.push(message),
     sendText: async (text) => void texts.push(text),
     receive: async () => {

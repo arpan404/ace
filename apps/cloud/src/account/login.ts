@@ -89,7 +89,10 @@ export function loginRoutes(deps: {
       const id = opaqueToken(random);
       const secret = opaqueToken(random);
       const expiresAt = time + LOGIN_LIFETIME_MS;
-      await logins.create(await digest(id), await digest(secret), expiresAt, returnTo);
+      // A daemon (`ace login`) signs in without a return address, and keeps its session on its
+      // disk: that session never speaks for the person (ADR 0190).
+      const holder = body.holder ?? (returnTo === null ? "machine" : "person");
+      await logins.create(await digest(id), await digest(secret), expiresAt, returnTo, holder);
       return json(201, {
         id,
         secret,
@@ -187,6 +190,9 @@ export function loginRoutes(deps: {
         identity.refreshToken,
         expiresAt,
         now(),
+        row.holder === "person" || (row.holder === null && row.return_to !== null)
+          ? "person"
+          : "exposed",
         identity.pictureUrl,
       );
       const grant = AceAccountGrant.parse({ token, expiresAt, account: identity.account });

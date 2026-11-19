@@ -27,6 +27,11 @@ export interface PairingTerms {
   ttlMs?: number | undefined;
   /** How long the paired device keeps access; until revoked when omitted or null. */
   deviceTtlMs?: number | null | undefined;
+  /**
+   * Its maker had the person's standing (ADR 0190), so the device it pairs does too. Absent:
+   * the device has no more standing than a link the host token made.
+   */
+  person?: boolean | undefined;
 }
 const localOnly = (device: Pick<Device, "scopes">) =>
   device.scopes.includes("desktop") || device.scopes.includes("user-browser");
@@ -96,6 +101,7 @@ export class RemoteAuth {
       scopes: granted,
       ...(terms.label ? { label: terms.label } : {}),
       ...(terms.deviceTtlMs ? { deviceTtlMs: terms.deviceTtlMs } : {}),
+      person: terms.person === true,
     });
     return { id, code, expiresAt };
   }
@@ -107,6 +113,15 @@ export class RemoteAuth {
         PendingPairing.parse({ id, label, scopes, expiresAt, deviceTtlMs }),
       );
   }
+  /**
+   * The machine's owner changed (ADR 0190): no paired device is the person's, and no link a
+   * person made can still be redeemed. The devices stay paired, with their other access.
+   */
+  dropPersonStanding(): void {
+    this.devices.clearPerson();
+    for (const pending of this.codes.pending(this.now()))
+      if (pending.person) this.codes.remove(pending.id);
+  }
   /** False when no pending link has that id. */
   cancelPairing(id: string): boolean {
     return this.codes.remove(id);
@@ -116,7 +131,12 @@ export class RemoteAuth {
     this.limit("*");
   }
   /** Redeems a pairing; the same app install (`installId`, ADR 0115) keeps its one record. */
-  redeem(code: string, name: string, installId?: InstallId): { device: Device; token: string } {
+  redeem(
+    code: string,
+    name: string,
+    installId?: InstallId,
+    standingKey?: string,
+  ): { device: Device; token: string } {
     const pairing = this.codes.take(hash(code));
     if (!pairing || pairing.expiresAt <= this.now())
       throw new AccessError(401, "Invalid or expired pairing code");
@@ -128,6 +148,8 @@ export class RemoteAuth {
       at,
       pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
       installId,
+      pairing.person,
+      standingKey,
     );
     // The install's record got a new credential and scopes: what the old one opened ends, so
     // no ticket, socket or lease carries the old authority or picks up the new.
@@ -175,7 +197,10 @@ export class RemoteAuth {
   handOver(actor: SessionActor, epoch = ""): { ticket: string; ttlMs: number } | undefined {
     if (!actor.revocable || actor.generation === undefined) return undefined;
     try {
-      const { ticket, expiresAt } = this.ticket({ ...actor, generation: actor.generation }, epoch);
+      const { ticket, expiresAt } = this.ticket(
+        { ...actor, generation: actor.generation, person: actor.person === true },
+        epoch,
+      );
       return { ticket, ttlMs: expiresAt - this.now() };
     } catch {
       return undefined;
