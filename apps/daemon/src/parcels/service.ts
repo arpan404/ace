@@ -2,7 +2,6 @@ import { logFields } from "@ace/diagnostics";
 import {
   AgentId,
   HostId,
-  MachinePath,
   ThreadId,
   type AgentControlOperation,
   type AgentControlResult,
@@ -18,7 +17,7 @@ import { pinnedRequest } from "../machines/transport.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { ParcelFileError, ParcelFiles } from "./files.ts";
 import { isHostedRelay } from "../relay-account.ts";
-import { enrollPins } from "../machines/link-routes.ts";
+import { pairingKey, recordDescription } from "./descriptions.ts";
 import { ParcelLink } from "./link.ts";
 import { arrivalText, receivedView, sentView } from "./messages.ts";
 import { ParcelPuller } from "./puller.ts";
@@ -114,7 +113,7 @@ export function startParcels(context: ServiceContext): void {
     relay,
     paths: (profile) => rows.paths(profile.id)?.paths ?? [],
     hosted: (url) => isHostedRelay(url, config.hostedRelayUrl),
-    pins: (profile) => rows.pins(profile.id, profile.deviceId),
+    pins: (profile) => rows.pins(profile.id, pairingKey(profile)),
     now,
   });
   const room = () => Math.max(0, QUOTA_BYTES - rows.heldBytes());
@@ -316,18 +315,8 @@ export function startParcels(context: ServiceContext): void {
     })
     .catch((error: unknown) => record("warn")("Parcels not recovered", { error: String(error) }));
 
-  const described = (profile: RemoteProfile, description: MachineDescription) => {
-    const paths = (description.paths ?? []).flatMap((entry) => {
-      const path = MachinePath.safeParse(entry);
-      return path.success ? [path.data] : [];
-    });
-    // A kind of key the link didn't pin is taken once, then kept (ADR 0192).
-    const before = rows.pins(profile.id, profile.deviceId);
-    const after = enrollPins(profile, before, paths);
-    if (after.tls !== before.tls || after.relay !== before.relay)
-      rows.savePins(profile.id, profile.deviceId, after, now());
-    rows.savePaths(profile.id, paths, now());
-  };
+  const described = (profile: RemoteProfile, description: MachineDescription) =>
+    recordDescription(rows, profiles(), profile, description, now());
 
   async function receive(
     caller: McpAttribution,

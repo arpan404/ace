@@ -278,27 +278,21 @@ export function startMachines(context: ServiceContext): void {
   const fleet = new FleetLinks({
     profiles: () => new Profiles(config.dataDir),
     describe: async (profile) => {
-      const description = MachineDescription.parse(
-        await directory.call(
-          profile,
-          {
-            hostId: HostId.parse(hostId),
-            hostName: ((await hostName()) || "ace").slice(0, 256),
-            threadId: ThreadId.parse("settings"),
-            threadTitle: "Settings",
-            ceiling: "operate",
-          },
-          { op: "describe" },
-          { timeoutMs: 4000 },
-        ),
+      const sent = await directory.callAs(
+        profile,
+        {
+          hostId: HostId.parse(hostId),
+          hostName: ((await hostName()) || "ace").slice(0, 256),
+          threadId: ThreadId.parse("settings"),
+          threadTitle: "Settings",
+          ceiling: "operate",
+        },
+        { op: "describe" },
+        { timeoutMs: 4000 },
       );
-      const table = new Profiles(config.dataDir);
-      try {
-        const linked = table.list().find((entry) => entry.name === profile);
-        if (linked) services.parcels?.described(linked, description);
-      } finally {
-        table.close();
-      }
+      const description = MachineDescription.parse(sent.answer);
+      // Kept for the pairing the describe went as; never looked up again by name (ADR 0192).
+      services.parcels?.described(sent.profile, description);
       return description;
     },
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
