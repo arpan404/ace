@@ -10,6 +10,7 @@ import { loadHostId } from "../local-files.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { AgentTransfers } from "./agent.ts";
 import { transferTransport, type TransferTransport } from "./client.ts";
+import { routedTransfers } from "./routes.ts";
 import { MachineConnections } from "../machines/connections.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferCommands } from "./commands.ts";
@@ -87,9 +88,14 @@ export function startTransfers(context: ServiceContext): void {
   // Unlinking from Settings ends the machine's transfer connections before it reports done.
   const unfollow = services.fleet?.onChange((listed) => connections.retain(listed));
   if (unfollow) resources.own(unfollow);
-  const base = options.transfers?.transport ?? transferTransport;
-  const transport: TransferTransport = (profile, route, callOptions) =>
-    base(profile, route, { ...callOptions, connections });
+  // Every route parcels use reaches the machine for transfers too (ADR 0192).
+  const transport: TransferTransport = routedTransfers({
+    direct: options.transfers?.transport ?? transferTransport,
+    connections,
+    links: () => services.parcels?.links,
+    current: (profile) => saved.holds(profile),
+    now,
+  });
 
   // Which machine owns each thread (ADR 0191); the engine's fence reads the same record.
   const ownership = new ThreadOwnership(store);

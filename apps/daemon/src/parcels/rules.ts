@@ -1,9 +1,9 @@
 import { isAbsolute, normalize, sep } from "node:path";
-import { parcelChunkBytes, type MachinePath } from "@ace/protocol";
+import { parcelChunkBytes } from "@ace/protocol";
 
 /**
  * Decisions about parcels (ADR 0182), with no I/O: what a receiver admits, what a sender sends
- * next, when it tries again, which paths it tries and who may send to whom.
+ * next, when it tries again and who may send to whom. The paths it tries are `machines/link-routes.ts`.
  */
 
 /** Why a receiver refuses a chunk; each is final for that chunk, never for the parcel. */
@@ -51,76 +51,6 @@ export const PARCEL_DEADLINE_MS = 24 * 60 * 60 * 1000;
 /** How long to wait before attempt `attempt` (1 is the first retry): doubling, capped. */
 export function retryDelay(attempt: number): number {
   return Math.min(LAST_RETRY_MS, FIRST_RETRY_MS * 2 ** Math.max(0, Math.min(attempt - 1, 16)));
-}
-
-/** One way to reach a paired machine for a parcel call. */
-export type ParcelRoute =
-  | { kind: "direct"; url: string; fingerprint: string; path: "saved" | "lan" | "tailscale" }
-  | { kind: "relay"; url: string; relayHostId: string; hosted: boolean };
-
-/**
- * The routes to try, best first: the address the machines were linked on, the other direct
- * addresses the machine said it serves (the LAN, Tailscale), the relay they were linked through,
- * then the person's own relay and ace's relay. Loopback is never tried: on this machine it
- * reaches this machine. A direct address must be under the key the link pinned; a machine
- * linked through a relay only pinned none, so it is under the key the machine itself announced
- * on that authenticated stream.
- */
-export function parcelRoutes(
-  saved: {
-    origin?: string | undefined;
-    fingerprint?: string | undefined;
-    relay?: { url: string; relayHostId: string } | undefined;
-  },
-  paths: readonly MachinePath[],
-): ParcelRoute[] {
-  const routes: ParcelRoute[] = [];
-  const known = new Set<string>();
-  if (saved.origin && saved.fingerprint) {
-    routes.push({
-      kind: "direct",
-      url: saved.origin,
-      fingerprint: saved.fingerprint,
-      path: "saved",
-    });
-    known.add(originOf(saved.origin));
-  }
-  for (const kind of ["lan", "tailscale"] as const)
-    for (const path of paths)
-      if (
-        path.kind === kind &&
-        (saved.fingerprint === undefined || path.fingerprint === saved.fingerprint) &&
-        !known.has(originOf(path.url))
-      ) {
-        known.add(originOf(path.url));
-        routes.push({ kind: "direct", url: path.url, fingerprint: path.fingerprint, path: kind });
-      }
-  if (saved.relay) {
-    known.add(`relay:${saved.relay.url}`);
-    routes.push({
-      kind: "relay",
-      url: saved.relay.url,
-      relayHostId: saved.relay.relayHostId,
-      hosted: false,
-    });
-  }
-  for (const kind of ["relay", "account"] as const)
-    for (const path of paths)
-      if (path.kind === kind && !known.has(`relay:${path.url}`)) {
-        known.add(`relay:${path.url}`);
-        routes.push({
-          kind: "relay",
-          url: path.url,
-          relayHostId: path.relayHostId,
-          hosted: kind === "account",
-        });
-      }
-  return routes;
-}
-
-function originOf(url: string): string {
-  const parsed = URL.parse(url);
-  return parsed ? parsed.origin : url;
 }
 
 /** What the sender knows of a local thread, to decide who may receive from it. */

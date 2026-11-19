@@ -1,5 +1,6 @@
 import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { startFilesRelay } from "../files-relay.ts";
+import { isHostedRelay } from "../relay-account.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
 import { Resources } from "./resources.ts";
@@ -71,6 +72,8 @@ export async function startRelayTransport(
       return options.relayMain;
     },
     machineCalls: () => options.machineCalls,
+    transfers: () => options.transferTarget,
+    hostedRelay: isHostedRelay(relay.url, options.remoteConfig?.hostedRelayUrl),
     store: options.store,
     auth,
     account: options.machineAccount,

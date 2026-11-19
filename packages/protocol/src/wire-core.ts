@@ -580,9 +580,8 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      */
     releaseLine: z.string().min(1).max(32).optional(),
     /**
-     * For an ace account device: this socket's nonce for `account.standing` (ADR 0190), new for
-     * every socket, so a proof made for one is worth nothing on another. Absent for other
-     * credentials and from older daemons.
+     * This socket's nonce for `account.standing` and `device.standing` (ADR 0190), new for every
+     * socket, so a proof made for one is worth nothing on another. Absent from older daemons.
      */
     standingNonce: z
       .string()
@@ -597,6 +596,12 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       .string()
       .regex(/^[A-Z2-7]{52}$/)
       .optional(),
+    /**
+     * On a relay `machine` stream (ADR 0192): this machine takes `machine.transfer` frames, so a
+     * paired machine may move projects and threads here through the relay. Absent from older
+     * daemons, which end the stream on a frame they don't know: nothing is sent to them.
+     */
+    machineTransfers: z.literal(true).optional(),
   }),
   /**
    * On a relay stream opened with Noise NK (ADR 0155): the daemon took the client's

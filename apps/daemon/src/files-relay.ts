@@ -23,6 +23,7 @@ import type { ClientMessage, PairResult } from "@ace/protocol";
 import type { MediaRelayStreams } from "./media-relay/streams.ts";
 import { mediaHelloAdmission, type MediaTicketClaim } from "./media-relay/admit.ts";
 import { serveRelayMachineCalls } from "./relay-machine-host.ts";
+import type { TransferTarget } from "./transfers/serve.ts";
 import type { MachineTarget } from "./machines/target.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
@@ -47,6 +48,10 @@ export async function startFilesRelay(
     relayMain?: ((entry: RelayedMain) => void) | undefined;
     /** Machine calls from paired machines that reach this one only through the relay (ADR 0182). */
     machineCalls?: (() => Pick<MachineTarget, "handle"> | undefined) | undefined;
+    /** Transfers from paired machines that reach this one only through the relay (ADR 0192). */
+    transfers?: (() => TransferTarget | undefined) | undefined;
+    /** `url` is ace's hosted relay, by this machine's settings: transfers through it are bounded. */
+    hostedRelay?: boolean | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
     /**
@@ -249,6 +254,8 @@ export async function startFilesRelay(
           try {
             await serveRelayMachineCalls(channel, {
               target: options.machineCalls,
+              transfers: options.transfers,
+              hostedRelay: options.hostedRelay,
               device: () =>
                 options.devices.current(device.id, device.generation, options.auth.now()),
               deviceId: device.id,
