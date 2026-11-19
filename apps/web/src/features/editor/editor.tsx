@@ -17,6 +17,8 @@ import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
 import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
+import { isFoldStart } from "./folding.ts";
+import { useFolding } from "./use-folding.ts";
 import { useEditorDocument, type EditBatch } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
@@ -53,6 +55,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const wrap = props.wrap ?? false;
   /** The wrap index hears each edit as the document applies it, before React renders it. */
   const appliedRef = useRef<WrapEdits | undefined>(undefined);
+  /** Folds move with every edit, and open when it changes their hidden text. */
+  const foldRef = useRef<((spans: EditBatch["spans"]) => void) | undefined>(undefined);
   /** Find in selection carries its scope through every edit. */
   const scopeRef = useRef<((replacements: EditBatch["replacements"]) => void) | undefined>(
     undefined,
@@ -69,6 +73,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onApplied: (batch) => {
       appliedRef.current?.after(batch);
       scopeRef.current?.(batch.replacements);
+      foldRef.current?.(batch.spans);
       // An edit or an undo replaces the document's selections: a side measured against the old
       // carets means nothing once their positions and order have changed.
       setAffinity(noAffinity);
@@ -122,6 +127,20 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     appliedRef,
     visible,
     anchor,
+  });
+
+  const indentSize = doc?.indent().size ?? 2;
+  const folding = useFolding({
+    doc,
+    layout,
+    indentSize,
+    select: (selections) => {
+      setAffinity(noAffinity);
+      state.select(selections);
+    },
+  });
+  useLayoutEffect(() => {
+    foldRef.current = folding.mapThrough;
   });
 
   const view = editorWindow({ layout, lineCount, scrollTop: scroll.top, height });
@@ -235,6 +254,17 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     onFind: finder.openFind,
     onFindAgain: finder.findAgain,
     onGoToLine: () => setGoingTo(true),
+    onFold: (kind) => {
+      if (kind === "fold") folding.foldAtCarets();
+      else folding.unfoldAtCarets();
+    },
+    onChord: (event) => {
+      const mod = isMacPlatform() ? event.metaKey : event.ctrlKey;
+      if (mod && event.code === "Digit0") folding.foldAll();
+      else if (mod && event.code === "KeyJ") folding.unfoldAll();
+      else return false;
+      return true;
+    },
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
     onEscape: () => {
@@ -252,7 +282,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     navigationKeys(event);
   };
 
-  const indentSize = doc?.indent().size ?? 2;
   const decorations = useDecorations({
     doc,
     version: state.version,
@@ -278,6 +307,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   }, [tokenKey, state.highlighter]);
 
   const pointer = usePointerSelection({
+    onGutter: (line) => {
+      if (!folding.isFolded(line) && !folding.isFoldable(line)) return false;
+      folding.toggle(line);
+      return true;
+    },
     state,
     cell,
     gutter,
@@ -349,7 +383,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       ) : null}
       <div
         data-editor-frame
-        className="relative min-h-0 flex-1 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
+        className="group/editor relative min-h-0 flex-1 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]"
       >
         <div
           ref={scroller}
@@ -425,6 +459,16 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                       top={index * lineHeight}
                       mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
                       current={line === caretLine}
+                      fold={
+                        at !== 0
+                          ? undefined
+                          : folding.isFolded(line)
+                            ? "closed"
+                            : isFoldStart(lineAt, lineCount, line, indentSize)
+                              ? "open"
+                              : undefined
+                      }
+                      lastRow={at === lineRows.length - 1}
                       matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
                       query={activeQuery}
                       long={long}

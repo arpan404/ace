@@ -45,6 +45,8 @@ export interface EditorKeyOptions {
   /** Cmd+G and Shift+Cmd+G: the next or previous match. */
   onFindAgain?: ((delta: 1 | -1) => void) | undefined;
   onSave?: (() => void) | undefined;
+  /** Cmd+Alt+[ folds the region at each caret, Cmd+Alt+] opens it. */
+  onFold?: ((kind: "fold" | "unfold") => void) | undefined;
   /** Ctrl+G: ask for a line to go to. */
   onGoToLine?: (() => void) | undefined;
   /** Returns true when Escape closed something (find); false collapses the carets. */
@@ -300,6 +302,12 @@ export function useEditorKeys(options: EditorKeyOptions) {
         event.preventDefault();
         return;
       }
+    }
+    if (mod && event.altKey && (event.code === "BracketLeft" || event.code === "BracketRight")) {
+      if (!options.onFold) return;
+      event.preventDefault();
+      options.onFold(event.code === "BracketLeft" ? "fold" : "unfold");
+      return;
     }
     if (mod && !event.altKey && !event.shiftKey && event.code === "KeyK") {
       event.preventDefault();
