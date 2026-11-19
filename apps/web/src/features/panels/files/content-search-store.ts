@@ -38,8 +38,9 @@ const emptyQuery: ContentQuery = {
 
 /**
  * One thread's content search, shared by every Files tab of the thread so opening a result
- * keeps the list. A change to the query waits for typing to pause, then cancels the search
- * before it (the daemon stops walking) and starts again from an empty list.
+ * keeps the list. A change to the query cancels the search before it (the daemon stops walking)
+ * and empties the list at once, so no row of the old query stays to be clicked; only the new
+ * search waits for typing to pause.
  */
 export class ContentSearchStore {
   readonly #client: ClientApi;
@@ -76,21 +77,19 @@ export class ContentSearchStore {
   /** Change the query; the search follows once typing pauses (at once with `now`). */
   update(patch: Partial<ContentQuery>, now = false): void {
     const query = { ...this.#state.query, ...patch };
-    this.#set({ query });
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#timer = undefined;
-    if (!query.pattern) {
-      this.#cancel();
-      this.#set({
-        status: "idle",
-        files: [],
-        lines: 0,
-        matches: 0,
-        summary: undefined,
-        error: undefined,
-      });
-      return;
-    }
+    this.#cancel();
+    this.#set({
+      query,
+      status: query.pattern ? "searching" : "idle",
+      files: [],
+      lines: 0,
+      matches: 0,
+      summary: undefined,
+      error: undefined,
+    });
+    if (!query.pattern) return;
     if (now) this.run();
     else this.#timer = setTimeout(() => this.run(), searchDelay);
   }

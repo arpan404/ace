@@ -105,6 +105,7 @@ test("a newer query cancels the old search and replaces its results", async () =
   const { panel, field, searches } = await openSearch({ hold: "Wombat" });
   await userEvent.type(field, "Wombat");
   expect(await within(panel).findByText("Searching…")).toBeTruthy();
+  await waitFor(() => expect(searches).toHaveLength(1));
   // Typed over, never emptied: the newer query is what calls the old search off.
   await userEvent.tripleClick(field);
   await userEvent.keyboard("Quokka = new");
