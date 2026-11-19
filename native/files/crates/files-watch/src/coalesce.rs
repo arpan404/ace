@@ -16,7 +16,7 @@
 //! folder instead: one walk finds what the events described, whatever the backend managed to
 //! deliver.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use crate::batch::{Batch, Change};
@@ -63,6 +63,9 @@ pub(crate) struct Coalescer {
     /// Changes per folder since that folder's first change inside [`BURST_WINDOW`], so a burst
     /// that arrives in chunks smaller than `max_batch` still becomes one walk.
     bursts: BTreeMap<String, (Instant, usize)>,
+    /// When each count in `bursts` started, oldest first, so expired counts are dropped as time
+    /// passes at a cost proportional to the folders that changed, not to all those ever counted.
+    started: VecDeque<(Instant, String)>,
 }
 
 impl Coalescer {
@@ -78,6 +81,7 @@ impl Coalescer {
             last: None,
             activity: false,
             bursts: BTreeMap::new(),
+            started: VecDeque::new(),
         }
     }
 
@@ -130,14 +134,37 @@ impl Coalescer {
     /// losing some of them, would leave the tree short of what happened. A walk of that folder
     /// finds the truth instead of trusting the events.
     fn count_burst(&mut self, folder: &str, now: Instant) {
+        self.forget_bursts(now);
         let entry = self.bursts.entry(folder.to_owned()).or_insert((now, 0));
-        if now.saturating_duration_since(entry.0) > BURST_WINDOW {
+        if entry.1 == 0 || now.saturating_duration_since(entry.0) > BURST_WINDOW {
             *entry = (now, 0);
+            self.started.push_back((now, folder.to_owned()));
         }
         entry.1 += 1;
         if entry.1 > BURST_LIMIT {
             self.begin_from_paths(now);
         }
+    }
+
+    /// Drops the counts whose burst window has passed.
+    fn forget_bursts(&mut self, now: Instant) {
+        while let Some((start, _)) = self.started.front()
+            && now.saturating_duration_since(*start) > BURST_WINDOW
+        {
+            let Some((start, folder)) = self.started.pop_front() else {
+                break;
+            };
+            // A count restarted since has a later entry of its own.
+            if self.bursts.get(&folder).is_some_and(|(at, _)| *at == start) {
+                self.bursts.remove(&folder);
+            }
+        }
+    }
+
+    /// Forgets every burst count: a rescan covers what they counted.
+    fn clear_bursts(&mut self) {
+        self.bursts.clear();
+        self.started.clear();
     }
 
     /// Whether the window already holds news about something inside `folder`.
@@ -201,6 +228,12 @@ impl Coalescer {
         CHECKPOINT_INTERVAL.max(self.max_wait.saturating_mul(CHECKPOINT_PERIODS))
     }
 
+    /// How many folders' burst counts are kept.
+    #[cfg(test)]
+    fn counted_folders(&self) -> usize {
+        self.bursts.len()
+    }
+
     /// Whether the window will close with a rescan. Everything that arrives until then is
     /// covered by it, so the worker can translate those events without asking the disk.
     pub(crate) fn is_rescanning(&self) -> bool {
@@ -237,7 +270,7 @@ impl Coalescer {
                 // ends: report what the tree is now, and cover everything after it with the
                 // final rescan (or another checkpoint).
                 self.sent = Some(now);
-                self.bursts.clear();
+                self.clear_bursts();
                 return Some(Batch::Rescan {
                     dir: (!scope.is_empty()).then(|| scope.join("/")),
                 });
@@ -246,11 +279,12 @@ impl Coalescer {
             self.sent = None;
             self.first = None;
             self.last = None;
-            self.bursts.clear();
+            self.clear_bursts();
             return Some(Batch::Rescan {
                 dir: (!scope.is_empty()).then(|| scope.join("/")),
             });
         }
+        self.forget_bursts(now);
         let paths = std::mem::take(&mut self.paths);
         self.first = None;
         self.last = None;
@@ -737,5 +771,35 @@ mod tests {
             let folder = changes.iter().find(|change| change.path == "gone").unwrap();
             assert!(folder.directory, "children_first = {children_first}");
         }
+    }
+
+    #[test]
+    fn burst_counts_are_forgotten_once_their_window_has_passed() {
+        // Ordinary batches never rescan, so nothing else would ever drop the count of a folder
+        // touched once: memory would grow with every folder ever changed.
+        let mut coalescer = coalescer(100);
+        let start = Instant::now();
+        for window in 0..10 {
+            let now = start + Duration::from_millis(window);
+            for index in 0..50 {
+                coalescer.push(
+                    notice(&format!("f{window}-{index}/a.txt"), ChangeKind::Modified),
+                    now,
+                );
+            }
+            assert!(matches!(
+                coalescer.settle(now, &mut Exists),
+                Some(Batch::Changes(_))
+            ));
+        }
+        assert_eq!(coalescer.counted_folders(), 500);
+        let later = start + super::BURST_WINDOW + Duration::from_secs(1);
+        coalescer.push(notice("other/a.txt", ChangeKind::Modified), later);
+        assert!(coalescer.settle(later, &mut Exists).is_some());
+        assert_eq!(
+            coalescer.counted_folders(),
+            1,
+            "only the folder changed inside the burst window is still counted"
+        );
     }
 }

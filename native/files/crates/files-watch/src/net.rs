@@ -10,7 +10,9 @@
 //! batch delivered since. A folder whose stamp moved is listed again, and each name that differs
 //! from what the caller knows becomes a change, so a change no event reported is reported, and one
 //! an event already reported is not reported twice by the net. A batch that rescans a folder makes
-//! the net read it afresh, because the caller reads it afresh too.
+//! the net read it afresh as the batch is delivered, before the caller hears it and walks the
+//! folder itself: a name that lands after the caller's walk is then news to the next check, and
+//! one that lands between the two reads is at worst reported twice, never missed.
 //!
 //! A new name is only reported at once when its origin is known: it was created moments ago, or
 //! it is an entry (same inode) that just left another open folder, so both halves of the move are
@@ -21,8 +23,11 @@
 //! track, so the worker then rescans the root, which finds the name and drops the old path. Names
 //! that went away are reported at once.
 //!
-//! A folder with more names than a batch may carry is not kept name by name; when its stamp moves
-//! and no event about it arrived since the last check, it is rescanned. The cost is one open and
+//! A folder with more names than a batch may carry is not kept name by name, so when its stamp
+//! moves only a walk can tell what changed: an event about one name in it says nothing about the
+//! others, which the OS watch may have missed. Its new stamp is taken only when a rescan of it is
+//! asked for. While events about it keep arriving the rescan waits for them to stop, so a burst is
+//! walked once at its end, but never longer than [`SETTLE`]. The cost is one open and
 //! one stat per open folder per check, a listing only for a folder that changed, and memory for
 //! the names of the open folders. A change inside a file leaves its folder's stamp alone, so the
 //! net covers what a tree shows: names appearing, going away, and changing between file and folder.
@@ -48,6 +53,10 @@ const FRESH: Duration = Duration::from_secs(2);
 /// How soon after its birth an entry's status may last have changed for it to count as untouched:
 /// creating and writing a file is one quick run of calls, and a later move changes the status time.
 const UNTOUCHED: Duration = Duration::from_millis(50);
+
+/// The longest a large folder whose stamp moved waits for its events to stop before it is
+/// rescanned anyway, so a folder that never goes quiet cannot keep a missed change forever.
+pub(crate) const SETTLE: Duration = Duration::from_secs(10);
 
 /// The time a check runs at: the monotonic clock for holds, the wall clock for birth times.
 #[derive(Clone, Copy, Debug)]
@@ -76,6 +85,8 @@ struct Held {
 struct Diff {
     deleted: Vec<(Notice, Option<u64>)>,
     created: Vec<(Notice, Option<u64>, Option<SystemTime>)>,
+    /// Folders too large to compare that only a walk can settle.
+    rescans: Vec<String>,
 }
 
 /// The most folders a caller may name, as the daemon's folder watch allows; the root is extra.
@@ -96,10 +107,11 @@ struct Folder {
     /// The names the caller knows it holds, and whether each is a folder; `None` when there are
     /// too many to keep.
     known: Option<BTreeMap<String, Entry>>,
-    /// A batch rescanned this folder: read it afresh, reporting nothing.
-    stale: bool,
     /// An event named this folder or something in it since the last check.
     active: bool,
+    /// When a check first found this folder's stamp moved while it could not be compared name by
+    /// name and events about it were arriving: the rescan it is owed waits for them to stop.
+    unsettled: Option<Instant>,
 }
 
 /// What a check found.
@@ -107,7 +119,7 @@ struct Folder {
 pub(crate) struct Found {
     /// Names that differ from what the caller was told.
     pub(crate) notices: Vec<Notice>,
-    /// Folders too large to compare name by name that changed while no event named them.
+    /// Folders too large to compare name by name that changed: only a walk settles them.
     pub(crate) rescans: Vec<String>,
 }
 
@@ -175,8 +187,8 @@ impl Net {
         }
     }
 
-    /// What a delivered batch told the caller.
-    pub(crate) fn delivered(&mut self, batch: &Batch) {
+    /// What a delivered batch told the caller. Called before the caller hears it.
+    pub(crate) fn delivered(&mut self, root: &Root, excluder: &Excluder, batch: &Batch) {
         match batch {
             Batch::Changes(changes) => {
                 for change in changes {
@@ -213,7 +225,16 @@ impl Net {
                 let prefix = format!("{dir}/");
                 for (folder, held) in &mut self.folders {
                     if dir.is_empty() || folder == dir || folder.starts_with(&prefix) {
-                        held.stale = true;
+                        // The caller is about to walk this folder: what it holds now is the
+                        // least the walk will find, so anything that lands later is news.
+                        let (stamp, known) = read(root, excluder, folder, self.limit)
+                            .map_or((None, None), |(stamp, names)| (Some(stamp), names));
+                        *held = Folder {
+                            stamp,
+                            known,
+                            active: false,
+                            unsettled: None,
+                        };
                     }
                 }
             }
@@ -241,10 +262,11 @@ impl Net {
         for folder in folders {
             if let Some(held) = self.folders.get_mut(folder) {
                 check_one(
-                    root, excluder, self.limit, folder, held, &mut diff, &mut found,
+                    root, excluder, self.limit, folder, held, at.instant, &mut diff,
                 );
             }
         }
+        found.rescans = std::mem::take(&mut diff.rescans);
         self.vanished
             .retain(|(_, when)| at.instant.saturating_duration_since(*when) < HOLD);
         for (notice, ino) in diff.deleted {
@@ -314,27 +336,27 @@ fn check_one(
     limit: usize,
     folder: &str,
     held: &mut Folder,
+    at: Instant,
     diff: &mut Diff,
-    found: &mut Found,
 ) {
     let active = std::mem::take(&mut held.active);
-    let stale = std::mem::take(&mut held.stale);
     let Some(stamp) = stamp(root, folder) else {
         // Gone or unreadable: the folder holding it reports that. Start afresh if it comes back.
         held.stamp = None;
         held.known = None;
         return;
     };
-    if held.stamp == Some(stamp) && !stale {
+    if held.stamp == Some(stamp) {
         return;
     }
     let Some((stamp, names)) = read(root, excluder, folder, limit) else {
         return;
     };
     let read_before = held.stamp.is_some();
-    held.stamp = Some(stamp);
-    if stale || !read_before {
+    if !read_before {
+        held.stamp = Some(stamp);
         held.known = names;
+        held.unsettled = None;
         return;
     }
     match (&mut held.known, &names) {
@@ -349,14 +371,19 @@ fn check_one(
                     entry.ino = listed.ino;
                 }
             }
+            held.stamp = Some(stamp);
         }
-        // Too large to compare, now or before: only listing it again can tell, unless events about
-        // it are arriving and describing it.
-        _ if !active => {
-            found.rescans.push(folder.to_owned());
+        // Too large to compare, now or before: only a walk can tell what changed. While events
+        // about it are arriving the walk waits for them to stop, and the old stamp is kept, so the
+        // next check finds the folder still owed one.
+        _ if active && at.saturating_duration_since(*held.unsettled.get_or_insert(at)) < SETTLE => {
+        }
+        _ => {
+            diff.rescans.push(folder.to_owned());
+            held.stamp = Some(stamp);
             held.known = names;
+            held.unsettled = None;
         }
-        _ => held.known = names,
     }
 }
 
@@ -620,7 +647,7 @@ mod tests {
         );
 
         // Once the batch is delivered the caller knows, and a later change reports only itself.
-        net.delivered(&as_batch(&found));
+        net.delivered(&tree.root, &tree.excluder, &as_batch(&found));
         std::fs::write(tree.path("src/later.txt"), b"x").unwrap();
         assert_eq!(
             tree.check(&mut net, NOW),
@@ -712,11 +739,15 @@ mod tests {
         let tree = Tree::new(|_| {});
         let mut net = tree.net(100, &[]);
         std::fs::write(tree.path("a.txt"), b"x").unwrap();
-        net.delivered(&Batch::Changes(vec![Change {
-            path: "a.txt".to_owned(),
-            kind: ChangeKind::Created,
-            directory: false,
-        }]));
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Changes(vec![Change {
+                path: "a.txt".to_owned(),
+                kind: ChangeKind::Created,
+                directory: false,
+            }]),
+        );
         assert!(tree.check(&mut net, NOW).is_empty());
     }
 
@@ -725,12 +756,37 @@ mod tests {
         let tree = Tree::new(|root| std::fs::create_dir(root.join("src")).unwrap());
         let mut net = tree.net(100, &["src"]);
         std::fs::write(tree.path("src/a.txt"), b"x").unwrap();
-        net.delivered(&Batch::Rescan {
-            dir: Some("src".to_owned()),
-        });
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Rescan {
+                dir: Some("src".to_owned()),
+            },
+        );
         assert!(
             tree.check(&mut net, NOW).is_empty(),
             "the caller lists the folder again for the rescan"
+        );
+    }
+
+    #[test]
+    fn a_name_that_appears_after_a_rescan_was_sent_is_still_reported() {
+        // The caller walks the folder after it hears the rescan. A name that lands after that walk
+        // and that no event reports must still reach it, so the net's baseline is what the folder
+        // held when the rescan was sent, not whatever it holds at the next check.
+        let tree = Tree::new(|root| std::fs::create_dir(root.join("src")).unwrap());
+        let mut net = tree.net(100, &["src"]);
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Rescan {
+                dir: Some("src".to_owned()),
+            },
+        );
+        std::fs::write(tree.path("src/late.txt"), b"x").unwrap();
+        assert_eq!(
+            tree.check(&mut net, NOW),
+            vec![change("src/late.txt", ChangeKind::Created, false)]
         );
     }
 
@@ -757,6 +813,79 @@ mod tests {
         assert_eq!(
             net.check(&tree.root, &tree.excluder, at(NOW)).rescans,
             vec!["big".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_large_folder_is_rescanned_once_its_events_stop_even_if_one_was_described() {
+        // One event about the folder must not vouch for everything else that changed in it: an OS
+        // watch that reported one deletion may have missed another, and only a walk finds it.
+        let tree = Tree::new(|root| {
+            std::fs::create_dir(root.join("big")).unwrap();
+            for index in 0..5 {
+                std::fs::write(root.join(format!("big/{index}")), b"x").unwrap();
+            }
+        });
+        let mut net = tree.net(3, &["big"]);
+        std::fs::remove_file(tree.path("big/0")).unwrap();
+        std::fs::remove_file(tree.path("big/1")).unwrap();
+        net.noticed("big/0");
+        let start = Instant::now();
+        let at = |after: Duration| Moment {
+            instant: start + after,
+            wall: SystemTime::now(),
+        };
+        assert!(
+            net.check(&tree.root, &tree.excluder, at(Duration::ZERO))
+                .rescans
+                .is_empty(),
+            "events about the folder are still arriving"
+        );
+        assert_eq!(
+            net.check(&tree.root, &tree.excluder, at(Duration::from_secs(1)))
+                .rescans,
+            vec!["big".to_owned()],
+            "once they stop, the folder is walked: one of its changes was never described"
+        );
+        net.delivered(
+            &tree.root,
+            &tree.excluder,
+            &Batch::Rescan {
+                dir: Some("big".to_owned()),
+            },
+        );
+        assert!(
+            net.check(&tree.root, &tree.excluder, at(Duration::from_secs(2)))
+                .rescans
+                .is_empty(),
+            "the walk settled it"
+        );
+    }
+
+    #[test]
+    fn a_large_folder_whose_events_never_stop_is_still_rescanned() {
+        let tree = Tree::new(|root| {
+            std::fs::create_dir(root.join("big")).unwrap();
+            for index in 0..5 {
+                std::fs::write(root.join(format!("big/{index}")), b"x").unwrap();
+            }
+        });
+        let mut net = tree.net(3, &["big"]);
+        let start = Instant::now();
+        let mut rescans = Vec::new();
+        for second in 0..=super::SETTLE.as_secs() {
+            std::fs::write(tree.path(&format!("big/new{second}")), b"x").unwrap();
+            net.noticed(&format!("big/new{second}"));
+            let at = Moment {
+                instant: start + Duration::from_secs(second),
+                wall: SystemTime::now(),
+            };
+            rescans.extend(net.check(&tree.root, &tree.excluder, at).rescans);
+        }
+        assert_eq!(
+            rescans,
+            vec!["big".to_owned()],
+            "a folder that keeps changing is walked after at most the settle time"
         );
     }
 }
