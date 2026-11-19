@@ -2,7 +2,7 @@ import { ClientProvider } from "@ace/client-react";
 import { coldStartReplay } from "@ace/fake-daemon";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { folderFixture } from "./folders-test-support.ts";
@@ -165,4 +165,17 @@ test("a folder with no rows yet shows Loading, then its entries", async () => {
   release();
   await waitFor(() => expect(rowsOf()).toHaveLength(1));
   expect(screen.queryByText(/loading:loading:apps\//)).toBeNull();
+});
+
+test("under StrictMode's remount the tree still lists the root and opened folders", async () => {
+  const { app } = await setup();
+  render(
+    <StrictMode>
+      <ClientProvider client={app.client}>
+        <Probe threadId={thread} initial={["apps/"]} />
+      </ClientProvider>
+    </StrictMode>,
+  );
+  await waitFor(() => expect(rowsOf()).toHaveLength(1));
+  expect(screen.queryByText(/loading:/)).toBeNull();
 });

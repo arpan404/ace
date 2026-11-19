@@ -233,21 +233,26 @@ export function useFolderTree(options: {
     settleRef.current = settle;
   });
 
-  useEffect(
-    () => () => {
+  // List a folder when it becomes visible (the root on mount, and every visible folder after a
+  // reconnect). While the tree is paused, nothing is listed; on resume, only folders that never
+  // loaded and folders the daemon named meanwhile.
+  const previous = useRef({ visible: new Set<string>(), online: false, paused: false });
+
+  // React may disconnect and reconnect effects while keeping refs (StrictMode, a hidden
+  // Activity): reconnecting arms the tree again and lists every visible folder afresh, since
+  // disconnecting stopped whatever was on its way.
+  useEffect(() => {
+    alive.current = true;
+    previous.current = { visible: new Set<string>(), online: false, paused: false };
+    return () => {
       alive.current = false;
       for (const controller of controllers.current.values()) controller.abort();
       controllers.current.clear();
       requests.current = noFolderRequests;
       queue.current.clear();
-    },
-    [],
-  );
+    };
+  }, []);
 
-  // List a folder when it becomes visible (the root on mount, and every visible folder after a
-  // reconnect). While the tree is paused, nothing is listed; on resume, only folders that never
-  // loaded and folders the daemon named meanwhile.
-  const previous = useRef({ visible: new Set<string>(), online: false, paused: false });
   useEffect(() => {
     const before = previous.current;
     previous.current = { visible: new Set(visible), online, paused };
