@@ -259,3 +259,37 @@ test("Alt+Arrow moves a line while Alt+Cmd+Arrow leaves it alone", async () => {
   await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
   expect(ref.current?.text()).toBe("two\none");
 });
+
+test("Cmd+Up and Cmd+Down jump to the document's start and end, and Shift extends", async () => {
+  const { ref } = await openEditor({ text: "one\ntwo\nthree" });
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+
+  await userEvent.keyboard("{Meta>}{ArrowDown}{/Meta}");
+  expect(ref.current?.selections()).toEqual([caret(2, 5)]);
+
+  await userEvent.keyboard("{Meta>}{ArrowUp}{/Meta}");
+  expect(ref.current?.selections()).toEqual([caret(0, 0)]);
+
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+  await userEvent.keyboard("{Meta>}{Shift>}{ArrowDown}{/Shift}{/Meta}");
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 1, column: 1 }, head: { line: 2, column: 5 } },
+  ]);
+  await userEvent.keyboard("{Meta>}{Shift>}{ArrowUp}{/Shift}{/Meta}");
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 1, column: 1 }, head: { line: 0, column: 0 } },
+  ]);
+});
+
+test("Ctrl+Home and Ctrl+End jump to the document's start and end off macOS", async () => {
+  Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+  const { ref } = await openEditor({ text: "one\ntwo\nthree" });
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+
+  await userEvent.keyboard("{Control>}{End}{/Control}");
+  expect(ref.current?.selections()).toEqual([caret(2, 5)]);
+  await userEvent.keyboard("{Control>}{Shift>}{Home}{/Shift}{/Control}");
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 2, column: 5 }, head: { line: 0, column: 0 } },
+  ]);
+});

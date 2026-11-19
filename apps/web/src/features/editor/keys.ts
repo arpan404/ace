@@ -279,6 +279,22 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.reveal(position, false);
       return;
     }
+    // Cmd+Up/Down on macOS, Ctrl+Home/End elsewhere: the document's first and last position.
+    const toDocument = mac
+      ? mod && !event.altKey && (key === "ArrowUp" || key === "ArrowDown")
+      : mod && !event.altKey && (key === "Home" || key === "End");
+    if (toDocument) {
+      event.preventDefault();
+      goal.current = undefined;
+      const target =
+        key === "ArrowUp" || key === "Home"
+          ? { line: 0, column: 0 }
+          : documentEnd(doc.lenLines(), line(lastLine()));
+      // The cursors collapse to the primary one, as in VS Code.
+      const primary = doc.selections()[doc.primarySelection()];
+      commitMove([{ anchor: event.shiftKey ? (primary?.anchor ?? target) : target, head: target }]);
+      return;
+    }
     if (key === "ArrowUp" || key === "ArrowDown") {
       if (mod) return;
       event.preventDefault();
