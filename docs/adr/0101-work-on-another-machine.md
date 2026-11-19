@@ -71,7 +71,9 @@ change without pairing again:
   pairing link is cancelled, and the toast names only links this action made. A machine's `links`
   answer says whether it honours `keep` (`keep: true`); older daemons drop the field unread. Link
   all reads the source machine's links again before each fill and skips a gap already linked, and
-  sends `keep` only to a machine that advertises it, so it never replaces a held link. Every link, gap fill or not, holds its machine from right before
+  sends `keep` only to a machine that advertises it. To one that doesn't, it reads the links once
+  more right before the link request and skips on any link there; only a link another window
+  makes within that one request's round trip can still be replaced there. Every link, gap fill or not, holds its machine from right before
   redeeming until it is saved or fails: a second link to the same machine meanwhile is refused
   (`busy`, or `exists` for a gap fill), and links being made count toward the 64-link limit, so
   nothing is redeemed that couldn't be saved.
@@ -295,8 +297,11 @@ would refuse; for it the check is skipped and the handoff is captured when the u
 - The target names a transfer's files by the lowercase hex SHA-256 of its id, so no id's files
   can be another transfer's, even ids that differ only in dots or case on a case-insensitive
   volume. On recovery, files an earlier build named after the id move to the hashed names, in
-  pages of transfers still receiving or importing (ADR 0170), and stray removal keeps every name
-  such a transfer can own, worked out from the rows rather than read back from names. Closing
+  pages of transfers still receiving or importing (ADR 0170). An old name that more than one
+  live transfer's part could be (`x.ignored.part`: `x`'s ignored files or `x.ignored`'s code)
+  stays where it is, kept and logged. Stray removal keeps every name such a transfer can own,
+  worked out from the rows rather than read back from names, and no transfer begins while it
+  runs, so a transfer begun meanwhile never loses its upload. Closing
   stops the retention sweep and waits for all of it, and a begin that waited on it then refuses.
   A chunk refused after its file was opened removes the file it made.
 - Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
