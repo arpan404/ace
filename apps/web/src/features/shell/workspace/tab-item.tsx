@@ -5,6 +5,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
+  openContextMenuFromKeyboard,
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Tip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
@@ -148,7 +149,7 @@ export function TabItem(props: {
                   // context-menu key), anchored under the tab.
                   if (event.key === "F10" && event.shiftKey) {
                     event.preventDefault();
-                    openMenuFromKeyboard(event.currentTarget);
+                    openContextMenuFromKeyboard(event.currentTarget);
                     return;
                   }
                   props.onKeyDown(event);
@@ -276,18 +277,5 @@ export function TabItem(props: {
         </MenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-/** Open a tab's context menu from the keyboard, anchored under its bottom-left corner. */
-function openMenuFromKeyboard(tab: HTMLElement): void {
-  const rect = tab.getBoundingClientRect();
-  tab.dispatchEvent(
-    new MouseEvent("contextmenu", {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left,
-      clientY: rect.bottom,
-    }),
   );
 }

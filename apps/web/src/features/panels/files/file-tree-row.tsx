@@ -5,7 +5,9 @@ import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
-import type { FileOperationDialog } from "./file-operation.ts";
+import { FileRowItems } from "./file-row-items.tsx";
+import type { OpenHow, TreeCommands } from "./tree-commands.ts";
+import { entryOf } from "./tree-row-keys.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
 const rowClass =
@@ -30,10 +32,10 @@ export interface FileTreeRowViewProps {
   query: string;
   online: boolean;
   dropTarget: string | undefined;
-  onActivate(row: FolderRow, keep: boolean): void;
+  onActivate(row: FolderRow, how: OpenHow): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: FolderRow, index: number): void;
   onFocus(key: string): void;
-  onOperation(operation: FileOperationDialog): void;
+  commands: TreeCommands;
   onDragOver(event: DragEvent<HTMLElement>, folder: string): void;
   onDrop(event: DragEvent<HTMLElement>, folder: string): void;
   onHoverStart(row: FolderRow): void;
@@ -93,12 +95,9 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
   const folder = row.kind === "folder";
   return (
     <FileRowMenu
-      path={row.key}
       name={row.name}
-      folder={folder}
-      disabled={!props.online}
       tabbable={props.focusable}
-      onOperation={props.onOperation}
+      items={<FileRowItems entry={entryOf(row)} commands={props.commands} />}
     >
       <button
         type="button"
@@ -118,8 +117,8 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
         onFocus={() => props.onFocus(row.key)}
         onPointerEnter={() => props.onHoverStart(row)}
         onPointerLeave={props.onHoverEnd}
-        onClick={() => props.onActivate(row, false)}
-        onDoubleClick={() => !folder && props.onActivate(row, true)}
+        onClick={() => props.onActivate(row, "preview")}
+        onDoubleClick={() => !folder && props.onActivate(row, "keep")}
         onKeyDown={(event) => props.onKeyDown(event, row, index)}
         onDragOver={folder ? (event) => props.onDragOver(event, row.key) : undefined}
         onDrop={folder ? (event) => props.onDrop(event, row.key) : undefined}
