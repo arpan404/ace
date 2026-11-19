@@ -602,6 +602,7 @@ import QuartzCore
             case .snapshotBegin(let id, let epoch, let revision, let before):
                 // Warm whole-thread pass: stage like a reset, keep showing the old copy.
                 if let thread, thread.id == id, thread.epoch == epoch, thread.loaded {
+                    TranscriptJumpHooks.mark("snapshot.begin.warm.rows=\(thread.order.count)")
                     thread.beginSnapshot(revision: revision, warm: true, before: before)
                     reorder = false
                     added = []
@@ -669,6 +670,7 @@ import QuartzCore
                         // staging intact; its own matching fence can still complete it.
                         if let revision, let staged = thread.refreshRevision, revision < staged { continue }
                         let committed = thread.commitSnapshot(revision: revision, count: count)
+                        TranscriptJumpHooks.mark("snapshot.commit=\(committed).count=\(count)")
                         if committed {
                             reorder = true
                             added = []

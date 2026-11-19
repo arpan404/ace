@@ -418,7 +418,8 @@ struct ConversationFeed: View {
                 }
                 if !loading { pageIfNeeded(proxy) }
             }
-            .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
+            .onChange(of: TranscriptFeedRow.rows(shown).count) { old, count in
+                TranscriptJumpHooks.mark("rows.\(old)->\(count).h=\(Int(intent.metrics.height)).fromEnd=\(Int(intent.metrics.bottom)).revealed=\(revealed)")
                 restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
             }
             .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
@@ -480,6 +481,7 @@ struct ConversationFeed: View {
     }
     /// A new history window: its rows replace the extent's.
     private func windowReplaced(proxy: ScrollViewProxy) {
+        TranscriptJumpHooks.mark("window.replaced.revealed=\(revealed)")
         extent.update(change: TranscriptExtent.WindowChange(
             ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
         let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
@@ -689,6 +691,7 @@ struct ConversationFeed: View {
             let placed = TranscriptSettle.opened(following: pinned, fromEnd: Double(metrics.bottom),
                                                  restoring: viewport.sessionAnchor != nil || reading.loading)
             let watched = TranscriptSettle.watched(following: pinned, height: Double(metrics.height), offset: Double(metrics.y))
+            TranscriptJumpHooks.mark("f.fromEnd=\(Int(metrics.bottom)).placed=\(placed).h=\(Int(metrics.height))")
             return settle.frame(watched, placed: placed, at: time)
         }) { outcome in
             TranscriptJumpHooks.mark("reveal.\(outcome).fromEnd=\(Int(intent.metrics.bottom)).session=\(viewport.sessionAnchor != nil).loading=\(reading.loading).window=\(reading.thread != nil).pinned=\(pinned).h=\(Int(intent.metrics.height))")
@@ -745,6 +748,7 @@ struct ConversationFeed: View {
         // Before the rows land there is no end to reach: a settle started on the placeholder
         // would hold the budget the first real scroll to the end needs.
         guard ready, !settle.isRunning else { return }
+        TranscriptJumpHooks.mark("toEnd.revealed=\(revealed).fromEnd=\(Int(intent.metrics.bottom))")
         proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
