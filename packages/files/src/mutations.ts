@@ -14,7 +14,16 @@ type Mutation = Extract<
 >;
 
 /** A mutation that landed, before its new version is read. */
-export type Applied = Omit<WorkspaceFileChange, "version">;
+export type Applied = Omit<WorkspaceFileChange, "version"> & {
+  /**
+   * The version the port read from the object it committed, when it read one there.
+   *
+   * A save's version comes from a handle to the file the save published, and a new folder's from
+   * a walk of the empty folder, so neither is an inference from a later state. Absent when the
+   * version can only be read after the queue has released the path.
+   */
+  committed?: string | null;
+};
 
 /**
  * What preparation learned: the full version the client's expectation was checked against, and
@@ -110,10 +119,15 @@ export class Mutations {
       case "create": {
         const bytes = Buffer.from(operation.text);
         if (bytes.length > 1024 * 1024) throw new FileError("QUOTA", "Inline write exceeds 1 MiB");
-        await this.io.write(root, operation.path, bytes, operation.expected);
-        break;
+        const saved = await this.io.write(root, operation.path, bytes, operation.expected);
+        return {
+          id,
+          op: operation.op,
+          path: operation.path,
+          committed: saved,
+        };
       }
-      case "mkdir":
+      case "mkdir": {
         try {
           await this.io.createDir(root, operation.path);
         } catch (error) {
@@ -122,7 +136,16 @@ export class Mutations {
             throw new FileError("CONFLICT", error.message);
           throw error;
         }
-        break;
+        // A new folder holds nothing yet, so its digest is one read: the version comes back
+        // inside the queue with the commit rather than from a later state.
+        const created = await this.io.describe(root, operation.path, { full: true });
+        return {
+          id,
+          op: operation.op,
+          path: operation.path,
+          committed: created?.version ?? null,
+        };
+      }
       case "rename":
       case "move": {
         if (operation.destination === operation.path)
@@ -157,26 +180,33 @@ export class Mutations {
         )
           throw new FileError("QUOTA", "Trash quota exceeded");
         const location = `.ace-upload-trash-${id}`;
-        const record: TrashRecord = {
+        // The receipt is written before the move and never expires until it is settled: an answer
+        // that never comes back may still have landed, and a row written afterwards would lose
+        // the entry it names. A failure that is not provably a refusal leaves it pending for the
+        // next start to reconcile.
+        const receipt = TrashRecord.parse({
           kind: "trash",
           id,
           path: operation.path,
           bytes,
           version: operation.expected,
           location,
-          expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
-        };
-        // The row is written first so a landed move is never lost, and removed only on a
-        // refusal; a mutation that committed with a sync warning stays catalogued.
-        this.catalog.put(record);
+          expires: Number.MAX_SAFE_INTEGER,
+          pending: true,
+        });
+        this.catalog.put(receipt);
         try {
           await this.io.trash(root, operation.path, location, operation.expected, prepared.own);
         } catch (error) {
-          this.catalog.delete(id);
-          throw error;
+          throw await this.abandon(receipt, error);
         }
+        this.catalog.settleTrash({
+          ...receipt,
+          expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
+          pending: false,
+        });
         trashId = id;
-        break;
+        return { id, op: operation.op, path: operation.path, committed: null, trashId };
       }
       case "restore": {
         const record = TrashRecord.parse(this.catalog.get(operation.trashId));
@@ -208,12 +238,68 @@ export class Mutations {
    * The change with the version the path has now, read after the mutation queue has released it.
    *
    * `current: null` means the path is absent, which is what a delete leaves and never a guess at
-   * a folder too large to digest.
+   * a folder too large to digest. A change whose version the port already read — a save's, or a
+   * new folder's — is reported as it is. A read that fails here cannot turn a committed change
+   * into an error: the change is reported without a version and the watcher or the next stat
+   * corrects it, because the bytes are already where the caller asked for them.
    */
   async change(applied: Applied): Promise<WorkspaceFileChange> {
-    const path = applied.destination ?? applied.path;
-    const after = await this.io.describe(this.root(), path, { full: true });
-    return { ...applied, version: after?.version ?? null };
+    const { committed, ...change } = applied;
+    if (committed !== undefined) return { ...change, version: committed };
+    const path = change.destination ?? change.path;
+    const after = await this.io.describe(this.root(), path, { full: true }).catch(() => undefined);
+    return { ...change, version: after?.version ?? null };
+  }
+  /**
+   * Settles the receipts an interrupted delete left behind, at start.
+   *
+   * An entry still at its path was never moved, so its receipt is a lie and goes. An entry gone
+   * from its path may be in the trash: the receipt becomes an ordinary, restorable trash entry.
+   * A path that cannot be read at all keeps its receipt pending, and a pending receipt never
+   * expires, so the bytes it names are never swept before someone can restore them.
+   */
+  async reconcile(): Promise<void> {
+    for (const row of this.catalog.list("trash")) {
+      const record = TrashRecord.parse(row);
+      if (!record.pending) continue;
+      const present = await this.presence(record.path);
+      if (present === "gone") this.settle(record);
+      else if (present === "there") this.catalog.delete(record.id);
+    }
+  }
+  /**
+   * What to do with a delete whose move failed.
+   *
+   * A refusal the port reports before it moves anything leaves the entry at its path, so the
+   * receipt goes and the caller sees the reason. Anything else may be a move that landed: an
+   * entry gone from its path becomes a restorable trash entry, and a path that cannot be read
+   * keeps the receipt pending until the next start reconciles it.
+   */
+  private async abandon(receipt: TrashRecord, error: unknown): Promise<unknown> {
+    if (refused(error)) {
+      this.catalog.delete(receipt.id);
+      return error;
+    }
+    const present = await this.presence(receipt.path);
+    if (present === "there") this.catalog.delete(receipt.id);
+    else if (present === "gone") this.settle(receipt);
+    return error;
+  }
+  /** Whether the entry a receipt names is at its path, gone from it, or unreadable right now. */
+  private async presence(path: string): Promise<"there" | "gone" | "unknown"> {
+    try {
+      return (await this.io.shallow(this.root(), path)) === null ? "gone" : "there";
+    } catch {
+      return "unknown";
+    }
+  }
+  /** Turns a receipt into an ordinary trash entry, which expiry may later clear. */
+  private settle(receipt: TrashRecord): void {
+    this.catalog.settleTrash({
+      ...receipt,
+      expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
+      pending: false,
+    });
   }
   /** Forget a trash entry: delete the bytes it kept, then its row. */
   async expire(record: TrashRecord): Promise<void> {
@@ -249,4 +335,30 @@ export class Mutations {
   private async legacyRemove(id: string): Promise<void> {
     await rm(join(this.options.dataDir, "trash", id), { recursive: true, force: true });
   }
+}
+
+/**
+ * Whether a port refused a delete before moving anything.
+ *
+ * A guard that did not hold, a path the policy refuses, a name that is taken or a filesystem that
+ * cannot move atomically all leave the entry where it was: the port says so before it acts, so
+ * the receipt is wrong and goes. Everything else — a lost connection, a restart, a failed sync —
+ * may be an answer about a move that already happened.
+ */
+function refused(error: unknown): boolean {
+  const code = codeOf(error);
+  return [
+    "ABORTED",
+    "BUSY",
+    "CONFLICT",
+    "FORBIDDEN",
+    "INVALID_ARGUMENT",
+    "INVALID_PATH",
+    "NOT_FILE",
+    "NOT_FOUND",
+    "PATH_CHANGED",
+    "PATH_ESCAPE",
+    "QUOTA",
+    "UNSUPPORTED",
+  ].includes(code);
 }

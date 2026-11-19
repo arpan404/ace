@@ -8,7 +8,8 @@
 //! spelling the volume would reinterpret cannot slip past it.
 //!
 //! A destructive guard is verified after the entry has been moved, not before: the move is one
-//! atomic no-replace rename, and a tree whose digest does not match the one the client held is
+//! atomic no-replace rename — or, when both names fold together into one entry, a staged two-step
+//! that never replaces a name either — and a tree that does not match the one the client held is
 //! moved straight back and reported as `CONFLICT`. A rename that landed and then failed to sync
 //! is a success with a warning, never an error: the bytes are where the client wanted them, and
 //! the daemon must not roll its own bookkeeping back for a step that already happened.
@@ -61,12 +62,15 @@ fn create_dir_with(
 ///
 /// A move is one atomic no-replace rename. Where the operating system or filesystem cannot make
 /// one, the answer is `UNSUPPORTED` rather than a check followed by a rename that could replace a
-/// destination that appeared in between.
+/// destination that appeared in between. Two names that fold into one entry on the volume — the
+/// same name in another case — are moved through a staging name of their own, each step still
+/// without replacing, so a name that appears in between is never overwritten.
 ///
 /// `expected` is the version the caller worked from. When it is set, the entry is verified after
 /// the move: a tree whose digest no longer matches is moved back and reported as `CONFLICT` with
 /// the version found. A folder's `own` version from before the move is part of that check, since
-/// a rename changes the folder's change time and nothing else.
+/// a rename changes the folder's change time and nothing else, and so is the folder's identity:
+/// a different folder whose contents match digests the same.
 pub fn rename(
     root: &Root,
     from: &str,
@@ -117,23 +121,41 @@ fn rename_with(
     match handle::rename_noclobber(&source.dir, &source.name, &destination.dir, to_name)? {
         Noclobber::Done => {}
         Noclobber::Exists => {
-            if version::same_entry(
+            if !version::same_entry(
                 &source.dir,
                 &source.name,
                 &destination.dir,
                 &destination.name,
             )? {
-                // One entry under two spellings on a case-insensitive volume: rename it so the
-                // spelling on disk changes.
-                source.dir.rename(&source.name, &destination.dir, to_name)?;
-                return Ok(Committed {
-                    warning: settle(sync, &[&source.dir, &destination.dir]),
+                return Err(Error::Conflict {
+                    path: to.to_owned(),
+                    current: version_at(root, &destination.dir, &destination.name, to)?,
                 });
             }
-            return Err(Error::Conflict {
-                path: to.to_owned(),
-                current: version_at(root, &destination.dir, &destination.name, to)?,
-            });
+            // One entry under two spellings on a case-insensitive volume: the volume answers the
+            // destination name with the source entry itself, so the spelling on disk can only be
+            // changed by moving the entry away from both names first.
+            match case_only_move(&source.dir, &source.name, &destination.dir, to_name)? {
+                TwoStep::Done => {}
+                TwoStep::Taken => {
+                    return Err(Error::Conflict {
+                        path: to.to_owned(),
+                        current: version_at(root, &destination.dir, &destination.name, to)?,
+                    });
+                }
+                TwoStep::Unsupported => {
+                    return Err(Error::Unsupported(format!(
+                        "this filesystem cannot rename {from} to a name that differs only in case"
+                    )));
+                }
+                TwoStep::Stranded(at) => {
+                    return Ok(Committed {
+                        warning: Some(format!(
+                            "{from} could not be renamed to {to} and is preserved at {at}"
+                        )),
+                    });
+                }
+            }
         }
         Noclobber::Unsupported => {
             return Err(Error::Unsupported(format!(
@@ -141,8 +163,9 @@ fn rename_with(
             )));
         }
     }
+    crate::hooks::reached(crate::hooks::Step::AfterMove, from, to);
     if let Some(expected) = expected {
-        let checked = moved_version(
+        let checked = moved_state(
             root,
             from,
             to,
@@ -230,7 +253,7 @@ fn trash_with(
             )));
         }
     }
-    let checked = moved_version(root, path, endpoint, &trash, endpoint, own, folder);
+    let checked = moved_state(root, path, endpoint, &trash, endpoint, own, folder);
     let held = checked
         .as_ref()
         .is_ok_and(|moved| same_version(expected, own, moved));
@@ -337,8 +360,79 @@ fn remove_with(
     })
 }
 
+/// A move that cannot be one rename because both names are the same entry under the volume's
+/// folding rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TwoStep {
+    /// The entry now has the spelling the client asked for.
+    Done,
+    /// Another entry claimed the destination between the two steps, so the move was put back.
+    Taken,
+    /// The filesystem cannot move the entry to a staging name.
+    Unsupported,
+    /// The second step failed and the entry could not be put back. It is whole under this name.
+    Stranded(String),
+}
+
+/// Moves an entry to a staging name in its own folder and from there to its new spelling, each
+/// step without replacing a name.
+///
+/// A case-insensitive volume answers the destination with the source entry, so neither a no-replace
+/// rename nor a replacing one can change the spelling on disk: moving the entry to a name of its
+/// own first makes both names free. A step the volume refuses is undone rather than forced, and an
+/// entry that cannot be put back is reported by the name that still holds it.
+fn case_only_move(from_dir: &Dir, from: &str, to_dir: &Dir, to: &str) -> Result<TwoStep, Error> {
+    let staging = handle::moving_name();
+    match handle::rename_noclobber(from_dir, from, from_dir, &staging)? {
+        Noclobber::Done => {}
+        Noclobber::Exists => {
+            return Err(Error::Io(std::io::Error::new(
+                ErrorKind::AlreadyExists,
+                format!("{staging} is taken"),
+            )));
+        }
+        Noclobber::Unsupported => return Ok(TwoStep::Unsupported),
+    }
+    crate::hooks::reached(crate::hooks::Step::BetweenMoveSteps, from, to);
+    match handle::rename_noclobber(from_dir, &staging, to_dir, to) {
+        Ok(Noclobber::Done) => Ok(TwoStep::Done),
+        refused => {
+            // Neither name is where the entry belongs now: put it back exactly where it was, and
+            // report where it still is when that is not possible.
+            let restored = matches!(
+                handle::rename_noclobber(from_dir, &staging, from_dir, from),
+                Ok(Noclobber::Done)
+            );
+            if !restored {
+                // The staging name is one the daemon keeps out of every listing, so the entry is
+                // moved to a name a person can see before it is reported as left behind.
+                let visible = handle::recovery_name(from);
+                let at = match handle::rename_noclobber(from_dir, &staging, from_dir, &visible) {
+                    Ok(Noclobber::Done) => visible,
+                    _ => staging,
+                };
+                return Ok(TwoStep::Stranded(at));
+            }
+            match refused {
+                Ok(Noclobber::Exists) => Ok(TwoStep::Taken),
+                Ok(Noclobber::Unsupported) => Ok(TwoStep::Unsupported),
+                Err(error) => Err(error),
+                Ok(Noclobber::Done) => Ok(TwoStep::Done),
+            }
+        }
+    }
+}
+
+/// What a moved entry is now: the version a guard compares, and for a folder its own version read
+/// after the move, so the entry can be proven to be the one the guard was taken from.
+struct Moved {
+    version: String,
+    /// A folder's own version now; a rename changed its change time and nothing else.
+    own: Option<String>,
+}
+
 /// The version a moved entry has now, read the way the caller's expectation was recorded.
-fn moved_version(
+fn moved_state(
     root: &Root,
     recorded: &str,
     location: &str,
@@ -346,10 +440,13 @@ fn moved_version(
     name: &str,
     own: Option<&str>,
     folder: bool,
-) -> Result<String, Error> {
+) -> Result<Moved, Error> {
     let metadata = dir.symlink_metadata(name)?;
     if !folder || !metadata.is_dir() {
-        return version::version_of_entry(dir, name, &metadata);
+        return Ok(Moved {
+            version: version::version_of_entry(dir, name, &metadata)?,
+            own: None,
+        });
     }
     let handle = dir.open_dir_nofollow(name)?;
     let own = own.ok_or_else(|| {
@@ -357,7 +454,7 @@ fn moved_version(
             "{recorded} needs the folder's own version; stat it again"
         ))
     })?;
-    Ok(tree::version_at(
+    let tree = tree::version_at(
         root,
         &Place {
             recorded,
@@ -366,8 +463,11 @@ fn moved_version(
         },
         &handle,
         &Walks::complete(),
-    )?
-    .version)
+    )?;
+    Ok(Moved {
+        version: tree.version,
+        own: Some(version::own_version(&handle)?),
+    })
 }
 
 /// Puts a moved entry back after its guard did not hold, and reports what the client should see.
@@ -385,7 +485,7 @@ fn withdrawn(
     source_path: &str,
     report_path: &str,
     expected: &str,
-    checked: Option<String>,
+    checked: Option<Moved>,
     place: &str,
 ) -> Result<Committed, Error> {
     match handle::rename_noclobber(moved.0, moved.1, &source.dir, &source.name) {
@@ -393,7 +493,7 @@ fn withdrawn(
             let after = version_at(root, &source.dir, &source.name, source_path)
                 .ok()
                 .flatten()
-                .or(checked)
+                .or_else(|| checked.map(|moved| moved.version))
                 .or_else(|| Some(expected.to_owned()));
             let _ = settle(sync, &[&source.dir, moved.0]);
             Err(Error::Conflict {
@@ -413,12 +513,20 @@ fn withdrawn(
 ///
 /// A file's identity, size and modification time survive a rename; only its change time moves, so
 /// the last field is left out. A folder digest was taken with its own pre-move version, so it
-/// compares whole.
-fn same_version(expected: &str, own: Option<&str>, current: &str) -> bool {
-    if own.is_some() {
-        current == expected
-    } else {
-        version::without_change_time(current) == version::without_change_time(expected)
+/// compares whole, and the folder must also be the same entry: a different folder whose contents
+/// match byte for byte — a copy with hard links, say — digests the same as the one the guard was
+/// taken from, so its identity and stable times are compared too.
+fn same_version(expected: &str, own: Option<&str>, moved: &Moved) -> bool {
+    match own {
+        Some(own) => {
+            moved.version == expected
+                && moved.own.as_deref().is_some_and(|now| {
+                    version::without_change_time(own) == version::without_change_time(now)
+                })
+        }
+        None => {
+            version::without_change_time(&moved.version) == version::without_change_time(expected)
+        }
     }
 }
 

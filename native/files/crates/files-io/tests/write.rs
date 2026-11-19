@@ -163,3 +163,37 @@ fn a_save_that_cannot_sync_the_folder_leaves_the_file_alone() {
         "a save that cannot be made durable must not change the file"
     );
 }
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_guarded_save_without_an_atomic_exchange_never_touches_the_target() {
+    let fixture = Fixture::new();
+    fixture.write("atomic-only.md", b"old\n");
+    let version = fixture.version("atomic-only.md");
+    let _hook = files_io::test_hooks::refuse_exchange(&["atomic-only.md"]);
+
+    let error = write(fixture.root(), "atomic-only.md", b"new\n", Some(&version))
+        .expect_err("a save that cannot be swapped in atomically is refused");
+
+    assert_eq!(error.code(), "UNSUPPORTED");
+    assert_eq!(
+        fixture.read("atomic-only.md"),
+        b"old\n",
+        "the target is untouched: no replacing rename is used instead"
+    );
+    let leftovers: Vec<String> = std::fs::read_dir(fixture.dir())
+        .expect("list")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.starts_with(".ace-upload-"))
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "no staging file is left: {leftovers:?}"
+    );
+}

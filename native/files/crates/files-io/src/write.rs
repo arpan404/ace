@@ -43,6 +43,9 @@ pub enum SaveWarning {
     /// The file is published, but a staging or displaced file could not be removed. Its name is
     /// left beside the target so a later cleanup can retry.
     NotCleanedUp(String),
+    /// The file is published, but another program's version of it could not be put back and is
+    /// preserved under this name beside the target.
+    Preserved(String),
 }
 
 impl fmt::Display for SaveWarning {
@@ -52,6 +55,12 @@ impl fmt::Display for SaveWarning {
             SaveWarning::NoVersion(message) => write!(formatter, "version unavailable: {message}"),
             SaveWarning::NotCleanedUp(message) => {
                 write!(formatter, "cleanup incomplete: {message}")
+            }
+            SaveWarning::Preserved(name) => {
+                write!(
+                    formatter,
+                    "another version of this file is preserved at {name}"
+                )
             }
         }
     }
@@ -249,24 +258,26 @@ fn publish_here(
     staged: &mut Staged,
     _existing: Option<&Metadata>,
 ) -> Result<Published, Error> {
-    if let Some(published) = exchange_publish(dir, name, expected, staged)? {
-        return Ok(published);
-    }
-    // No atomic exchange here: publish the way the daemon does without one.
-    handle::replace(dir, staged.name(), name)?;
-    staged.release();
-    Ok(Published::Done(None))
+    let Some(published) = exchange_publish(dir, name, expected, staged)? else {
+        // Without an atomic exchange the only way left to put the copy at the name is a rename
+        // that replaces whatever is there by then, including a save another program is writing.
+        // The save is refused instead, before the target is touched.
+        return Err(Error::Unsupported(format!(
+            "this filesystem cannot swap a save into {name} in one step"
+        )));
+    };
+    Ok(published)
 }
 
 #[cfg(windows)]
 fn publish_here(
     dir: &Dir,
     name: &str,
-    _expected: &str,
+    expected: &str,
     staged: &mut Staged,
-    existing: Option<&Metadata>,
+    _existing: Option<&Metadata>,
 ) -> Result<Published, Error> {
-    replace_windows(dir, name, staged, existing)
+    guarded_replace(dir, name, expected, staged)
 }
 
 #[cfg(unix)]
@@ -325,60 +336,116 @@ fn exchange_publish(
             }
         }
     }
-    // Something else was at the destination: put it back, and if that is no longer possible keep
-    // it beside the target so no program's bytes are discarded.
-    let restored = handle::exchange(dir, &displaced_name, name).unwrap_or(false);
-    if restored {
+    // Something else was at the destination: put it back in one exchange. When that is no longer
+    // possible our copy stays at the name, so the save is committed and the other version is
+    // preserved under a name of its own instead of being discarded.
+    if handle::exchange(dir, &displaced_name, name).unwrap_or(false) {
         // Our copy is under the staging name again and nobody wants it.
         let _ = dir.remove_file(&displaced_name);
         return Ok(Some(Published::Conflict));
     }
-    let kept = kept_copy_name(name);
-    let _ = dir.rename(&displaced_name, dir, &kept);
-    Ok(Some(Published::Conflict))
+    let kept = handle::recovery_name(name);
+    let at = match handle::rename_noclobber(dir, &displaced_name, dir, &kept) {
+        Ok(Noclobber::Done) => kept,
+        _ => displaced_name,
+    };
+    Ok(Some(Published::Done(Some(SaveWarning::Preserved(at)))))
 }
 
-/// `notes.md` keeps an outside save as `notes.conflict-<unique>.md`, next to it.
-#[cfg(unix)]
-fn kept_copy_name(name: &str) -> String {
-    match name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() => {
-            format!("{stem}.conflict-{}.{extension}", handle::unique_suffix())
-        }
-        _ => format!("{name}.conflict-{}", handle::unique_suffix()),
-    }
-}
-
-/// Windows refuses to replace a read-only file, so the attribute comes off long enough to
-/// publish the copy, which already carries it. There is no exchange, so this is the daemon's
-/// plain-rename fallback.
+/// Windows publishes a guarded replacement through the entry's own handle: the file the guard
+/// verified is moved aside without replacing a name, the copy takes the name without replacing
+/// one either, and a step that loses a race puts the old file back. Nothing the destination holds
+/// at the wrong moment is ever replaced, and a save refused here has not changed the target.
 #[cfg(windows)]
-fn replace_windows(
+fn guarded_replace(
     dir: &Dir,
     name: &str,
+    expected: &str,
     staged: &mut Staged,
-    existing: Option<&Metadata>,
 ) -> Result<Published, Error> {
-    let readonly = existing.is_some_and(|metadata| metadata.permissions().readonly());
-    if readonly {
-        set_readonly(dir, name, false)?;
-    }
-    if let Err(error) = handle::replace(dir, staged.name(), name) {
-        if readonly {
-            let _ = set_readonly(dir, name, true);
+    let target = match handle::delete_handle(dir, name) {
+        Ok(target) => target,
+        Err(Error::Io(error)) if error.kind() == ErrorKind::NotFound => {
+            return Ok(Published::Conflict);
         }
-        return Err(error);
+        Err(error) => return Err(error),
+    };
+    let metadata = target.metadata()?;
+    if !metadata.is_file() {
+        return Err(Error::NotFile(name.to_owned()));
     }
-    staged.release();
-    Ok(Published::Done(None))
-}
-
-#[cfg(windows)]
-fn set_readonly(dir: &Dir, name: &str, readonly: bool) -> Result<(), Error> {
-    let mut permissions = dir.metadata(name)?.permissions();
-    permissions.set_readonly(readonly);
-    dir.set_permissions(name, permissions)?;
-    Ok(())
+    let current = version::version_of(Some(&target), &metadata)?;
+    if version::without_change_time(&current) != version::without_change_time(expected) {
+        return Err(Error::Conflict {
+            path: name.to_owned(),
+            current: Some(current),
+        });
+    }
+    // Windows refuses to replace a read-only file, so the attribute comes off through the handle
+    // the guard just read, and goes back through it if the move aside is refused.
+    let readonly = metadata.permissions().readonly();
+    if readonly {
+        handle::set_readonly(&target, false)?;
+    }
+    let preserved = handle::moving_name();
+    match handle::rename_handle_noclobber(&target, dir, &preserved) {
+        Ok(Noclobber::Done) => {}
+        refused => {
+            if readonly {
+                handle::set_readonly(&target, true)?;
+            }
+            return match refused {
+                Ok(Noclobber::Unsupported) => Err(Error::Unsupported(format!(
+                    "this filesystem cannot move {name} aside to replace it"
+                ))),
+                Ok(_) => Err(Error::Io(std::io::Error::new(
+                    ErrorKind::AlreadyExists,
+                    format!("{preserved} is taken"),
+                ))),
+                Err(error) => Err(error),
+            };
+        }
+    }
+    // The old file is whole under `preserved`; the name is free for the copy.
+    match handle::rename_noclobber(dir, staged.name(), dir, name) {
+        Ok(Noclobber::Done) => {
+            staged.release();
+            let warning = match dir.remove_file(&preserved) {
+                Ok(()) => None,
+                Err(error) if error.kind() == ErrorKind::NotFound => None,
+                Err(error) => Some(SaveWarning::NotCleanedUp(format!("{preserved}: {error}"))),
+            };
+            Ok(Published::Done(warning))
+        }
+        refused => {
+            // A new writer claimed the name. Put the guarded file back, without replacing
+            // anything, so the destination is what it was before this save.
+            let restored = matches!(
+                handle::rename_handle_noclobber(&target, dir, name),
+                Ok(Noclobber::Done)
+            );
+            if restored && readonly {
+                handle::set_readonly(&target, true)?;
+            }
+            if !restored {
+                return Err(Error::Preserved {
+                    path: name.to_owned(),
+                    current: published_version(dir, name).ok(),
+                    at: preserved,
+                });
+            }
+            match refused {
+                Ok(Noclobber::Unsupported) => Err(Error::Unsupported(format!(
+                    "this filesystem cannot put a save at {name} without replacing a name"
+                ))),
+                Ok(_) => Err(Error::Conflict {
+                    path: name.to_owned(),
+                    current: published_version(dir, name).ok(),
+                }),
+                Err(error) => Err(error),
+            }
+        }
+    }
 }
 
 /// The original's permission bits. The setuid, setgid and sticky bits are deliberately dropped:

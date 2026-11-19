@@ -148,6 +148,9 @@ pub(crate) fn rename_noclobber(
 ) -> Result<Noclobber, Error> {
     use rustix::fs::{RenameFlags, renameat_with};
 
+    if crate::hooks::reports_taken(from, to) {
+        return Ok(Noclobber::Exists);
+    }
     match renameat_with(from_dir, from, to_dir, to, RenameFlags::NOREPLACE) {
         Ok(()) => Ok(Noclobber::Done),
         Err(error) if error == rustix::io::Errno::EXIST => Ok(Noclobber::Exists),
@@ -156,8 +159,9 @@ pub(crate) fn rename_noclobber(
     }
 }
 
-/// Windows renames without replacing through `MoveFileExW` with no flags: the call either moves
-/// the entry or leaves the destination alone, in one step. Files and folders alike.
+/// Windows renames without replacing through a handle to the entry itself: the destination folder
+/// is given as a handle and the new name relative to it, so no path string can be redirected
+/// between the walk and the call. The call either moves the entry or leaves the destination alone.
 #[cfg(not(unix))]
 pub(crate) fn rename_noclobber(
     from_dir: &Dir,
@@ -168,12 +172,37 @@ pub(crate) fn rename_noclobber(
     windows::move_without_replace(from_dir, from, to_dir, to)
 }
 
+/// A name a move parks an entry under while it travels between two names.
+///
+/// The prefix is the daemon's own, so a folder version and a listing leave the staging entry out
+/// while it exists, and the client policy refuses it as a path. A move that cannot finish leaves
+/// the entry here, where it is whole and can be put back by hand.
+pub(crate) fn moving_name() -> String {
+    format!("{TEMPORARY}move-{}", unique_suffix())
+}
+
+/// The name a version of an entry that could not be put back is preserved under, beside it.
+///
+/// `notes.md` keeps another version as `notes.conflict-<id>.md`. The name is one a person can see
+/// and open, so a preserved copy is never invisible to the person whose bytes it holds.
+pub(crate) fn recovery_name(name: &str) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => {
+            format!("{stem}.conflict-{}.{extension}", unique_suffix())
+        }
+        _ => format!("{name}.conflict-{}", unique_suffix()),
+    }
+}
+
 /// Swaps two names in `dir` in one step, so neither ever stops existing. Returns false where the
 /// operating system or filesystem has no atomic exchange.
 #[cfg(unix)]
 pub(crate) fn exchange(dir: &Dir, first: &str, second: &str) -> Result<bool, Error> {
     use rustix::fs::{RenameFlags, renameat_with};
 
+    if !crate::hooks::may_exchange(second) {
+        return Ok(false);
+    }
     match renameat_with(dir, first, dir, second, RenameFlags::EXCHANGE) {
         Ok(()) => Ok(true),
         Err(error) if unsupported(error) => Ok(false),
@@ -193,12 +222,6 @@ fn unsupported(error: rustix::io::Errno) -> bool {
         error,
         rustix::io::Errno::NOSYS | rustix::io::Errno::OPNOTSUPP | rustix::io::Errno::INVAL
     )
-}
-
-/// Renames over the destination, replacing whatever is at `to`.
-pub(crate) fn replace(dir: &Dir, from: &str, to: &str) -> Result<(), Error> {
-    dir.rename(from, dir, to)?;
-    Ok(())
 }
 
 /// A folder descriptor that can be synced once a change to its entries is published.
@@ -290,15 +313,28 @@ pub(crate) fn dir_handle(dir: &Dir) -> Result<File, Error> {
     Ok(File::from_std(dir.try_clone()?.into_std_file()))
 }
 
-/// The one place this crate names a path on Windows: `MoveFileExW` takes a path, and a handle's
-/// own final path is the only spelling that cannot be redirected between the walk and the call.
+/// The one place this crate talks to Windows directly.
+///
+/// Every name here is relative to a folder the caller already holds and every move is made
+/// through a handle to the entry itself (`NtSetInformationFile` with `FileRenameInformationEx` and
+/// the destination folder as `RootDirectory`), so no path string ever reaches the filesystem: a
+/// name rewritten between the walk and the call cannot redirect the move, and there is no verbatim
+/// path to encode wrongly.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows {
-    use std::path::{Path, PathBuf};
+    use std::ffi::c_void;
+    use std::mem::size_of;
+    use std::os::windows::io::AsRawHandle;
 
-    use cap_std::fs::Dir;
-    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    use cap_std::fs::OpenOptionsExt;
+    use cap_std::fs::{Dir, File, OpenOptions};
+    use windows_sys::Wdk::Storage::FileSystem::{FileRenameInformationEx, NtSetInformationFile};
+    use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS, RtlNtStatusToDosError};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx, SetFileInformationByHandle,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
     use super::{Error, Noclobber};
 
@@ -307,6 +343,67 @@ mod windows {
     const ALREADY_EXISTS: u32 = 183;
     const FILE_EXISTS: u32 = 80;
     const NOT_SAME_DEVICE: u32 = 17;
+    const NOT_SUPPORTED: u32 = 50;
+    const INVALID_PARAMETER: u32 = 87;
+
+    /// `DELETE`, which a rename needs on the entry being moved.
+    const DELETE: u32 = 0x0001_0000;
+    /// Files and folders that share a name with an incoming move of the same name.
+    const SHARE_ALL: u32 = 0x0000_0007;
+    /// The attributes a read-only file carries, which a rename over it needs cleared.
+    const READONLY: u32 = 0x0000_0001;
+
+    /// Renames a handle's entry to a name in another folder, without replacing a name unless
+    /// `replace` asks for it.
+    ///
+    /// An entry that is already open can be renamed by its handle, so the name the call moves is
+    /// the entry the caller walked and not whatever a path spells by then. The destination folder
+    /// arrives as a handle too, so only a leaf name is ever handed to the kernel.
+    pub(super) fn rename(
+        file: &File,
+        to_dir: &Dir,
+        to: &str,
+        replace: bool,
+    ) -> Result<Noclobber, Error> {
+        let folder = to_dir.try_clone()?.into_std_file();
+        let name: Vec<u16> = to.encode_utf16().collect();
+        if name.is_empty() || name.len() >= MAX_NAME {
+            return Err(Error::InvalidArgument(format!(
+                "{to} is not a Windows name"
+            )));
+        }
+        let mut information = RenameInfo {
+            flags: if replace { REPLACE_IF_EXISTS } else { 0 },
+            root: folder.as_raw_handle() as HANDLE,
+            name_length: (name.len() * size_of::<u16>()) as u32,
+            name: [0; MAX_NAME],
+        };
+        information.name[..name.len()].copy_from_slice(&name);
+        let mut status = IO_STATUS_BLOCK::default();
+        let length = size_of::<RenameInfo>() as u32;
+        // SAFETY: the handle stays open for the call because `file` is borrowed for its duration,
+        // the folder handle stays open because `folder` owns it until the call returns, and the
+        // information buffer is a live, correctly aligned `RenameInfo` whose `name_length` counts
+        // the UTF-16 units copied into it, so nothing outside the buffer is read.
+        let result = unsafe {
+            NtSetInformationFile(
+                file.as_raw_handle() as HANDLE,
+                &mut status,
+                std::ptr::from_ref(&information).cast::<c_void>(),
+                length,
+                FileRenameInformationEx,
+            )
+        };
+        if result >= 0 {
+            return Ok(Noclobber::Done);
+        }
+        let error = nt_error(result);
+        match error.raw_os_error().map(|code| code as u32) {
+            Some(ALREADY_EXISTS | FILE_EXISTS) => Ok(Noclobber::Exists),
+            Some(NOT_SAME_DEVICE | NOT_SUPPORTED | INVALID_PARAMETER) => Ok(Noclobber::Unsupported),
+            _ => Err(Error::Io(error)),
+        }
+    }
 
     pub(super) fn move_without_replace(
         from_dir: &Dir,
@@ -314,59 +411,102 @@ mod windows {
         to_dir: &Dir,
         to: &str,
     ) -> Result<Noclobber, Error> {
-        let source = join(&folder_path(from_dir)?, from);
-        let destination = join(&folder_path(to_dir)?, to);
-        let source = wide(&source);
-        let destination = wide(&destination);
-        // SAFETY: both arguments are NUL-terminated UTF-16 buffers that outlive the call, and no
-        // pointer is kept. Flags 0 never replace an existing destination and never copy across
-        // volumes, so a taken name is refused rather than overwritten.
-        let moved = unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) };
-        if moved != 0 {
-            return Ok(Noclobber::Done);
-        }
-        let error = std::io::Error::last_os_error();
-        match error.raw_os_error().map(|code| code as u32) {
-            Some(ALREADY_EXISTS | FILE_EXISTS) => Ok(Noclobber::Exists),
-            Some(NOT_SAME_DEVICE) => Ok(Noclobber::Unsupported),
-            _ => Err(Error::Io(error)),
-        }
+        let source = open_for_delete(from_dir, from)?;
+        rename(&source, to_dir, to, false)
     }
 
-    /// The final path of an open folder, which is the spelling its entries live under.
-    fn folder_path(dir: &Dir) -> Result<PathBuf, Error> {
-        let file = dir.try_clone()?.into_std_file();
-        Ok(winx::file::get_file_path(&file)?)
+    /// Opens an entry with the access a rename needs and nothing else, so a file the caller may
+    /// not read can still be moved.
+    pub(super) fn open_for_delete(dir: &Dir, name: &str) -> Result<File, Error> {
+        let mut options = OpenOptions::new();
+        options.access_mode(DELETE).share_mode(SHARE_ALL);
+        Ok(dir.open_with(name, &options)?)
     }
 
-    fn join(folder: &Path, name: &str) -> PathBuf {
-        folder.join(name)
-    }
-
-    /// A path in the `\\?\` form, so the call reaches past MAX_PATH.
-    fn wide(path: &Path) -> Vec<u16> {
-        use std::os::windows::ffi::OsStrExt;
-
-        let text = path.as_os_str().encode_wide().collect::<Vec<u16>>();
-        let prefixed = text.starts_with(&[
-            u16::from(b'\\'),
-            u16::from(b'\\'),
-            u16::from(b'?'),
-            u16::from(b'\\'),
-        ]);
-        let mut wide = if prefixed {
-            Vec::new()
-        } else if text.starts_with(&[u16::from(b'\\'), u16::from(b'\\')]) {
-            "\\\\?\\UNC\\"
-                .encode_utf16()
-                .chain(text.into_iter().skip(2))
-                .collect()
-        } else {
-            "\\\\?\\".encode_utf16().chain(text).collect()
+    /// Clears or sets the read-only attribute through an open handle, never through a name: the
+    /// entry the caller guarded is the entry whose attributes change.
+    pub(super) fn set_readonly(file: &File, readonly: bool) -> Result<(), Error> {
+        let mut information = FILE_BASIC_INFO::default();
+        // SAFETY: the handle stays open for the call because `file` is borrowed, and the
+        // information buffer is a live, correctly aligned `FILE_BASIC_INFO` of the size passed.
+        let read = unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle() as HANDLE,
+                FileBasicInfo,
+                std::ptr::from_mut(&mut information).cast::<c_void>(),
+                size_of::<FILE_BASIC_INFO>() as u32,
+            )
         };
-        wide.push(0);
-        wide
+        if read == 0 {
+            return Err(Error::Io(std::io::Error::last_os_error()));
+        }
+        information.FileAttributes = if readonly {
+            information.FileAttributes | READONLY
+        } else {
+            information.FileAttributes & !READONLY
+        };
+        // SAFETY: the same live handle and a live `FILE_BASIC_INFO` whose size is passed, so the
+        // call reads only the buffer it was given.
+        let written = unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle() as HANDLE,
+                FileBasicInfo,
+                std::ptr::from_ref(&information).cast::<c_void>(),
+                size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        };
+        if written == 0 {
+            return Err(Error::Io(std::io::Error::last_os_error()));
+        }
+        Ok(())
     }
+
+    /// `FILE_RENAME_INFORMATION` for `FileRenameInformationEx`: the flag word, the folder the new
+    /// name is relative to, and the name itself. The array holds the longest name a component can
+    /// have, and the kernel reads only the `name_length` bytes.
+    #[repr(C)]
+    struct RenameInfo {
+        flags: u32,
+        root: HANDLE,
+        name_length: u32,
+        name: [u16; MAX_NAME],
+    }
+
+    /// The longest a single Windows name can be, in UTF-16 units.
+    const MAX_NAME: usize = 256;
+
+    /// `FILE_RENAME_FLAG_REPLACE_IF_EXISTS`.
+    const REPLACE_IF_EXISTS: u32 = 1;
+
+    /// An `NTSTATUS` failure as the Win32 error the rest of the crate matches on.
+    fn nt_error(status: NTSTATUS) -> std::io::Error {
+        // SAFETY: the call maps a status value to an error code and touches no memory.
+        let code = unsafe { RtlNtStatusToDosError(status) };
+        std::io::Error::from_raw_os_error(code as i32)
+    }
+}
+
+/// Renames an open entry to a name in `to_dir` without replacing one.
+#[cfg(windows)]
+pub(crate) fn rename_handle_noclobber(
+    file: &File,
+    to_dir: &Dir,
+    to: &str,
+) -> Result<Noclobber, Error> {
+    windows::rename(file, to_dir, to, false)
+}
+
+/// Opens an entry for a guarded save: the handle a rename moves aside, carrying only the access
+/// the rename needs.
+#[cfg(windows)]
+pub(crate) fn delete_handle(dir: &Dir, name: &str) -> Result<File, Error> {
+    windows::open_for_delete(dir, name)
+}
+
+/// Reads or clears the read-only attribute through an open handle.
+#[cfg(windows)]
+pub(crate) fn set_readonly(file: &File, readonly: bool) -> Result<(), Error> {
+    windows::set_readonly(file, readonly)
 }
 
 /// A handle that carries an entry's identity without asking for read or write access, so even a

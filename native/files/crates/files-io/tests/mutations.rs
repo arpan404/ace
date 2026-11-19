@@ -103,6 +103,111 @@ fn ignores_case(dir: &std::path::Path) -> bool {
     ignores
 }
 
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_case_only_rename_never_replaces_a_name_that_appears_between_its_steps() {
+    use files_io::test_hooks::{Step, report_taken, watch};
+
+    let fixture = Fixture::new();
+    fixture.write("Notes.md", b"the original\n");
+    let folder = fixture.dir().to_path_buf();
+    // A volume that folds both spellings together reports the destination as taken, so the entry
+    // has to travel through a staging name. Between the two steps both names are free, and a
+    // replacing rename there would silently discard what another writer put at the destination.
+    let _taken = report_taken("Notes.md", "notes.md");
+    let _hook = watch(move |step, from, _to| {
+        if step == Step::BetweenMoveSteps && from == "Notes.md" {
+            std::fs::write(folder.join("notes.md"), b"someone else\n").expect("squatter");
+        }
+    });
+
+    let result = files_io::rename(fixture.root(), "Notes.md", "notes.md", None, None);
+
+    let names: Vec<String> = std::fs::read_dir(fixture.dir())
+        .expect("list the root")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    match result {
+        // The volume cannot hold both spellings, so the entry could not be put back: it is whole
+        // under a name the warning gives, and that name is one a person can see.
+        Ok(committed) => {
+            let warning = committed.warning.expect("a stranded move is reported");
+            let kept = names
+                .iter()
+                .find(|name| name.starts_with("Notes.conflict-"))
+                .expect("the entry is preserved under a visible name");
+            assert!(warning.contains(kept.as_str()), "{warning}");
+            assert_eq!(fixture.read(kept), b"the original\n");
+            assert!(
+                !names
+                    .iter()
+                    .any(|name| name.starts_with(".ace-upload-move-")),
+                "no staging name is left behind: {names:?}"
+            );
+        }
+        Err(error) => {
+            assert_eq!(error.code(), "CONFLICT");
+            assert!(
+                !names
+                    .iter()
+                    .any(|name| name.starts_with(".ace-upload-move-")),
+                "a refused move leaves no staging name: {names:?}"
+            );
+            assert_eq!(fixture.read("Notes.md"), b"the original\n", "put back");
+        }
+    }
+    assert_eq!(
+        fixture.read("notes.md"),
+        b"someone else\n",
+        "the name that appeared is never replaced"
+    );
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_moved_folder_must_be_the_entry_the_guard_was_taken_from() {
+    use files_io::test_hooks::{Step, watch};
+
+    let fixture = Fixture::new();
+    fixture.write("docs/a.md", b"a\n");
+    let description = files_io::describe(fixture.root(), "docs", &files_io::Walks::unbounded())
+        .expect("describe");
+    let own = description.own_version.clone().expect("own");
+    let folder = fixture.dir().to_path_buf();
+    // A folder that is not the one the guard described, but whose only entry is a hard link to
+    // the same file, digests to the same tree: the digest alone cannot tell them apart.
+    let _hook = watch(move |step, from, to| {
+        if step == Step::AfterMove && from == "docs" && to == "elsewhere" {
+            std::fs::rename(folder.join("elsewhere"), folder.join("real")).expect("hide it");
+            std::fs::create_dir(folder.join("elsewhere")).expect("impostor");
+            std::fs::hard_link(folder.join("real/a.md"), folder.join("elsewhere/a.md"))
+                .expect("hard link");
+        }
+    });
+
+    let error = files_io::rename(
+        fixture.root(),
+        "docs",
+        "elsewhere",
+        Some(&description.version),
+        Some(&own),
+    )
+    .expect_err("a different folder with the same digest is not the guarded entry");
+
+    assert_eq!(error.code(), "CONFLICT");
+    assert_eq!(
+        fixture.read("real/a.md"),
+        b"a\n",
+        "the real folder is untouched"
+    );
+}
+
 #[test]
 fn remove_folder_recursively() {
     let fixture = Fixture::new();

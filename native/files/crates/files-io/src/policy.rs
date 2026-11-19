@@ -26,12 +26,46 @@ const TEMPORARY: &str = ".ace-upload-";
 /// What a delete parks an entry under, followed by the daemon's own id.
 const TRASH: &str = ".ace-upload-trash-";
 
-/// Refuse a path whose resolved names are the daemon's own.
+/// The folder a read-only request may serve, with the stored path that names it.
 ///
-/// Reads and listings call this before serving anything, so a link into `.git` or into the trash
-/// is refused exactly like the spelling that names them.
-pub fn refuse_reserved(root: &Root, path: &str) -> Result<(), Error> {
-    refuse(&root.stored_path(path)?, path)
+/// One walk proves the names and hands back the handle, so a link swapped in after the check
+/// cannot make the folder that answers differ from the folder the policy read.
+pub fn authorized_dir(root: &Root, rel: &str) -> Result<(cap_std::fs::Dir, String), Error> {
+    let stored = root.open_dir_stored(rel)?;
+    refuse(&stored.folders, rel)?;
+    Ok((stored.dir, stored.path))
+}
+
+/// The folder and stored leaf of a read-only request, after the whole policy.
+///
+/// The leaf itself is never followed, so `stat` can report a link as a link; what a link leads to
+/// is read and held to the policy too, so a link into git's store or the trash is refused exactly
+/// like the spelling that names it. The returned handle is the one the answer must be read
+/// through: re-walking the path would let the name change between the check and the read.
+pub fn authorized_parent(root: &Root, path: &str) -> Result<Parent, Error> {
+    let parent = root.open_parent_stored(path)?;
+    refuse_components(&parent.folders, &parent.name, path)?;
+    if linked(&parent.dir, &parent.name)? {
+        authorized_target(root, path)?;
+    }
+    Ok(parent)
+}
+
+/// The folder and stored leaf a read acts on: a final link followed, with the names it leads to
+/// held to the policy.
+pub fn authorized_target(root: &Root, path: &str) -> Result<Parent, Error> {
+    let target = crate::handle::target_parent_stored(root, path)?;
+    refuse_components(&target.folders, &target.name, path)?;
+    Ok(target)
+}
+
+/// Whether the entry at this name is a link, without following it.
+fn linked(dir: &Dir, name: &str) -> Result<bool, Error> {
+    match dir.symlink_metadata(name) {
+        Ok(metadata) => Ok(metadata.file_type().is_symlink()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// The folder and stored leaf of a client mutation, after the whole policy: no reserved name in
