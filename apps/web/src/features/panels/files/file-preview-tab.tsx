@@ -1,7 +1,7 @@
 import { DownloadSimpleIcon, FileIcon, WarningCircleIcon } from "@ace/icons";
 import { checkoutViewLimit, isMarkdownPath } from "@ace/ui-core";
 import { useMemo, useState } from "react";
-import { wholeBudget, tooLargeToLoad } from "@/components/attachment-content.ts";
+import { wholeBudget, tooLargeToLoad, type TextPrefix } from "@/components/attachment-content.ts";
 import type { FileSource, PreviewFile } from "@/components/attachment-format.ts";
 import { describeFile, formatLimit, unknownKind } from "@/components/attachment-kind.ts";
 import {
@@ -91,7 +91,8 @@ function Body(props: { file: PreviewFile; source: FileSource }) {
     return (
       <TextOrOther
         source={source}
-        text={<TextBody file={file} source={source} />}
+        limit={checkoutViewLimit}
+        renderText={(value) => <TextView file={file} value={value} />}
         other={closed}
         loading={<TextLoading name={file.name} />}
       />
@@ -181,7 +182,11 @@ function TextBody(props: { file: PreviewFile; source: FileSource }) {
         action={<SaveButton file={file} />}
       />
     );
-  const { value } = text;
+  return <TextView file={file} value={text.value} />;
+}
+
+function TextView(props: { file: PreviewFile; value: TextPrefix }) {
+  const { file, value } = props;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="relative min-h-0 flex-1 overflow-auto">

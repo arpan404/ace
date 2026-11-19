@@ -18,11 +18,28 @@ describe("describeFile", () => {
   });
 
   it.each([
-    ["big.png", "image/png"],
     ["icon.ico", "image/x-icon"],
     ["photo.avif", "image/avif"],
-  ])("%s the daemon left as binary still tries the image viewer", (name, mimeType) => {
+    ["old.bmp", "image/bmp"],
+  ])("%s, a picture the daemon never inspects, still tries the image viewer", (name, mimeType) => {
     expect(describeFile({ name, mimeType, kind: "binary" }).preview).toBe("image");
+  });
+
+  it.each([
+    ["huge.png", "image/png"],
+    ["cut.jpg", "image/jpeg"],
+    ["fake.png", "application/octet-stream"],
+  ])("%s the daemon inspected and refused offers only Download", (name, mimeType) => {
+    expect(describeFile({ name, mimeType, kind: "binary" }).preview).toBe("none");
+  });
+
+  it("a declared text type wins over an image name", () => {
+    expect(describeFile({ name: "notes.png", mimeType: "text/plain" }).preview).toBe("text");
+  });
+
+  it("a file named after an Object property is not an image", () => {
+    expect(describeFile({ name: "constructor" }).preview).toBe("none");
+    expect(unknownKind({ name: "notes.constructor" })).toBe(true);
   });
 
   it.each([

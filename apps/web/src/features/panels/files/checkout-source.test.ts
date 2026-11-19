@@ -37,7 +37,7 @@ function holding(bytes: Uint8Array): ClientApi {
   } as unknown as ClientApi;
 }
 
-test("a checkout image over the text limit still opens as a picture", async () => {
+test("a checkout image over the text limit is still read whole for the image viewer", async () => {
   const png = new Uint8Array(3 * 1024 * 1024);
   png.set([137, 80, 78, 71, 13, 10, 26, 10]);
   const read = await daemonCheckout(holding(png)).read("thread", "docs/screenshot.png");

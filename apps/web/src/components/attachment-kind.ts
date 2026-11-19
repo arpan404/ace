@@ -160,10 +160,39 @@ const drawable = new Set([
   "image/vnd.microsoft.icon",
 ]);
 
-/** A picture the browser draws, by its MIME type or else its name. */
-const isDrawable = (name: string, ext: string, mime: string) =>
-  ext !== "svg" &&
-  (drawable.has(mime) || (!mime.startsWith("image/") && imageType(name) !== undefined));
+/**
+ * Pictures the daemon never inspects, so it calls them "binary" whatever their size. PNG, JPEG,
+ * GIF and WebP it does inspect: one it left as binary is malformed or too big to decode safely.
+ */
+const uninspected = new Set([
+  "image/avif",
+  "image/bmp",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+]);
+
+/**
+ * The picture type the browser would draw this file as, from its MIME type or else its name. A
+ * declared text type wins over the name ("notes.png" saved as text/plain is text).
+ */
+function drawableType(name: string, ext: string, mime: string): string | undefined {
+  if (ext === "svg" || mime.startsWith("text/")) return undefined;
+  if (drawable.has(mime)) return mime;
+  if (mime.startsWith("image/")) return undefined;
+  const type = imageType(name);
+  return type && drawable.has(type) ? type : undefined;
+}
+
+/** Whether the image viewer should take this file: by daemon kind, else by type or name. */
+function showsAsImage(file: FileFacts, ext: string, mime: string): boolean {
+  if (file.kind === "image") return true;
+  if (file.kind === "text" || file.kind === "pdf") return false;
+  const type = drawableType(file.name, ext, mime);
+  if (!type) return false;
+  // A picture the daemon inspected and refused (too many pixels, cut short) stays download-only:
+  // decoding a highly compressed 16k × 16k PNG would take a gigabyte.
+  return file.kind !== "binary" || uninspected.has(type);
+}
 
 /** A table's own entry, never one inherited from `Object` ("x.constructor" is no language). */
 const entry = (table: Record<string, string>, key: string) =>
@@ -185,11 +214,8 @@ export function describeFile(file: FileFacts): Described {
   const base = file.name.split(/[\\/]/).at(-1)?.toLowerCase() ?? "";
   if (file.kind === "pdf" || mime === "application/pdf" || (!file.kind && ext === "pdf"))
     return { kind: "pdf", label: "PDF", preview: "pdf" };
-  // A file an answer links by path has no MIME type or daemon kind, so its name decides. The
-  // daemon only calls PNG, JPEG, GIF and WebP images (and only ones it would hand an agent), so
-  // other pictures arrive as "binary": the viewer still tries them, and offers Download if the
-  // bytes don't draw.
-  if (file.kind === "image" || (file.kind !== "text" && isDrawable(file.name, ext, mime)))
+  // A file an answer links by path has no MIME type or daemon kind, so its name decides.
+  if (showsAsImage(file, ext, mime))
     return { kind: "image", label: upper || "Image", preview: "image" };
   // Text the daemon validated, or what claims to be text before it has looked.
   const textual =

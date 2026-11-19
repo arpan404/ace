@@ -1,10 +1,9 @@
 import { useClient } from "@ace/client-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import {
-  readsAsText,
   readTextPrefix,
+  readTextPrefixIfText,
   readWhole,
-  sniffBytes,
   TooLargeToLoad,
   type TextPrefix,
 } from "./attachment-content.ts";
@@ -107,17 +106,28 @@ export function useWholeUrl(source: FileSource, type: string | undefined): Loade
   return loaded?.client === client && loaded.source === source ? loaded.value : loading;
 }
 
-/** The first `limit` bytes of a file as text. */
-export function useTextPrefix(source: FileSource, limit?: number): Loaded<TextPrefix> {
+type PrefixReader<T> = (
+  client: ReturnType<typeof useClient>,
+  source: FileSource,
+  signal: AbortSignal,
+  limit?: number,
+) => Promise<T>;
+
+/** One read of `source` by `read` (a module-level reader, so it never changes identity). */
+function usePrefixRead<T>(
+  read: PrefixReader<T>,
+  source: FileSource,
+  limit: number | undefined,
+): Loaded<T> {
   const client = useClient();
   const [loaded, setLoaded] = useState<{
     client: typeof client;
     source: FileSource;
-    value: Loaded<TextPrefix>;
+    value: Loaded<T>;
   }>();
   useEffect(() => {
     const abort = new AbortController();
-    readTextPrefix(client, source, abort.signal, limit).then(
+    read(client, source, abort.signal, limit).then(
       (value) => {
         if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "ready", value } });
       },
@@ -126,21 +136,29 @@ export function useTextPrefix(source: FileSource, limit?: number): Loaded<TextPr
       },
     );
     return () => abort.abort();
-  }, [client, source, limit]);
+  }, [read, client, source, limit]);
   return loaded?.client === client && loaded.source === source ? loaded.value : loading;
 }
 
+/** The first `limit` bytes of a file as text. */
+export function useTextPrefix(source: FileSource, limit?: number): Loaded<TextPrefix> {
+  return usePrefixRead(readTextPrefix, source, limit);
+}
+
 /**
- * A file of no kind ace knows, decided by its first bytes: `text` when they read as text,
- * `other` when they don't or can't be read, `loading` while they arrive.
+ * A file of no kind ace knows, decided by its first bytes in the same read that shows it:
+ * `renderText(prefix)` when they read as text, `other` when they don't or can't be read, `loading`
+ * while they arrive.
  */
 export function TextOrOther(props: {
   source: FileSource;
-  text: ReactNode;
+  /** How much text to show, as the file's text view would read it. */
+  limit?: number | undefined;
+  renderText(prefix: TextPrefix): ReactNode;
   other: ReactNode;
   loading: ReactNode;
 }) {
-  const prefix = useTextPrefix(props.source, sniffBytes);
+  const prefix = usePrefixRead(readTextPrefixIfText, props.source, props.limit);
   if (prefix.state === "loading") return props.loading;
-  return prefix.state === "ready" && readsAsText(prefix.value.text) ? props.text : props.other;
+  return prefix.state === "ready" && prefix.value ? props.renderText(prefix.value) : props.other;
 }

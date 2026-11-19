@@ -100,6 +100,44 @@ async function readUpTo(chunks: AsyncIterable<Uint8Array>, limit: number): Promi
   return { parts, total, more: false };
 }
 
+/** Whether a file's first bytes, as far as they came, read as text. */
+function headReadsAsText(parts: Uint8Array<ArrayBuffer>[], more: boolean): boolean {
+  const head = new Uint8Array(sniffBytes);
+  let at = 0;
+  for (const part of parts) {
+    if (at >= sniffBytes) break;
+    const taken = part.subarray(0, sniffBytes - at);
+    head.set(taken, at);
+    at += taken.length;
+  }
+  return readsAsText(decode(head.subarray(0, at), more || at === sniffBytes));
+}
+
+/**
+ * Like `readUpTo`, for a file that may not be text: once its first `sniffBytes` are here (or it
+ * ends) and they aren't text, the stream stops and nothing more is read.
+ */
+async function readTextUpTo(
+  chunks: AsyncIterable<Uint8Array>,
+  limit: number,
+): Promise<Read | undefined> {
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  let total = 0;
+  let checked = false;
+  for await (const chunk of chunks) {
+    const taken = chunk.slice(0, limit - total);
+    parts.push(taken);
+    total += taken.length;
+    if (!checked && total >= Math.min(sniffBytes, limit)) {
+      if (!headReadsAsText(parts, true)) return undefined;
+      checked = true;
+    }
+    if (total >= limit) return { parts, total, more: true };
+  }
+  if (!checked && !headReadsAsText(parts, false)) return undefined;
+  return { parts, total, more: false };
+}
+
 function decode(bytes: Uint8Array, truncated: boolean): string {
   // Streaming leaves a character the cut split in two out, rather than drawing it broken.
   return new TextDecoder("utf-8").decode(bytes, { stream: truncated });
@@ -186,6 +224,30 @@ export async function readTextPrefix(
   if (source.kind === "artifact")
     return prefixOf(await readUpTo(artifactChunks(client, source, signal), limit), source.bytes);
   return attachmentPrefix(client, source, limit, signal);
+}
+
+/**
+ * The first `limit` bytes of a file whose kind nothing names, as text, or `undefined` when its
+ * first bytes show it isn't text. Sniffing and showing use this one read; a streamed file that
+ * turns out binary stops downloading after `sniffBytes`.
+ */
+export async function readTextPrefixIfText(
+  client: ClientApi,
+  source: FileSource,
+  signal: AbortSignal,
+  limit = textPreviewBytes,
+): Promise<TextPrefix | undefined> {
+  if (source.kind === "link" || source.kind === "artifact") {
+    const chunks =
+      source.kind === "link"
+        ? linkedFileChunks(client, source, signal)
+        : artifactChunks(client, source, signal);
+    const read = await readTextUpTo(chunks, limit);
+    if (!read) return undefined;
+    return prefixOf(read, source.kind === "artifact" ? source.bytes : undefined);
+  }
+  const prefix = await readTextPrefix(client, source, signal, limit);
+  return readsAsText(prefix.text.slice(0, sniffBytes)) ? prefix : undefined;
 }
 
 /**

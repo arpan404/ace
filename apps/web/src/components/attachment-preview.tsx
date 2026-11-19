@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
   textPreviewBytes,
   tooLargeToLoad,
+  type TextPrefix,
   wholeBudget,
   wholeFileBytes,
 } from "./attachment-content.ts";
@@ -115,7 +116,7 @@ function Body(props: { file: PreviewFile; described: Described }) {
     return (
       <TextOrOther
         source={source}
-        text={<TextBody source={source} />}
+        renderText={(value) => <TextView value={value} />}
         other={closed}
         loading={<Skeleton className="h-40 w-full rounded-md" />}
       />
@@ -160,7 +161,11 @@ function TextBody(props: { source: FileSource }) {
   if (text.state === "loading") return <Skeleton className="h-40 w-full rounded-md" />;
   if (text.state === "failed")
     return <Note kind="text">Couldn't load this file on this device.</Note>;
-  const { value } = text;
+  return <TextView value={text.value} />;
+}
+
+function TextView(props: { value: TextPrefix }) {
+  const { value } = props;
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <pre
