@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aceMarkBox, aceWing } from "../brand/mark.ts";
-import { inside, markRows, outline } from "./ascii-mark.ts";
+import { inside, markRows, outline, pickCell } from "./ascii-mark.ts";
 
 const grid = { wing: aceWing, box: aceMarkBox, columns: 60, cell: 0.5, word: "ace" };
 
@@ -53,5 +53,41 @@ describe("outline", () => {
     expect(inside(shape, 5, 5)).toBe(true);
     expect(inside(shape, 11, 5)).toBe(false);
     expect(inside(shape, 5, -1)).toBe(false);
+  });
+});
+
+/** A source of chosen numbers, handed out in order. */
+const dealt = (...values: number[]) => {
+  let at = 0;
+  return () => values[at++ % values.length] ?? 0;
+};
+
+describe("a cell to flip", () => {
+  const rows = ["  ace", "", " ea  c"];
+  it("is always a printed letter, never a gap or an empty row", () => {
+    for (let a = 0; a < 1; a += 0.07) {
+      for (let b = 0; b < 1; b += 0.07) {
+        const cell = pickCell(rows, "ace", dealt(a, b, 0));
+        expect(cell && rows[cell.row]?.[cell.column]).toBe(cell?.letter);
+        expect(cell?.letter).not.toBe(" ");
+      }
+    }
+  });
+
+  it("flips to a different letter of the word", () => {
+    for (const third of [0, 0.5, 0.99]) {
+      const cell = pickCell(rows, "ace", dealt(0.9, 0.9, third));
+      expect(cell?.letter).toBe("c");
+      expect(["a", "e"]).toContain(cell?.other);
+    }
+  });
+
+  it("reaches the first and the last printed cell", () => {
+    expect(pickCell(rows, "ace", dealt(0, 0, 0))).toMatchObject({ row: 0, column: 2, letter: "a" });
+    expect(pickCell(rows, "ace", dealt(0.999, 0.999, 0))).toMatchObject({ row: 2, column: 5 });
+  });
+
+  it("is nothing when nothing is printed", () => {
+    expect(pickCell(["", "   "], "ace", dealt(0.5))).toBeUndefined();
   });
 });

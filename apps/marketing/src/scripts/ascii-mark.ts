@@ -104,3 +104,31 @@ export function markRows({ wing, box, columns, cell, word }: MarkGrid): string[]
     return line.trimEnd();
   });
 }
+
+export interface Cell {
+  row: number;
+  column: number;
+  /** The letter printed there. */
+  letter: string;
+  /** Another letter of the word, for the cell to flip to and back. */
+  other: string;
+}
+
+/**
+ * One printed cell of the mark, chosen by `random` (a function returning numbers from 0 up to
+ * but not including 1), or nothing when the rows hold no letters.
+ */
+export function pickCell(rows: string[], word: string, random: () => number): Cell | undefined {
+  const printed = rows.flatMap((text, row) =>
+    text.trim() === ""
+      ? []
+      : [{ row, columns: [...text].flatMap((char, at) => (char === " " ? [] : [at])) }],
+  );
+  const line = printed[Math.floor(random() * printed.length)];
+  const column = line?.columns[Math.floor(random() * line.columns.length)];
+  const letter = line && column !== undefined ? rows[line.row]?.[column] : undefined;
+  if (!line || column === undefined || !letter) return undefined;
+  const others = [...word].filter((char) => char !== letter);
+  const other = others[Math.floor(random() * others.length)] ?? letter;
+  return { row: line.row, column, letter, other };
+}

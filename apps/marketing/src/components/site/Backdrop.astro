@@ -3,9 +3,10 @@
  * What stands behind every page: ace's mark, set in the letters of its own name
  * (scripts/ascii-mark.ts) and printed so faintly it reads as the ground's grain rather than a
  * picture. It prints itself row by row the first time a visitor sees it, then stays put while
- * the page scrolls over it. Every few seconds a ring of light spreads through the letters from
- * the diamond at the mark's heart, and the letters near the pointer come up a little, as if a
- * lamp were held to them. Decoration only: it is hidden from assistive technology and takes no
+ * the page scrolls over it. Here and there a letter quietly changes to another letter of the
+ * name and back; every so often a ring of light spreads through the letters from the diamond
+ * at the mark's heart; and the letters near the pointer come up a little, as
+ * if a lamp were held to them. Decoration only: it is hidden from assistive technology and takes no
  * clicks, and with reduced motion it is a still print.
  */
 import { aceMarkBox, aceWing } from "../../brand/mark.ts";
@@ -16,27 +17,28 @@ const advance = 0.6;
 const leading = 1.15;
 /* Two settings of the same mark: fewer, larger letters for a narrow screen, where finer ones
    would blur into a texture, and more for a wide one. */
+const word = "ace";
 const settings = [
   { name: "coarse", columns: 96 },
   { name: "fine", columns: 150 },
 ].map(({ name, columns }) => ({
   name,
   width: columns * advance,
-  text: markRows({
+  rows: markRows({
     wing: aceWing,
     box: aceMarkBox,
     columns,
     cell: advance / leading,
-    word: "ace",
-  }).join("\n"),
+    word,
+  }),
 }));
 ---
 
-<div class="backdrop" aria-hidden="true" data-backdrop>
+<div class="backdrop" aria-hidden="true" data-backdrop data-word={word}>
   <div class="layer base">
     {
       settings.map((setting) => (
-        <pre class={setting.name} style={`--columns:${setting.width}`} set:text={setting.text} />
+        <pre class={setting.name} style={`--columns:${setting.width}`}>{setting.rows.map((row) => <span>{row || " "}</span>)}</pre>
       ))
     }
   </div>
@@ -63,14 +65,15 @@ const settings = [
        tablet width up far enough over to leave the text column clear. */
     --cx: 60%;
     --cy: 56%;
-    /* It fades toward the side the words are read from, so little prints under a headline. */
-    mask-image: linear-gradient(to right, transparent 16%, #000 70%);
+    /* It fades toward the side the words are read from, and is at full strength only near the
+       far edge, so even a headline that runs the page's width has little printed under it. */
+    mask-image: linear-gradient(to right, transparent 34%, #000 92%);
   }
 
   .layer {
     position: absolute;
     inset: 0;
-    color: color-mix(in srgb, var(--foreground) 5%, transparent);
+    color: color-mix(in srgb, var(--foreground) 5.5%, transparent);
   }
 
   /* Printing: the rows appear from the top down, a few at a time, as a line printer lays them. */
@@ -166,14 +169,20 @@ const settings = [
     line-height: 1.15;
   }
 
+  /* A row to an element, so a letter that changes redraws its own row and nothing else. */
+  pre span {
+    display: block;
+    height: 1.15em;
+  }
+
   .fine {
     display: none;
   }
 
   @media (min-width: 760px) {
     .backdrop {
-      --cx: 76%;
-      --cy: 50%;
+      --cx: 82%;
+      --cy: 52%;
     }
 
     .coarse {
@@ -208,20 +217,60 @@ const settings = [
 </style>
 
 <script>
+  import { pickCell } from "../../scripts/ascii-mark.ts";
+
   /*
-   * The brighter copies of the letters: the ring, where motion is on, and the lamp that follows
-   * the pointer on devices that have one, made the first time the pointer moves.
+   * What moves in the backdrop. Where motion is on: the ring, a brighter copy of the letters,
+   * and the flips, a few letters at a time that each change to another letter of the name, hold,
+   * and change back, in cells chosen at random. On devices with a pointer: the lamp, another
+   * brighter copy, made the first time the pointer moves.
    */
+  const flipsAtOnce = 10;
   const backdrop = document.querySelector<HTMLElement>("[data-backdrop]");
   const base = backdrop?.querySelector<HTMLElement>(".base");
+
   if (backdrop && base) {
+    /* Every copy of the letters, so a letter that changes changes in all of them. */
+    const layers = [base];
     const copy = (name: string) => {
       const layer = base.cloneNode(true) as HTMLElement;
       layer.className = `${base.className.replace("base", "").trim()} ${name}`;
       backdrop.append(layer);
+      layers.push(layer);
       return layer;
     };
-    if (document.documentElement.classList.contains("motion")) copy("ring");
+
+    if (document.documentElement.classList.contains("motion")) {
+      copy("ring");
+      const word = backdrop.dataset.word ?? "";
+      const settings = [...base.querySelectorAll("pre")].map((pre, index) => ({
+        pre,
+        index,
+        rows: [...pre.children].map((row) => row.textContent ?? ""),
+      }));
+      const write = (setting: number, row: number, column: number, letter: string) => {
+        for (const layer of layers) {
+          const text = layer.querySelectorAll("pre")[setting]?.children[row]?.firstChild;
+          if (text instanceof Text) text.replaceData(column, 1, letter);
+        }
+      };
+      /** One flip, over and over: a cell changes, holds, changes back, and another is chosen. */
+      const keepFlipping = () => {
+        // Only the setting on show flips; the other is not displayed at this width.
+        const shown = settings.find((setting) => setting.pre.offsetParent);
+        const cell = shown && pickCell(shown.rows, word, Math.random);
+        if (!shown || !cell) return void setTimeout(keepFlipping, 4000);
+        write(shown.index, cell.row, cell.column, cell.other);
+        setTimeout(
+          () => {
+            write(shown.index, cell.row, cell.column, cell.letter);
+            setTimeout(keepFlipping, 300 + Math.random() * 2400);
+          },
+          900 + Math.random() * 1500,
+        );
+      };
+      for (let at = 0; at < flipsAtOnce; at++) setTimeout(keepFlipping, 2400 + at * 350);
+    }
 
     if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
       let lamp: HTMLElement | undefined;
