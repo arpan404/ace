@@ -32,6 +32,7 @@ const dedicatedOps: ReadonlySet<string> = new Set([
   "closeRoot",
   "watch",
   "unwatch",
+  "focus",
   "search",
 ]);
 
@@ -148,6 +149,11 @@ export class FilesProcess {
   /** Watch a root; every batch, rescan and warning goes to `onBatch`, across restarts. */
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch> {
     return this.#operations.watch(root, onBatch, this.#timeoutMs);
+  }
+
+  /** Name the folders people have open on a root; kept and sent again after a restart. */
+  focus(root: number, folders: readonly string[]): Promise<void> {
+    return this.#operations.focus(root, folders, this.#timeoutMs);
   }
 
   /** Search file contents, streaming matches, and resolve with the summary when it finishes. */

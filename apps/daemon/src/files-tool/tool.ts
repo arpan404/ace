@@ -163,6 +163,8 @@ export type FilesToolClient = {
   remove(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<void>;
   indexQuery(root: number, query: string, limit: number): Promise<IndexReply>;
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch>;
+  /** Name the folders people have open on a root, which its watcher checks itself. */
+  focus(root: number, folders: readonly string[]): Promise<void>;
   search(root: number, query: SearchQuery, options: FilesSearchOptions): Promise<Summary>;
 };
 
@@ -369,6 +371,14 @@ export class FilesTool {
    * Watch a checkout's whole tree; every caller on the same checkout shares one ace-files watch.
    * The returned function stops this listener; the watch itself stops with its last listener.
    */
+  /**
+   * Name the folders people have open on a checkout, replacing the last set. Its watcher checks
+   * them without waiting for the OS watch, which on a loaded Mac can be minutes late.
+   */
+  focus(path: string, folders: readonly string[]): Promise<void> {
+    return this.run(path, (client, root) => client.focus(root, folders));
+  }
+
   async watch(
     path: string,
     onBatch: (payload: EventPayload) => void,

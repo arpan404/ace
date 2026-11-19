@@ -5,8 +5,8 @@
 //!
 //! The OS delivers events in bursts: FSEvents regularly takes a second, so every wait is
 //! generous and a test that expects nothing writes another file afterwards to prove the
-//! watcher was alive. One watcher runs per test, because several FSEvents streams in one
-//! process interfere.
+//! watcher was alive. One session runs at a time, so a burst in one test does not slow the OS
+//! events another test waits for.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -131,9 +131,13 @@ fn a_burst_over_max_batch_never_sends_an_oversized_batch() {
     // stays under it is sent as changes. Which one happens depends on how the OS delivers the
     // writes, so the test holds the watcher to what either delivery promises: no batch is larger
     // than the limit, and every create is reported or covered by a rescan.
+    // The window is wide enough to hold the whole burst: a loaded fseventsd hands twenty writes
+    // over across more than the default debounce, and two windows over the limit are rightly two
+    // rescans.
     let session = Session::start(
         WatchOptions {
             max_batch: 5,
+            debounce: Duration::from_millis(1_000),
             ..options()
         },
         |root| std::fs::create_dir(root.join("burst")).unwrap(),

@@ -187,6 +187,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dispatch2"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -315,9 +324,14 @@ dependencies = [
 name = "files-watch"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
+ "dispatch2",
  "files-safe",
  "globset",
+ "libc",
  "notify",
+ "objc2-core-foundation",
+ "objc2-core-services",
  "tempfile",
  "thiserror",
  "windows-sys 0.61.2",
@@ -640,6 +654,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
 dependencies = [
+ "dispatch2",
  "libc",
  "objc2-core-foundation",
 ]

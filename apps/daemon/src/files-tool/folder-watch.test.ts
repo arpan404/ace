@@ -9,6 +9,8 @@ const main = ThreadId.parse("main");
 class FakeWatch {
   readonly calls: { path: string; onBatch: (payload: EventPayload) => void }[] = [];
   readonly released: string[] = [];
+  /** Every open-folder set sent to a checkout's watcher, in order. */
+  readonly focused: { path: string; folders: readonly string[] }[] = [];
   readonly failure: Error | undefined;
   /** When set, a starting watch waits for it before it counts as subscribed. */
   gate: Promise<void> | undefined;
@@ -17,6 +19,11 @@ class FakeWatch {
 
   constructor(failure?: Error) {
     this.failure = failure;
+  }
+
+  focus(path: string, open: readonly string[]): Promise<void> {
+    this.focused.push({ path, folders: open });
+    return Promise.resolve();
   }
 
   watch(path: string, onBatch: (payload: EventPayload) => void): Promise<() => Promise<void>> {
@@ -80,6 +87,29 @@ it("shares one watch of a checkout between every client", async () => {
   expect(browser).toMatchObject([
     { type: "files.folders_changed", folders: ["docs"], rescan: false },
   ]);
+});
+
+/** Lets queued sends to the watcher run. */
+function drained(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+it("tells the checkout's watcher every folder any client has open", async () => {
+  const { port, watch } = setup();
+  await watch.watch(client("phone", []), main, "/w", ["src"]);
+  await watch.watch(client("browser", []), main, "/w", ["docs", "src/lib", "src"]);
+  await drained();
+  expect(port.focused.at(-1)).toEqual({ path: "/w", folders: ["docs", "src", "src/lib"] });
+
+  await watch.disconnect("browser");
+  await drained();
+  expect(port.focused.at(-1)).toEqual({ path: "/w", folders: ["src"] });
+
+  // The same set again sends nothing new.
+  const sent = port.focused.length;
+  await watch.watch(client("phone", []), main, "/w", ["src"]);
+  await drained();
+  expect(port.focused).toHaveLength(sent);
 });
 
 it("stops the shared watch with its last client", async () => {

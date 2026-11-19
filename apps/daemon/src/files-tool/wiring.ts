@@ -21,7 +21,10 @@ export function startFilesNative(context: ServiceContext): FilesNative {
     log: (level, message, fields) => context.log.log(level, `ace-files: ${message}`, fields),
   });
   const folders = new FolderWatch(
-    { watch: (path, onBatch) => tool.watch(path, onBatch) },
+    {
+      watch: (path, onBatch) => tool.watch(path, onBatch),
+      focus: (path, open) => tool.focus(path, open),
+    },
     {
       clock: systemFilesClock,
       log: (level, message, fields) => context.log.log(level, `folders: ${message}`, fields),

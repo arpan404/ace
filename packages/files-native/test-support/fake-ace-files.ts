@@ -174,6 +174,13 @@ function answer(id: number, op: Extract<Message, { type: "request" }>["op"]): vo
     case "unwatch":
       respond(id, { type: "done" });
       return;
+    case "focus":
+      if (!roots.has(op.root)) {
+        send({ type: "error", id, code: "INVALID_ARGUMENT", message: `no open root ${op.root}` });
+        return;
+      }
+      respond(id, { type: "done" });
+      return;
     case "watch": {
       if (generation > 0 && watchesFailed < watchFailures) {
         watchesFailed++;

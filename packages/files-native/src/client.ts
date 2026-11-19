@@ -313,6 +313,14 @@ export class FilesClient {
     return this.#process.watch(root, onBatch);
   }
 
+  /**
+   * Name the folders people have open on a root, replacing the last set. Its watcher checks them
+   * itself, so a change there is reported even while the OS watch is late. Kept across restarts.
+   */
+  focus(root: number, folders: readonly string[]): Promise<void> {
+    return this.#process.focus(root, folders);
+  }
+
   async indexQuery(
     root: number,
     query: string,

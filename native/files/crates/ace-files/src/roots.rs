@@ -100,6 +100,7 @@ impl Roots {
             handle: self.handle.clone(),
             closed: AtomicBool::new(false),
             watcher: Mutex::new(None),
+            focus: Mutex::new(Vec::new()),
         });
         guard::lock(&self.inner)?.insert(id, Arc::clone(&entry));
         Ok(entry)
@@ -135,6 +136,8 @@ pub struct RootEntry {
     /// races the close sees it and refuses, so a closed root leaves no thread or subscription.
     closed: AtomicBool,
     watcher: Mutex<Option<Watcher>>,
+    /// The folders people have open, kept so a watcher that starts later checks them too.
+    focus: Mutex<Vec<String>>,
 }
 
 impl Drop for RootEntry {
@@ -232,7 +235,21 @@ impl RootEntry {
             max_batch: MAX_BATCH,
             max_wait: MAX_WAIT,
         };
-        *slot = Some(Watcher::start(self.root.clone(), options, sink)?);
+        let watcher = Watcher::start(self.root.clone(), options, sink)?;
+        watcher.focus(guard::lock(&self.focus)?.clone());
+        *slot = Some(watcher);
+        Ok(())
+    }
+
+    /// Replace the folders people have open on this root, and tell its watcher if it runs.
+    pub fn focus(&self, folders: Vec<String>) -> Result<(), Error> {
+        // The watcher slot is taken first, as `ensure_watcher` does, so a watcher starting at the
+        // same moment either is told here or reads the new set when it starts.
+        let slot = guard::lock(&self.watcher)?;
+        *guard::lock(&self.focus)? = folders.clone();
+        if let Some(watcher) = slot.as_ref() {
+            watcher.focus(folders);
+        }
         Ok(())
     }
 }

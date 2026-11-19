@@ -19,8 +19,10 @@ const BURST: usize = 20_000;
 /// Files per folder in the burst.
 const SET: usize = 1_000;
 
-/// How long the burst's rescan and its walk may take before the test calls it hung.
-const BURST_DEADLINE: Duration = Duration::from_secs(60);
+/// How long the burst's rescan and its walk may take before the test calls it hung. The watcher
+/// hears the burst through the OS watch, and on a loaded Mac fseventsd was measured handing over
+/// about 220 events a second, so twenty thousand creates alone take a minute and a half.
+const BURST_DEADLINE: Duration = Duration::from_secs(180);
 
 /// One quick-open query, at most `limit` hits.
 fn index(client: &mut Client, root: u64, query: &str, limit: u64) -> files_wire::IndexResult {
@@ -47,6 +49,42 @@ fn reports_a_created_file_to_the_watch() {
 }
 
 #[test]
+fn a_change_in_a_focused_folder_is_reported_while_the_os_watch_is_busy() {
+    // A burst anywhere on the volume queues behind fseventsd for every client, and on a loaded
+    // Mac a single write after it waited minutes. The folders the daemon names as open must not
+    // wait: the watcher checks them itself.
+    let checkout = checkout(&[("src/existing.txt", "")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+    let subscription = watch(&mut client, root);
+    let id = client.request(Op::Focus {
+        root,
+        folders: vec!["src".to_owned()],
+    });
+    assert!(matches!(client.reply(id), Reply::Done { .. }));
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    for index in 0..1_000 {
+        fs::write(elsewhere.path().join(format!("f{index}")), b"x").unwrap();
+    }
+    let started = Instant::now();
+    write_file(checkout.path(), "src/after.txt", "after\n");
+    let deadline = started + Duration::from_secs(3);
+    loop {
+        if let Some(files_wire::EventPayload::Changes { changes }) =
+            client.try_event(subscription, Duration::from_millis(50))
+            && changes.iter().any(|change| change.path == "src/after.txt")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a focused folder's change was not reported within 3 s of being made"
+        );
+    }
+}
+
+#[test]
 fn every_watch_on_a_root_reports_the_same_batch() {
     let checkout = checkout(&[("existing.txt", "")]);
     let mut client = Client::greeted();
@@ -59,10 +97,33 @@ fn every_watch_on_a_root_reports_the_same_batch() {
     await_reported(&mut client, checkout.path(), second, "created.txt");
 }
 
+/// Waits until the OS watch reports a write made now, so a burst test does not start behind a
+/// backlog: fseventsd serves every client on a Mac, and the last run's burst can keep it busy for
+/// a minute and more. The write lands in a subfolder no one has open, which only the OS watch
+/// reports.
+fn os_watch_caught_up(client: &mut Client) {
+    let probe = checkout(&[("sub/keep.txt", "")]);
+    let root = client.open_root(probe.path());
+    let subscription = watch(client, root);
+    write_file(probe.path(), "sub/sentinel.txt", "now\n");
+    let deadline = Instant::now() + Duration::from_secs(180);
+    while Instant::now() < deadline {
+        if let Some(files_wire::EventPayload::Changes { changes }) =
+            client.try_event(subscription, Duration::from_millis(100))
+            && changes
+                .iter()
+                .any(|change| change.path == "sub/sentinel.txt")
+        {
+            return;
+        }
+    }
+}
+
 #[test]
 fn a_burst_of_twenty_thousand_files_ends_up_in_quick_open() {
     let checkout = checkout(&[]);
     let mut client = Client::greeted();
+    os_watch_caught_up(&mut client);
     let root = client.open_root(checkout.path());
     let subscription = watch(&mut client, root);
 

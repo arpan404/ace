@@ -122,6 +122,14 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
         Op::RecoverMove { root, from, to } => {
             committed(read_write::recover_move(shared, root, &from, &to)?)
         }
+        Op::Focus { root, folders } => {
+            shared.roots.get(root)?.focus(folders)?;
+            Ok(Reply::Done {
+                version: None,
+                identity: None,
+                recovery: None,
+            })
+        }
         Op::OpenRoot { .. }
         | Op::CloseRoot { .. }
         | Op::Read { .. }

@@ -31,8 +31,14 @@ mod error;
 mod exclude;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
+mod net;
 mod observed;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod pairs;
 mod translate;
+mod wake;
 mod watch;
 #[cfg(windows)]
 mod windows;

@@ -28,6 +28,7 @@ pub(crate) const TAGS: &[&str] = &[
     "recoverMove",
     "watch",
     "unwatch",
+    "focus",
     "indexQuery",
     "search",
 ];
@@ -227,6 +228,15 @@ pub enum Op {
         /// The subscription to close.
         subscription: u64,
     },
+    /// Name the folders people have open on a root, replacing the last set. The root's watcher
+    /// checks them, and the root itself, without waiting for the OS watch, so a change there is
+    /// reported even when the OS is late or silent. At most 512 folders are kept.
+    Focus {
+        /// The root's number.
+        root: u64,
+        /// Root-relative folders, `""` being the root.
+        folders: Vec<String>,
+    },
     /// Search the quick-open index.
     IndexQuery {
         /// The root's number.
@@ -349,6 +359,10 @@ mod tests {
             },
             Op::Watch { root: 0 },
             Op::Unwatch { subscription: 0 },
+            Op::Focus {
+                root: 0,
+                folders: Vec::new(),
+            },
             Op::IndexQuery {
                 root: 0,
                 query: String::new(),
