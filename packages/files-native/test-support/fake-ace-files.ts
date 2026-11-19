@@ -232,7 +232,9 @@ function answer(id: number, op: Extract<Message, { type: "request" }>["op"]): vo
             type: "matches",
             file: {
               path: "src/main.ts",
-              lines: [{ line: 1, preview: op.pattern, ranges: [[0, op.pattern.length]] }],
+              lines: [
+                { line: 1, column: 0, preview: op.pattern, ranges: [[0, op.pattern.length]] },
+              ],
             },
           },
         },

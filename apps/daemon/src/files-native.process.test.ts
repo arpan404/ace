@@ -1,4 +1,4 @@
-// Reason: the socket contract for list.folder, files.watch and quick open only holds end to end, through a real daemon and a real ace-files.
+// Reason: the socket contract for list.folder, files.watch, search and quick open only holds end to end, through a real daemon and a real ace-files.
 import { once } from "node:events";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { connectClientViaRelay, startRelay } from "@ace/relay";
-import { ServerMessage, ThreadId } from "@ace/protocol";
+import { FileOperation, ServerMessage, ThreadId } from "@ace/protocol";
 import { startDaemon, createDevThread } from "./index.ts";
 import { findFilesBinary } from "./files-tool/tool.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
@@ -270,6 +270,90 @@ describe.skipIf(!findFilesBinary())("the daemon's ace-files over its socket", ()
     });
   });
 
+  it("streams search matches, skips ignored files unless asked, and stops a cancelled search", async () => {
+    const { root, daemon, thread } = await boot();
+    await exec("git", ["init", "--quiet", root]);
+    await writeFile(join(root, ".gitignore"), "*.log\n");
+    await writeFile(join(root, "src", "ignored.log"), "needle in the log\n");
+    await writeFile(join(root, "src", "wide.ts"), "const é = 'needle';\nneedle();\n");
+    await writeFile(join(root, "README.md"), "no match here\n");
+    const client = await connect(daemon);
+    const search = async (requestId: string, operation: Record<string, unknown>) => {
+      const matches: Message[] = [];
+      const collecting = (async () => {
+        for (;;) {
+          const message = await client.next(
+            (candidate) =>
+              (candidate.type === "files.search.matches" && candidate.searchId === requestId) ||
+              ((candidate.type === "files.result" || candidate.type === "files.error") &&
+                candidate.requestId === requestId),
+          );
+          if (message.type !== "files.search.matches") return message;
+          matches.push(message);
+        }
+      })();
+      client.send({
+        type: "files.request",
+        requestId,
+        threadId: thread.id,
+        operation: { op: "search", ...operation },
+      });
+      const end = await collecting;
+      const lines = matches.flatMap(
+        (message) => message.files as { path: string; lines: unknown[] }[],
+      );
+      return { end, lines };
+    };
+
+    const plain = await search("needle", { pattern: "needle" });
+    expect(plain.end).toMatchObject({
+      type: "files.result",
+      value: { files: 1, matches: 2, truncated: false },
+    });
+    expect(plain.lines).toEqual([
+      {
+        path: "src/wide.ts",
+        lines: [
+          // "é" is two bytes in the file and one UTF-16 unit in the preview's ranges.
+          { line: 1, column: 0, preview: "const é = 'needle';", ranges: [[11, 17]] },
+          { line: 2, column: 0, preview: "needle();", ranges: [[0, 6]] },
+        ],
+      },
+    ]);
+
+    const ignored = await search("ignored", { pattern: "needle", includeIgnored: true });
+    expect(ignored.lines.map((file) => file.path).toSorted()).toEqual([
+      "src/ignored.log",
+      "src/wide.ts",
+    ]);
+
+    const capped = await search("capped", { pattern: "needle", maxMatches: 1 });
+    expect(capped.end).toMatchObject({ type: "files.result", value: { truncated: true } });
+
+    // Sent with its abort in one go: the search never gets to report a match.
+    const cancelled = search("cancelled", { pattern: "needle" });
+    client.send({ type: "files.abort", sourceRequestId: "cancelled" });
+    expect((await cancelled).end).toMatchObject({ type: "files.error", code: "CANCELLED" });
+
+    client.send({
+      type: "files.request",
+      requestId: "elsewhere",
+      threadId: ThreadId.parse("gone-thread"),
+      operation: { op: "search", pattern: "needle" },
+    });
+    expect(await client.files("elsewhere")).toMatchObject({ type: "files.error" });
+    client.send({
+      type: "files.request",
+      requestId: "support-search",
+      scope: "support",
+      operation: { op: "search", pattern: "needle" },
+    });
+    expect(await client.files("support-search")).toMatchObject({
+      type: "files.error",
+      code: "FORBIDDEN",
+    });
+  }, 25_000);
+
   it("serves a paired phone's folder listing and watch over the relay", async () => {
     const relay = await startRelay();
     cleanup.push(() => relay.close());
@@ -308,6 +392,23 @@ describe.skipIf(!findFilesBinary())("the daemon's ace-files over its socket", ()
       type: "files.result",
       value: { entries: [{ path: "src/hello.ts" }] },
     });
+
+    await remote.send({
+      type: "files.request",
+      requestId: "relay-search",
+      threadId: thread.id,
+      operation: FileOperation.parse({ op: "search", pattern: "hello" }),
+    });
+    expect(
+      await inbox.next(
+        (message) => message.type === "files.search.matches" && message.searchId === "relay-search",
+      ),
+    ).toMatchObject({ files: [{ path: "src/hello.ts", lines: [{ line: 1 }] }] });
+    expect(
+      await inbox.next(
+        (message) => message.type === "files.result" || message.type === "files.error",
+      ),
+    ).toMatchObject({ type: "files.result", requestId: "relay-search", value: { files: 1 } });
 
     await remote.send({ type: "files.watch", threadId: thread.id, folders: ["src"] });
     const changed = inbox.next((message) => message.type === "files.folders_changed");

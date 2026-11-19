@@ -1,21 +1,25 @@
 import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { GitDiffIcon, PencilSimpleIcon } from "@ace/icons";
 import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
-import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
+import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import {
   useScopeWorkspace,
   useWorkspaceActions,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
+import { ContentSearch } from "./content-search.tsx";
+import { contentSearchStore, useContentSearch } from "./content-search-store.ts";
 import { FileToolbar } from "./file-toolbar.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { FileViewer, NoFile } from "./file-viewer.tsx";
@@ -44,6 +48,11 @@ const FileOperations = lazy(() =>
 import type { FileOperationDialog } from "./file-operation.ts";
 
 const findChord = parseChord("mod+f");
+const searchChord = parseChord(keymap["files.search"].keys);
+const sides = [
+  { value: "files", label: "Files" },
+  { value: "search", label: "Search" },
+] as const;
 const fadeRight = { background: "linear-gradient(to left, var(--background), transparent)" };
 
 /** The upload line under the tree: progress, a conflict to confirm, or what went wrong. */
@@ -167,7 +176,24 @@ export function FileTab(props: TabViewProps) {
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
   const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });
+  const searchStore = useMemo(() => contentSearchStore(client, threadId), [client, threadId]);
+  const searchState = useContentSearch(searchStore);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const side = data.side ?? "files";
+  // ⌘⇧F asks for the field; it is focused once the Search side has rendered.
+  const [focusSearch, setFocusSearch] = useState(0);
+  useEffect(() => {
+    if (!focusSearch) return;
+    searchInput.current?.focus();
+    searchInput.current?.select();
+  }, [focusSearch]);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (matchesChord(event.nativeEvent, searchChord)) {
+      event.preventDefault();
+      update({ side: "search", ...(treeShown ? {} : { tree: true }) });
+      setFocusSearch((value) => value + 1);
+      return;
+    }
     if (readable && matchesChord(event.nativeEvent, findChord)) {
       event.preventDefault();
       setFind(find ?? { query: "", index: 0 });
@@ -299,6 +325,7 @@ export function FileTab(props: TabViewProps) {
                 onToggleWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
                 find={find?.query ? { query: find.query, hit: hits[hitIndex] } : undefined}
                 line={data.line}
+                column={data.column}
                 marks={marks}
                 onMention={(mention) => mentionInComposer(threadId, mention)}
                 onRetry={() => void content.refetch()}
@@ -346,28 +373,53 @@ export function FileTab(props: TabViewProps) {
                 onResizeEnd={(next) => memory.setPrefs({ treeWidth: next })}
               />
             )}
-            <FileTree
-              threadId={threadId}
-              onOperation={setOperation}
-              current={path}
-              query={query}
-              onQuery={setQuery}
-              expanded={data.expanded}
-              onExpanded={(expanded) => update({ expanded })}
-              scrollTop={data.treeScroll ?? 0}
-              onScroll={(treeScroll) => update({ treeScroll })}
-              onOpen={open}
-              onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
-              footer={
-                fileActions.upload && (
-                  <UploadStatus
-                    state={fileActions.upload}
-                    onReplace={fileActions.replace}
-                    onDismiss={fileActions.dismissUpload}
-                  />
-                )
-              }
+            <WordChoice
+              label="Files or search"
+              value={side}
+              options={sides}
+              onValueChange={(next) => update({ side: next })}
+              className="shrink-0 gap-0.5 px-2 pt-1.5 pb-1"
             />
+            {side === "search" ? (
+              <ContentSearch
+                store={searchStore}
+                state={searchState}
+                ref={searchInput}
+                onClose={() => update({ side: "files" })}
+                onOpen={(target, line, column, keep) =>
+                  openFile(workspace, actions, target, {
+                    keep,
+                    from: props.tab.key,
+                    line,
+                    column,
+                    tree: over ? undefined : data.tree,
+                  })
+                }
+              />
+            ) : (
+              <FileTree
+                threadId={threadId}
+                onOperation={setOperation}
+                current={path}
+                query={query}
+                onQuery={setQuery}
+                expanded={data.expanded}
+                onExpanded={(expanded) => update({ expanded })}
+                scrollTop={data.treeScroll ?? 0}
+                onScroll={(treeScroll) => update({ treeScroll })}
+                onOpen={open}
+                onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
+                footer={
+                  fileActions.upload && (
+                    <UploadStatus
+                      state={fileActions.upload}
+                      onReplace={fileActions.replace}
+                      onDismiss={fileActions.dismissUpload}
+                    />
+                  )
+                }
+              />
+            )}
           </aside>
         )}
       </div>

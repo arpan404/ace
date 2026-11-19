@@ -37,15 +37,26 @@ export type FolderListingRequest = {
   signal?: AbortSignal | undefined;
 };
 
+/** Who asks to read a checkout through ace-files: a thread's, or a project's before a thread. */
+export type CheckoutReadRequest = {
+  threadId?: ThreadId | undefined;
+  scope?: "support" | undefined;
+  workspaceId?: WorkspaceId | undefined;
+  operation: FileOperation;
+};
+
 /**
- * One folder from ace-files, authorized through the same binding the old `list` uses: a thread's
- * checkout, or a project's folder before a thread exists. Support exports have no folders.
+ * Run `task` on a checkout an ace-files read may touch, authorized through the same binding the
+ * old `list` uses: a thread's checkout, or a project's folder before a thread exists. Support
+ * exports have no checkout. The binding is held for the task and decides again after it, since
+ * a socket can close, a device lose its grant or a thread change its checkout while ace-files
+ * works. `allowed` lets a long task (a search) check the grant before each thing it sends.
  */
-export async function listFolderPage(
+export async function readCheckout<T>(
   scope: ListingScope,
-  tool: FolderLister | undefined,
-  request: FolderListingRequest,
-): Promise<FolderPage> {
+  request: CheckoutReadRequest,
+  task: (root: string, allowed: () => boolean) => Promise<T>,
+): Promise<T> {
   if (request.scope === "support")
     throw new FileError("FORBIDDEN", "Support exports have no folders");
   if (request.threadId === undefined && request.workspaceId === undefined)
@@ -61,18 +72,26 @@ export async function listFolderPage(
     const root = binding.root;
     if (root === undefined)
       throw new FileError("FORBIDDEN", "Folder listing needs a thread or project folder");
+    const result = await task(root, () => binding.allowed("read"));
+    if (!binding.allowed("read")) throw new FileError("FORBIDDEN", "File access denied");
+    return result;
+  } finally {
+    binding.release?.();
+  }
+}
+
+/** One folder from ace-files, authorized as every checkout read is. */
+export function listFolderPage(
+  scope: ListingScope,
+  tool: FolderLister | undefined,
+  request: FolderListingRequest,
+): Promise<FolderPage> {
+  return readCheckout(scope, request, (root) => {
     if (!tool) throw aceFilesMissing();
-    const page = await tool.listFolder(root, request.operation.path, {
+    return tool.listFolder(root, request.operation.path, {
       limit: request.operation.limit,
       ...(request.operation.cursor === undefined ? {} : { cursor: request.operation.cursor }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     });
-    // The listing crossed an await: a socket can close, a device lose its grant or a thread
-    // change its checkout while ace-files walks, so the binding decides again before any entry
-    // leaves the daemon.
-    if (!binding.allowed("read")) throw new FileError("FORBIDDEN", "File access denied");
-    return page;
-  } finally {
-    binding.release?.();
-  }
+  });
 }

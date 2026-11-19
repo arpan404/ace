@@ -8,6 +8,8 @@ export interface OpenFileOptions {
   /** The tab the pick came from (its tree): an empty or preview tab turns into the file. */
   from?: string | undefined;
   line?: number | undefined;
+  /** With `line`, the 0-based column to reveal. */
+  column?: number | undefined;
   /** The tree choice the tab carries over (a tree laid over the file closes on a pick). */
   tree?: boolean | undefined;
 }
@@ -28,6 +30,8 @@ export function openFile(
   const keep = options.keep ?? false;
   const extra = {
     ...(options.line === undefined ? {} : { line: options.line }),
+    // A jump without a column starts its line; a stale column from an earlier jump must not stay.
+    ...(options.line === undefined ? {} : { column: options.column ?? 0 }),
     ...(options.tree === undefined ? {} : { tree: options.tree }),
   };
   const existing = findTab(workspace, `files:${id}`);
@@ -60,6 +64,7 @@ export function openFile(
     ...(inheritData.expanded === undefined ? {} : { expanded: inheritData.expanded }),
     ...(inheritData.query === undefined ? {} : { query: inheritData.query }),
     ...(inheritData.treeScroll === undefined ? {} : { treeScroll: inheritData.treeScroll }),
+    ...(inheritData.side === undefined ? {} : { side: inheritData.side }),
   };
   const data = { ...carried, path, preview: !keep, ...extra };
   if (target) actions.replace(target, { kind: "files", id, data });
