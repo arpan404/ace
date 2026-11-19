@@ -294,7 +294,11 @@ export class LiveTarget {
       for (;;) {
         // After a restart that already fell back, the held message is sent again by the same id.
         if (session.reason === fallbackReason) ports.retryHeld(start.threadId, fallbackKey(input));
-        const outcome = await this.watch(start.threadId, continueKey(input.transferId, attempts));
+        const outcome = await this.watch(
+          input.transferId,
+          start.threadId,
+          continueKey(input.transferId, attempts),
+        );
         if (outcome === "closed") return;
         if (outcome === "running") {
           ports.starts.started(input.transferId, true, ports.now());
@@ -324,24 +328,31 @@ export class LiveTarget {
   }
   /**
    * Until a run takes the continue message `key`, a failure holds it unsent, or the person acts
-   * on it. One the engine can't say reached its run is read again for `uncertainMs`, then given
-   * up on.
+   * on it. One the engine can't say reached its run is read again for `uncertainMs` from when it
+   * first read so, kept across restarts, then given up on.
    */
   private async watch(
+    transferId: string,
     threadId: string,
     key: string,
   ): Promise<"running" | "failed" | "closed" | "uncertain" | { person: string }> {
-    let uncertainSince: number | undefined;
+    const { starts } = this.ports;
+    // A deadline left from before a restart is cleared once the message reads certain.
+    let clear = true;
     for (;;) {
       if (this.closed) return "closed";
       if (!this.ports.threadStatus(threadId)) return "failed";
       const next = turnStart(this.ports.continueFate(threadId, key));
       if (next.kind === "person") return { person: next.reason };
       if (next.kind === "uncertain") {
-        uncertainSince ??= this.ports.now();
-        if (this.ports.now() - uncertainSince >= uncertainMs) return "uncertain";
+        const now = this.ports.now();
+        if (now - starts.uncertainSince(transferId, now) >= uncertainMs) return "uncertain";
+        clear = true;
       } else if (next.kind !== "wait") return next.kind;
-      else uncertainSince = undefined;
+      else if (clear) {
+        starts.certain(transferId);
+        clear = false;
+      }
       await this.ports.sleep(500);
     }
   }

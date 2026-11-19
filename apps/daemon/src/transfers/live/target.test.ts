@@ -41,6 +41,8 @@ async function target(
     fateAt?: (clock: number, key: string) => ContinueFacts | undefined;
     /** The thread's status, which a turn the person starts there changes. */
     status?: ThreadStatus;
+    /** Called after each wait, with the time it reached. */
+    onSleep?: (clock: number) => void;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-live-target-"));
@@ -100,6 +102,7 @@ async function target(
       clock += ms;
       // A watch that never ends fails the test instead of hanging it.
       if (clock > 48 * 60 * 60_000) throw new Error("the start never ended");
+      options.onSleep?.(clock);
     },
     log: () => {},
   };
@@ -254,6 +257,27 @@ describe("a moved thread starting on this machine", () => {
     expect(t.clock()).toBeLessThanOrEqual(uncertainMs + 1_000);
     expect(t.live.state("x")).toMatchObject({ running: false });
     expect(t.notices[0]).toContain("may not have reached the agent");
+  });
+
+  it("keeps the uncertainty deadline across a restart", async () => {
+    let first: LiveTarget | undefined;
+    const t = await target(0, {
+      fateAt: () => ({ fate: { state: "uncertain" }, held: false }),
+      // The daemon restarts six minutes into the uncertainty.
+      onSleep: (clock) => {
+        if (clock >= 6 * 60_000) first?.close();
+      },
+    });
+    first = t.live;
+    const live = carried([]);
+    await prep(t, live);
+    await t.live.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    expect(t.live.state("x")?.running).toBeUndefined();
+    const restarted = new LiveTarget(t.ports);
+    await restarted.start({ transferId: "x", live, from: "MacBook", path: "/srv/app", handoff });
+    // Ten minutes from when it first read uncertain, not from the restart.
+    expect(t.clock()).toBeLessThanOrEqual(uncertainMs + 1_000);
+    expect(restarted.state("x")).toMatchObject({ running: false });
   });
 
   it("records the start once an uncertain continue message turns out to have run", async () => {
