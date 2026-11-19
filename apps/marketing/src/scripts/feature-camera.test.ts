@@ -20,6 +20,8 @@ const casts: CastId[][] = [
   ["mac", "build", "workstation", "phone"],
 ];
 
+const bottom = (rect: Rect | undefined) => (rect ? rect.y + rect.height : NaN);
+
 describe("where a feature page's hardware stands", () => {
   it("no two pieces of hardware overlap, side by side or stacked", () => {
     for (const cast of casts) {
@@ -35,7 +37,6 @@ describe("where a feature page's hardware stands", () => {
 
   it("everything rests on the same table as the Mac when side by side", () => {
     const places = arrange(["mac", "phone"], "wide");
-    const bottom = (rect: Rect | undefined) => (rect ? rect.y + rect.height : NaN);
     expect(bottom(places.phone)).toBe(bottom(places.mac));
   });
 

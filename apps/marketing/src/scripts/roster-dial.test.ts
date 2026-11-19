@@ -5,7 +5,7 @@ import { dialSeats } from "./zoom-camera.ts";
 const composer = { x: 0, y: 100, width: 400, height: 112 };
 const chip = { width: 184, height: 40 };
 
-describe("roster dial", () => {
+describe("roster wheel", () => {
   it("seats the chosen agent level with the composer, a reach from its edge", () => {
     const seats = dialSeats(rosterDial(composer), 6, 2, chip);
     const chosen = seats[2];
@@ -14,9 +14,9 @@ describe("roster dial", () => {
     expect(chosen?.opacity).toBe(1);
   });
 
-  it("curves the neighbours back toward the composer, one above and one below", () => {
+  it("stacks the neighbours straight above and below the chosen agent", () => {
     const [before, chosen, after] = dialSeats(rosterDial(composer), 6, 1, chip);
-    for (const seat of [before, after]) expect(seat?.x).toBeLessThan(chosen?.x ?? 0);
+    for (const seat of [before, after]) expect(seat?.x).toBe(chosen?.x);
     expect(before?.y).toBeLessThan(chosen?.y ?? 0);
     expect(after?.y).toBeGreaterThan(chosen?.y ?? 0);
   });

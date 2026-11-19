@@ -5,7 +5,7 @@
  * built-in and ACP groups. The numbers come from roster-dial.ts and the home's dial.
  */
 import { rosterDial, turn } from "./roster-dial.ts";
-import { dialSeats, dialTrack, type Dial } from "./zoom-camera.ts";
+import { dialSeats, type Dial } from "./zoom-camera.ts";
 
 const chip = { width: 184, height: 40 };
 
@@ -13,8 +13,6 @@ export function startRoster(root: HTMLElement): void {
   const stage = root.querySelector<HTMLElement>("[data-roster-stage]");
   const composer = root.querySelector<HTMLElement>("[data-roster-composer]");
   const picker = root.querySelector<HTMLElement>("[data-roster-model]");
-  const track = root.querySelector<SVGPathElement>("[data-roster-track]");
-  const reach = root.querySelector<SVGPathElement>("[data-roster-reach]");
   const tabs = [...root.querySelectorAll<HTMLElement>("[data-roster-group]")];
   const rings = [...root.querySelectorAll<HTMLElement>("[data-roster-ring]")];
   if (!stage || !composer || !picker || rings.length === 0) return;
@@ -40,6 +38,7 @@ export function startRoster(root: HTMLElement): void {
         if (!seat) return;
         seat.style.translate = `${place.x}px ${place.y}px`;
         seat.style.scale = String(place.scale);
+        seat.style.setProperty("--tilt", `${place.tilt}deg`);
         seat.style.opacity = String(place.opacity);
         seat.toggleAttribute("data-out", place.opacity === 0);
       });
@@ -63,9 +62,6 @@ export function startRoster(root: HTMLElement): void {
       width: box.width,
       height: box.height,
     });
-    track?.setAttribute("d", dialTrack(dial));
-    reach?.setAttribute("d", `M${box.right - origin.left} ${dial.cy}H${dial.cx + dial.radius - 6}`);
-    show();
   }
 
   function choose(index: number, focus = false): void {

@@ -69,11 +69,6 @@ const groups = [
       </div>
 
       <div class="stage" data-roster-stage>
-        <svg class="lines" width="1" height="1" aria-hidden="true">
-          <path class="track" data-roster-track></path>
-          <path class="reach" data-roster-reach pathLength="1"></path>
-        </svg>
-
         <div class="ace drawn" aria-hidden="true">
           <div class="composer" data-roster-composer>
             <span class="placeholder">{roster.prompt}</span>
@@ -306,15 +301,6 @@ const groups = [
     stroke-linecap: round;
   }
 
-  .track {
-    stroke: var(--border-strong);
-  }
-
-  .reach {
-    stroke: var(--line);
-    stroke-dasharray: 1;
-  }
-
   .ring {
     position: absolute;
     inset: 0;
@@ -353,6 +339,8 @@ const groups = [
       opacity 0.4s var(--ease-out),
       background-color var(--motion-base) var(--ease-out),
       color var(--motion-base) var(--ease-out);
+    transform: perspective(420px) rotateX(var(--tilt, 0deg));
+    transform-origin: 0 50%;
   }
 
   .seat span {
@@ -416,22 +404,8 @@ const groups = [
 
   /* Played once as the roster comes into view: the reach draws out of the composer, then the
      dial's chips arrive on their seats. */
-  :global(html.motion) .reach {
-    stroke-dashoffset: 1;
-    transition: stroke-dashoffset 0.8s var(--ease-out) 0.3s;
-  }
-
   :global(html.motion) .ring,
-  :global(html.motion) .track {
-    opacity: 0;
-    transition: opacity 0.7s var(--ease-out) 0.7s;
-  }
-
-  :global(html.motion) .roster:global(.is-in) .reach {
-    stroke-dashoffset: 0;
-  }
-
-  :global(html.motion) .roster:global(.is-in) :is(.ring, .track) {
+  :global(html.motion) .roster:global(.is-in) .ring {
     opacity: 1;
   }
 

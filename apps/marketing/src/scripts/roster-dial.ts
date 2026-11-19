@@ -1,24 +1,22 @@
 /*
- * The agents index's dial, as numbers: where it stands beside the composer and which agent a
- * key turns it to. The seats and the track come from the home page's own dial (zoom-camera.ts
- * `dialSeats`, `dialTrack`); this one is larger, so a reader can turn it by hand.
+ * The agents index's wheel, as numbers: where it stands beside the composer and which agent a
+ * key turns it to. The seats come from the home page's own wheel (zoom-camera.ts `dialSeats`);
+ * this one stands a little further out, so a reader can turn it by hand.
  */
 import type { Dial, Rect } from "./zoom-camera.ts";
 
 /** How far the chosen chip stands from the composer's edge, in pixels. */
-export const rosterReach = 88;
+export const rosterReach = 40;
 
 /**
- * The dial beside a composer: the chosen chip level with the composer's middle and `reach` from
- * its right edge, its neighbours curving back toward it above and below.
+ * The wheel beside a composer: the chosen chip level with the composer's middle and `reach`
+ * from its right edge, its neighbours stacked straight above and below.
  */
 export function rosterDial(composer: Rect, reach = rosterReach): Dial {
-  const radius = 236;
   return {
-    cx: composer.x + composer.width + reach - radius,
+    x: composer.x + composer.width + reach,
     cy: composer.y + composer.height / 2,
-    radius,
-    step: (21 * Math.PI) / 180,
+    pitch: 52,
   };
 }
 
