@@ -217,16 +217,33 @@ record with no item flag (FSEvents' folder-level record) rescan the folder named
 stop, invalidate, an empty `dispatch_sync` on the queue, release: no callback runs after it.
 Windows: its own `ReadDirectoryChangesW` backend, because notify hides the lost-event statuses.
 An error event from an OS watch (an inotify read failure) rescans the root; poller errors are per
-path and lose nothing. A lone change reaches the sink one debounce (75 ms) after the OS delivers
-it. fseventsd is one process serving every client: when it is saturated it delivers seconds late
-and can stop delivering part of a burst without any lost-events flag, which the per-folder
-rescan rule covers for bursts but nothing in-band can detect for a lone change. Acceptance (real temp dirs, generous timeouts, no sleeps shorter than the
+path and lose nothing.
+
+Safety net (all platforms): fseventsd is one process serving every client, and on a loaded Mac it
+was measured handing a write over 107 s late after a 20,000-file burst elsewhere on the volume,
+with no lost-events flag. `Watcher::focus(folders)` (ace-files op `focus { root, folders }`, sent
+by the daemon's folder watch as the union of every client's `files.watch` set, at most 512, and
+sent again after an ace-files restart) names the open folders. The watcher keeps, for each of them
+and the root, a stamp (identity and mtime) and the names the caller has been told it holds: the
+listing when it was opened, updated by every delivered batch, re-read after a rescan covering it.
+Once a second it stats each folder; a folder whose stamp moved is listed and each name that
+differs from what the caller knows becomes a change, so nothing is reported twice by the net and
+nothing an event missed stays missing. A folder with more than `max_batch` names is rescanned
+instead, only when no event named it since the last check. A change inside a file does not move a
+folder's stamp; the net covers what the tree shows. On macOS a kqueue `NOTE_WRITE` handle on each
+of the first 64 open folders (descriptors: macOS starts processes with 256) wakes the check as the
+kernel changes the folder, at most every 50 ms, so a lone change in an open folder reaches the sink
+one debounce (75 ms) after it is made, whatever fseventsd is doing. The daemon's folder fan-out
+adds its own 100 ms window before `files.folders_changed`.
+Acceptance (real temp dirs, generous timeouts, no sleeps shorter than the
 debounce): `reports_a_created_file`, `reports_a_deleted_folder`, `rename_is_delete_plus_create`,
 `create_then_delete_in_one_window_reports_nothing`, `many_writes_to_one_file_coalesce`,
 `burst_over_max_batch_becomes_rescan`, `excluded_folders_report_nothing`,
 `new_subfolder_is_watched` (create `a/`, then write `a/b.txt`, expect it); `promptness.rs`: lone
-create, delete and rename in a quiet folder (median within 500 ms), and a rename made the moment
-`start` returns, across 32 watches in one process.
+create, delete and rename in a quiet folder (each within 500 ms), a rename made the moment `start`
+returns across 32 watches in one process, and a change in an open folder right after a 20,000-file
+burst elsewhere (within 2 s). The watcher tests wait for fseventsd to report a sentinel before each
+session, so one test's burst does not delay the next test's events.
 
 ### files-index
 
