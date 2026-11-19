@@ -17,10 +17,11 @@ export async function createDaemonClient(target: DaemonTarget): Promise<ClientAp
   // person (ADR 0190): the host token alone never carries it.
   const { proveFromWindow } = await import("./window-prover.ts");
   const worker = createWorkerClient(target, device);
-  if (worker) return proveFromWindow(worker);
+  const paired = target.pairedDeviceId !== undefined;
+  if (worker) return proveFromWindow(worker, paired);
   const key = outboxKey({ ...target, deviceId: device });
   return import("./page-client.ts").then(({ createPageClient }) =>
-    proveFromWindow(createPageClient(target, { deviceId: device, outboxKey: key })),
+    proveFromWindow(createPageClient(target, { deviceId: device, outboxKey: key }), paired),
   );
 }
 

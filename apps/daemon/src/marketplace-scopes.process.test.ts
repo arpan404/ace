@@ -1,5 +1,11 @@
 import type { Scope } from "./devices.ts";
 import { once } from "node:events";
+import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { encodeBase64url, pairedStandingText } from "@ace/account-grant";
+import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
+import { relayKeysFor } from "./account-access/relay-host-id.ts";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
 import { sampleSkill, signedVersion } from "@ace/marketplace/testing";
@@ -14,13 +20,62 @@ import { setup } from "./remote-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
+/** A machine whose owner is already set (ADR 0190), so a paired device can be the person's. */
+async function ownedSetup(options: Parameters<typeof setup>[0]) {
+  let account: MachineAccount | undefined;
+  const f = await setup(options, (store, dir) => {
+    writeFileSync(join(dir, "ace-owner.json"), JSON.stringify({ account: "user_p" }));
+    account = machineAccount({
+      relayKeys: () => relayKeysFor(dir),
+      dataDir: dir,
+      codes: store.machineCodes,
+      fetch: async () => new Response(null, { status: 503 }),
+      now: Date.now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  await account?.load();
+  return f;
+}
+
+/** A P-256 standing key, made as the web app makes one. */
+async function standingKey() {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
+    "sign",
+    "verify",
+  ]);
+  const raw = encodeBase64url(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)));
+  const sign = async (text: string) =>
+    encodeBase64url(
+      new Uint8Array(
+        await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          pair.privateKey,
+          new TextEncoder().encode(text),
+        ),
+      ),
+    );
+  return { raw, sign };
+}
+
 /**
  * A paired device's socket. Installing is the person's (ADR 0178 §12.7), so these devices are
- * ones the person paired, from a link made with the person's standing (ADR 0190); this test is
- * about scopes.
+ * ones the person paired, from a link made with the person's standing, and each socket proves it
+ * with the device's key (ADR 0190); this test is about scopes.
  */
 async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
-  const device = f.store.devices.create("Phone", scopes as Scope[], 1000, null, undefined, true);
+  const key = await standingKey();
+  const device = f.store.devices.create(
+    "Phone",
+    scopes as Scope[],
+    1000,
+    null,
+    undefined,
+    true,
+    key.raw,
+  );
   const ticket = await f.ticket(device.token);
   const socket = new WebSocket(f.server.url);
   sockets.push(socket);
@@ -46,7 +101,21 @@ async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
       ticket: ticket.ticket,
     }),
   );
-  await next((message) => message.type === "welcome");
+  const welcome = await next((message) => message.type === "welcome");
+  if (welcome.type !== "welcome" || !welcome.standingNonce || !welcome.standingHost)
+    throw new Error("No standing challenge");
+  const proof = await key.sign(
+    pairedStandingText({
+      host: welcome.standingHost,
+      nonce: welcome.standingNonce,
+      binding: undefined,
+      deviceId: device.device.id,
+    }),
+  );
+  socket.send(JSON.stringify({ type: "device.standing", requestId: "standing", proof }));
+  const standing = await next((message) => message.type === "account.standing.result");
+  if (standing.type !== "account.standing.result" || !standing.result.ok)
+    throw new Error("The paired device didn't prove the person's standing");
   const ask = async (requestId: string, operation: unknown) => {
     socket.send(JSON.stringify({ type: "marketplace.request", requestId, operation }));
     const answer = await next(
@@ -65,7 +134,7 @@ test("a read device browses the marketplace and hears installs, but only an admi
   try {
     const files = sampleSkill();
     market.publish(signedVersion({ type: "spade-skill", name: "triage-mail", files }), files);
-    const f = await setup({ marketplace: harness.service });
+    const f = await ownedSetup({ marketplace: harness.service });
     const reader = await connect(f, sockets, ["read"]);
     const admin = await connect(f, sockets, ["admin"]);
     // Off in Settings › Beta, every request over the socket is answered as turned off.

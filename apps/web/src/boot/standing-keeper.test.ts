@@ -6,7 +6,7 @@ import { keepStanding, STANDING_REPROVE_MS } from "./standing-keeper.ts";
 function client() {
   let challenge: StandingChallenge | undefined;
   const listeners = new Set<() => void>();
-  const sent: { grant: string; proof: string }[] = [];
+  const sent: object[] = [];
   return {
     sent,
     socket(next: StandingChallenge | undefined) {
@@ -22,8 +22,8 @@ function client() {
           return () => void listeners.delete(listener);
         },
       }),
-      request: async (message: { grant: string; proof: string }) => {
-        sent.push({ grant: message.grant, proof: message.proof });
+      request: async (message: object) => {
+        sent.push(message);
         return { type: "account.standing.result", requestId: "r", result: { ok: true, until: 1 } };
       },
     },
@@ -56,18 +56,22 @@ test("each new socket proves the person's standing for its own nonce, and again 
   const t = timers();
   const keeper = keepStanding(
     c.api as never,
-    async (asked) => ({ grant: `grant-${asked.nonce}`, proof: `proof-${asked.nonce}` }),
+    async (asked) => ({
+      type: "account.standing" as const,
+      grant: `grant-${asked.nonce}`,
+      proof: `proof-${asked.nonce}`,
+    }),
     t,
   );
   c.socket(challenge("n1"));
   await settle();
-  expect(c.sent).toEqual([{ grant: "grant-n1", proof: "proof-n1" }]);
+  expect(c.sent).toEqual([{ type: "account.standing", grant: "grant-n1", proof: "proof-n1" }]);
   c.socket(challenge("n2"));
   await settle();
-  expect(c.sent.at(-1)).toEqual({ grant: "grant-n2", proof: "proof-n2" });
+  expect(c.sent.at(-1)).toEqual({ type: "account.standing", grant: "grant-n2", proof: "proof-n2" });
   t.due.at(-1)?.();
   await settle();
-  expect(c.sent.at(-1)).toEqual({ grant: "grant-n2", proof: "proof-n2" });
+  expect(c.sent.at(-1)).toEqual({ type: "account.standing", grant: "grant-n2", proof: "proof-n2" });
   expect(c.sent).toHaveLength(3);
   keeper.stop();
 });
@@ -79,7 +83,11 @@ test("a proof made for a socket that was replaced meanwhile is not sent", async 
     c.api as never,
     async (asked) => {
       if (asked.nonce === "old") await new Promise<void>((resolve) => (release = resolve));
-      return { grant: `grant-${asked.nonce}`, proof: `proof-${asked.nonce}` };
+      return {
+        type: "account.standing" as const,
+        grant: `grant-${asked.nonce}`,
+        proof: `proof-${asked.nonce}`,
+      };
     },
     timers(),
   );
@@ -88,7 +96,7 @@ test("a proof made for a socket that was replaced meanwhile is not sent", async 
   await settle();
   release();
   await settle();
-  expect(c.sent).toEqual([{ grant: "grant-new", proof: "proof-new" }]);
+  expect(c.sent).toEqual([{ type: "account.standing", grant: "grant-new", proof: "proof-new" }]);
   keeper.stop();
 });
 
@@ -98,5 +106,18 @@ test("a window holding no session of the person's sends nothing", async () => {
   c.socket(challenge("n1"));
   await settle();
   expect(c.sent).toEqual([]);
+  keeper.stop();
+});
+
+test("a device paired from a person's link proves with its own key, sending no grant", async () => {
+  const c = client();
+  const keeper = keepStanding(
+    c.api as never,
+    async (asked) => ({ type: "device.standing" as const, proof: `signed-${asked.nonce}` }),
+    timers(),
+  );
+  c.socket(challenge("n1"));
+  await settle();
+  expect(c.sent).toEqual([{ type: "device.standing", proof: "signed-n1" }]);
   keeper.stop();
 });

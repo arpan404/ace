@@ -248,10 +248,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
               throw new ClientError("identity", "Transport changed daemon identity");
             this.#releaseLine = message.releaseLine;
             this.#standing =
-              message.standingNonce === undefined
+              message.standingNonce === undefined || message.standingHost === undefined
                 ? undefined
                 : {
-                    host: message.hostId,
+                    host: message.standingHost,
                     nonce: message.standingNonce,
                     binding: this.connection.channelBinding,
                     device: this.options.deviceId,

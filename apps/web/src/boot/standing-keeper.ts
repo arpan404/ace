@@ -1,13 +1,17 @@
 import type { ClientApi, StandingChallenge } from "@ace/client";
 
 /**
- * Proves the person's standing on a socket (ADR 0190): the person's grant for that daemon and
- * the device key's signature over the challenge, or undefined when this window holds no session
- * of the person's.
+ * Proves the person's standing on a socket (ADR 0190), or undefined when it can't: the person's
+ * grant for that daemon and the window key's signature over the challenge, or, for a device
+ * paired from a person's link, its kept key's signature.
  */
 export type StandingProver = (
   challenge: StandingChallenge,
-) => Promise<{ grant: string; proof: string } | undefined>;
+) => Promise<
+  | { type: "account.standing"; grant: string; proof: string }
+  | { type: "device.standing"; proof: string }
+  | undefined
+>;
 
 const noop = () => {};
 
@@ -34,9 +38,7 @@ export function keepStanding(
     if (stopped || !challenge) return;
     const proven = await prove(challenge).catch(() => undefined);
     if (stopped || !proven || selection?.getSnapshot()?.nonce !== challenge.nonce) return;
-    await client
-      .request({ type: "account.standing", grant: proven.grant, proof: proven.proof })
-      .catch(() => {});
+    await client.request(proven).catch(() => {});
   };
   const schedule = () => {
     cancel();

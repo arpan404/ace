@@ -1,213 +1,38 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
-import { randomBytes } from "node:crypto";
+import { expect, it } from "vitest";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { GrantKeySet, encodeBase64url, standingProofText } from "@ace/account-grant";
+import { encodeBase64url, standingProofText } from "@ace/account-grant";
 import { machineCredentialProof } from "@ace/account-grant/machine-proof";
-import { aceAccountClient, AceAccountError } from "@ace/client/ace-account";
-import { DeviceId, FleetResult, type ServerMessage } from "@ace/protocol";
-import { SettingsService, fileIO } from "@ace/settings";
-import { hostId } from "@ace/secure-channel";
-import {
-  fakeWorkos,
-  signInThroughWorker,
-  startRelayWorker,
-  type WorkosUser,
-} from "@ace/cloud/testing";
-import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
-import { relayKeysFor } from "./account-access/relay-host-id.ts";
-import { StoredSession } from "./account-access/session-file.ts";
+import { WebSocket } from "ws";
+import { Client as AceClient, webSocketTransport } from "@ace/client";
+import { makeStandingKey, proveStanding } from "@ace/client/standing";
+import { DeviceId } from "@ace/protocol";
+import { signInThroughWorker } from "@ace/cloud/testing";
 import { redeemPairing } from "./client-access.ts";
-import { setup } from "./remote-test-support.ts";
-import type { Client } from "./socket-test-support.ts";
+import { token } from "./socket-test-support.ts";
+import {
+  useAccountBackend,
+  person,
+  signal,
+  accounts,
+  sessionFile,
+  stored,
+  backendKnows,
+  deviceKey,
+  changesGuardedSetting,
+  proves,
+  daemon,
+  signedInDaemon,
+  pairedSocket,
+  pairedPerson,
+  linkFrom,
+} from "./machine-standing-test-support.ts";
 
 // ADR 0190 end to end: a real daemon signed in through ace's account backend (the Worker and D1
-// under Miniflare, against a fake WorkOS). A process holding only what the daemon writes to
-// ACE_HOME never gets the person's standing; the person, signed in in a browser, does, on the
-// socket that proves it. The person-only action observed is "Ask me before agents publish",
-// which the daemon changes only from a socket that proved the person's standing.
+// under Miniflare, against a fake WorkOS); see machine-standing-test-support.ts.
 
-let workos: Awaited<ReturnType<typeof fakeWorkos>>;
-let worker: Awaited<ReturnType<typeof startRelayWorker>>;
-let personKeys: GrantKeySet;
-beforeAll(async () => {
-  workos = await fakeWorkos();
-  worker = await startRelayWorker({ workosUrl: workos.url });
-  personKeys = GrantKeySet.parse(await (await fetch(`${worker.http}/v1/keys`)).json());
-});
-afterAll(async () => {
-  await worker?.close();
-  await workos?.close();
-});
-
-const person: WorkosUser = {
-  id: "user_p",
-  email: "p@example.com",
-  first_name: "Pat",
-  last_name: null,
-  email_verified: true,
-};
-const signal = () => AbortSignal.timeout(15_000);
-const accounts = () => aceAccountClient({ origin: worker.http, fetch: globalThis.fetch });
-const sessionFile = (home: string) => join(home, "ace-account.json");
-const stored = async (home: string) =>
-  StoredSession.parse(JSON.parse(await readFile(sessionFile(home), "utf8")));
-const backendKnows = async (token: string) => {
-  try {
-    await accounts().session(token, signal());
-    return true;
-  } catch (error) {
-    if (error instanceof AceAccountError && error.status === 401) return false;
-    throw error;
-  }
-};
-
-/** A device's P-256 key, made as the web app makes one. */
-async function deviceKey() {
-  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
-    "sign",
-    "verify",
-  ]);
-  const raw = encodeBase64url(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)));
-  const sign = async (text: string) =>
-    encodeBase64url(
-      new Uint8Array(
-        await crypto.subtle.sign(
-          { name: "ECDSA", hash: "SHA-256" },
-          pair.privateKey,
-          new TextEncoder().encode(text),
-        ),
-      ),
-    );
-  return { raw, sign };
-}
-
-async function answer<T extends ServerMessage["type"]>(client: Client, type: T) {
-  for (;;) {
-    const message: ServerMessage = await client.next();
-    if (message.type === type) return message as Extract<ServerMessage, { type: T }>;
-  }
-}
-
-/** Tries to turn "Ask me before agents publish" off: true when the daemon let this socket. */
-async function changesGuardedSetting(client: Client): Promise<boolean> {
-  client.send({
-    type: "settings.set",
-    requestId: "ask",
-    key: "market.askBeforeAgentPublish",
-    value: false,
-    layer: { kind: "global" },
-  });
-  return (await answer(client, "settings.result")).ok;
-}
-
-/** Proves the person's standing on `client` with `grant` and `proof`: true when it took. */
-async function proves(client: Client, grant: string, proof: string): Promise<boolean> {
-  client.send({ type: "account.standing", requestId: "standing", grant, proof });
-  return (await answer(client, "account.standing.result")).result.ok;
-}
-
-/** A daemon on ace's account backend, trusting the backend's keys as a build pins its own. */
-async function daemon() {
-  let account: MachineAccount | undefined;
-  let home = "";
-  let settings: SettingsService | undefined;
-  const f = await setup({}, (store, dir) => {
-    home = dir;
-    settings = new SettingsService({
-      dataDir: dir,
-      io: { ...fileIO, watch: async () => () => {} },
-    });
-    account = machineAccount({
-      relayKeys: () => relayKeysFor(dir),
-      personKeys,
-      dataDir: dir,
-      codes: store.machineCodes,
-      fetch: globalThis.fetch,
-      now: Date.now,
-      randomBytes,
-      delay: () => () => {},
-    });
-    return { machineAccount: account, settings };
-  });
-  if (!account) throw new Error("No machine account");
-  const machine = account;
-  const keys = await relayKeysFor(home);
-  const host = hostId(keys.publicKey);
-
-  /** An account device's socket, its grant minted with `token` for this daemon. */
-  async function accountSocket(token: string, key?: Awaited<ReturnType<typeof deviceKey>>) {
-    const grant = await accounts().grant(
-      token,
-      { kind: "device", subject: "phone", host, ...(key ? { key: key.raw } : {}) },
-      signal(),
-    );
-    const client = await f.open();
-    client.send({
-      type: "hello",
-      protocolVersion: 1,
-      deviceId: DeviceId.parse("phone"),
-      grant: grant.token,
-    });
-    const welcome = await answer(client, "welcome");
-    if (!welcome.standingNonce) throw new Error("No standing nonce");
-    return { client, grant, nonce: welcome.standingNonce };
-  }
-  /** The app's own page: a host-token socket on loopback, its nonce from its welcome. */
-  async function pageSocket() {
-    const client = await f.connect();
-    const welcome = await answer(client, "welcome");
-    if (!welcome.standingNonce) throw new Error("No standing nonce");
-    return { client, nonce: welcome.standingNonce };
-  }
-  return {
-    f,
-    account: machine,
-    home,
-    host,
-    keys,
-    accountSocket,
-    pageSocket,
-    close: async () => {
-      await machine.close();
-      settings?.close();
-    },
-  };
-}
-
-/** The app signed in in the person's browser hands its daemon an enrollment ticket. */
-async function signedInDaemon() {
-  const session = await signInThroughWorker(worker.http, workos, person);
-  const machine = await daemon();
-  await machine.account.load();
-  const { ticket } = await accounts().machineEnrollment(session.token, machine.host, signal());
-  await machine.account.handover(worker.http, { ticket });
-  return { ...machine, session };
-}
-
-/** A paired device's welcomed socket, from a pairing redeemed with `pair`. */
-async function pairedSocket(
-  f: Awaited<ReturnType<typeof daemon>>["f"],
-  pair: () => Promise<{ token: string; device: { id: string } }>,
-) {
-  const paired = await pair();
-  const ticket = await f.ticket(paired.token);
-  const client = await f.connectTicket(paired.device.id, ticket.ticket);
-  await answer(client, "welcome");
-  return client;
-}
-
-/** A pairing link made over `client`'s socket (`fleet.request`). */
-async function linkFrom(client: Client): Promise<string> {
-  client.send({
-    type: "fleet.request",
-    requestId: "pair",
-    operation: { op: "pairing", scopes: ["read", "operate", "admin"] },
-  });
-  const issued = FleetResult.shape.result.parse((await answer(client, "fleet.result")).result);
-  if (issued.kind !== "pairing") throw new Error("No pairing issued");
-  return issued.url;
-}
+const backend = useAccountBackend();
 
 it("a process that reads ace-account.json can't act as the person", async () => {
   const daemonHome = await signedInDaemon();
@@ -260,11 +85,10 @@ it("the person signing in in a browser acts as the person on the socket that pro
     }),
   );
   expect(await proves(relayed.client, relayedGrant, elsewhere)).toBe(false);
-  // A pairing link the person's socket makes pairs a device that is the person's too.
+  // A pairing link the person's socket makes pairs a device that is the person's too, once it
+  // proves it with the key it paired with; its bearer token alone is not.
   const url = await linkFrom(socket.client);
-  expect(
-    await changesGuardedSetting(await pairedSocket(f, () => redeemPairing(url, "Phone"))),
-  ).toBe(true);
+  expect(await pairedPerson(f, url)).toEqual({ bearer: false, proven: true });
   await daemonHome.close();
 });
 
@@ -281,35 +105,79 @@ it("the app's own page proves the person's standing over the host token, and the
   expect(
     await changesGuardedSetting(await pairedSocket(f, () => redeemPairing(viaSocket, "Phone"))),
   ).toBe(false);
-  // The app's page, its window signed in as the person, proves it on its own socket.
+  // The app's page, its window signed in as the person: a real client over loopback with the
+  // host token, proving with the prover the window runs and the challenge its welcome gave.
+  const page = new AceClient({
+    deviceId: DeviceId.parse("app-page"),
+    transport: () => webSocketTransport(() => new WebSocket(f.server.url)),
+    credential: async () => ({ token }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(ms, callback) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: randomUUID,
+    now: Date.now,
+  });
+  void page.start();
+  const challenges = page.standingChallenge();
+  await expect.poll(() => challenges.getSnapshot(), { timeout: 10_000 }).toBeDefined();
+  const challenge = challenges.getSnapshot();
+  if (!challenge) throw new Error("No challenge");
+  // The welcome names the relay key's host, not the home's id it names the daemon by.
+  expect(challenge.host).toBe(host);
+  const proven = await proveStanding({
+    challenge,
+    session: session.token,
+    account: accounts(),
+    key: await makeStandingKey(),
+  });
+  if (!proven) throw new Error("No proof");
+  const result = await page.request({ type: "account.standing", ...proven });
+  expect(result.result.ok).toBe(true);
+  const changed = await page.request({
+    type: "settings.set",
+    key: "market.askBeforeAgentPublish",
+    value: false,
+    layer: { kind: "global" },
+  });
+  expect(changed.ok).toBe(true);
+  await page.close();
+  // The same page over the raw protocol, for the link it makes.
   const key = await deviceKey();
-  const page = await daemonHome.pageSocket();
+  const pageSocket = await daemonHome.pageSocket();
   const minted = await accounts().grant(
     session.token,
-    { kind: "device", subject: "device", host, key: key.raw },
+    { kind: "device", subject: "device", host: pageSocket.host, key: key.raw },
     signal(),
   );
-  const grant = minted.standing ?? "";
-  const proof = await key.sign(
-    standingProofText({ host, nonce: page.nonce, binding: undefined, grant }),
+  const pageGrant = minted.standing ?? "";
+  const pageProof = await key.sign(
+    standingProofText({
+      host: pageSocket.host,
+      nonce: pageSocket.nonce,
+      binding: undefined,
+      grant: pageGrant,
+    }),
   );
-  expect(await proves(page.client, grant, proof)).toBe(true);
-  expect(await changesGuardedSetting(page.client)).toBe(true);
-  // A link it makes then pairs a device that is the person's.
-  const url = await linkFrom(page.client);
-  expect(
-    await changesGuardedSetting(await pairedSocket(f, () => redeemPairing(url, "Phone"))),
-  ).toBe(true);
+  expect(await proves(pageSocket.client, pageGrant, pageProof)).toBe(true);
+  const page2 = pageSocket;
+  // A link it makes then pairs a device that is the person's, proven with its own key.
+  const url = await linkFrom(page2.client);
+  expect(await pairedPerson(f, url)).toEqual({ bearer: false, proven: true });
   await daemonHome.close();
 });
 
 it("an existing session file is exchanged once and removed, and an answer lost on the way is recovered", async () => {
   // An older daemon's `ace login` left the session in its file.
-  const session = await signInThroughWorker(worker.http, workos, person, "legacy");
+  const session = await signInThroughWorker(backend.worker.http, backend.workos, person, "legacy");
   const first = await daemon();
   await writeFile(
     sessionFile(first.home),
-    JSON.stringify({ origin: worker.http, ...session, source: "login" }),
+    JSON.stringify({ origin: backend.worker.http, ...session, source: "login" }),
     { mode: 0o600 },
   );
   await first.account.load();
@@ -330,10 +198,10 @@ it("an existing session file is exchanged once and removed, and an answer lost o
 
   // Another daemon asked for its credential and stopped before the answer came: its file still
   // names the session the backend already retired, and its pending credential is the one issued.
-  const older = await signInThroughWorker(worker.http, workos, person, "legacy");
+  const older = await signInThroughWorker(backend.worker.http, backend.workos, person, "legacy");
   const second = await daemon();
   const credential = encodeBase64url(randomBytes(32));
-  const exchangeKey = personKeys.exchangeKey;
+  const exchangeKey = backend.personKeys.exchangeKey;
   if (!exchangeKey) throw new Error("No exchange key");
   await accounts().machineCredential(
     older.token,
@@ -354,11 +222,16 @@ it("an existing session file is exchanged once and removed, and an answer lost o
   );
   await writeFile(
     sessionFile(second.home),
-    JSON.stringify({ origin: worker.http, ...older, source: "login" }),
+    JSON.stringify({ origin: backend.worker.http, ...older, source: "login" }),
   );
   await writeFile(
     join(second.home, "ace-account.pending.json"),
-    JSON.stringify({ origin: worker.http, credential, source: "login", predecessor: older.token }),
+    JSON.stringify({
+      origin: backend.worker.http,
+      credential,
+      source: "login",
+      predecessor: older.token,
+    }),
   );
   await second.account.load();
   await expect
@@ -385,9 +258,9 @@ it("a handover asked for before a stop, whose machine signed in otherwise since,
   const kept = await stored(daemonHome.home);
   // Before a restart the daemon asked for a credential to replace a sign-in it no longer holds:
   // the backend issued it, the daemon never took it up.
-  const later = await signInThroughWorker(worker.http, workos, person);
+  const later = await signInThroughWorker(backend.worker.http, backend.workos, person);
   const { ticket } = await accounts().machineEnrollment(later.token, daemonHome.host, signal());
-  const exchangeKey = personKeys.exchangeKey;
+  const exchangeKey = backend.personKeys.exchangeKey;
   if (!exchangeKey) throw new Error("No exchange key");
   const stale = encodeBase64url(randomBytes(32));
   await accounts().machineCredential(
@@ -409,7 +282,7 @@ it("a handover asked for before a stop, whose machine signed in otherwise since,
   await writeFile(
     join(daemonHome.home, "ace-account.pending.json"),
     JSON.stringify({
-      origin: worker.http,
+      origin: backend.worker.http,
       credential: stale,
       source: "handover",
       predecessor: "p".repeat(43),
@@ -420,6 +293,28 @@ it("a handover asked for before a stop, whose machine signed in otherwise since,
   // The machine keeps the sign-in it has; the stale credential is signed out at the backend.
   expect((await stored(daemonHome.home)).token).toBe(kept.token);
   expect(await backendKnows(stale)).toBe(false);
+  await expect(readFile(join(daemonHome.home, "ace-account.pending.json"))).rejects.toThrow();
+  await daemonHome.close();
+});
+
+it("a stop after a new credential is saved but before its pending file is cleared keeps that credential", async () => {
+  const daemonHome = await signedInDaemon();
+  const current = await stored(daemonHome.home);
+  // The pending file still names the credential the daemon just adopted, and the sign-in it
+  // replaced, which is no longer the machine's.
+  await writeFile(
+    join(daemonHome.home, "ace-account.pending.json"),
+    JSON.stringify({
+      origin: backend.worker.http,
+      credential: current.token,
+      source: "handover",
+      predecessor: "p".repeat(43),
+    }),
+  );
+  await daemonHome.account.load();
+  await daemonHome.account.renew();
+  expect((await stored(daemonHome.home)).token).toBe(current.token);
+  expect(await backendKnows(current.token)).toBe(true);
   await expect(readFile(join(daemonHome.home, "ace-account.pending.json"))).rejects.toThrow();
   await daemonHome.close();
 });

@@ -99,6 +99,7 @@ export class Devices {
   private unfold: StatementSync;
   private folded: StatementSync;
   private linkAccount: StatementSync;
+  private unperson: StatementSync;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.runtime = runtime;
     const live = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
@@ -107,7 +108,10 @@ export class Devices {
     );
     // A new credential is a new proof: the account device it was linked to proves it again.
     this.rekey = db.prepare(
-      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, person = ?, account_link = NULL WHERE id = ?",
+      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, person = ?, standing_key = ?, account_link = NULL WHERE id = ?",
+    );
+    this.unperson = db.prepare(
+      "UPDATE devices SET person = 0, standing_key = NULL WHERE person = 1 OR standing_key IS NOT NULL",
     );
     this.linkAccount = db.prepare("UPDATE devices SET account_link = ? WHERE id = ?");
     this.stamp = db.prepare("UPDATE devices SET install_id = ? WHERE id = ?");
@@ -124,7 +128,7 @@ export class Devices {
       "SELECT id FROM devices WHERE merged_into = ? AND revoked_at IS NULL ORDER BY id",
     );
     this.insert = db.prepare(
-      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id, person) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id, person, standing_key) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
     );
     this.byId = db.prepare("SELECT * FROM devices WHERE id = ?");
     this.byToken = db.prepare(
@@ -144,7 +148,7 @@ export class Devices {
    * `expiresAt` null: access lasts until revoked. An install that already holds a device here
    * (ADR 0115) keeps that record and its id: the new pairing's name, scopes and expiry replace
    * the old ones and the old token stops working. `person`: the link's maker had the person's
-   * standing (ADR 0190).
+   * standing (ADR 0190), and `standingKey` the key the device proves that standing with.
    */
   create(
     name: string,
@@ -153,6 +157,7 @@ export class Devices {
     expiresAt: number | null = null,
     installId?: InstallId,
     person = false,
+    standingKey?: string,
   ): { device: Device; token: string } {
     const token = generateSecret(this.runtime.randomBytes);
     const held = installId === undefined ? undefined : this.byInstall.get(installId, at);
@@ -171,6 +176,7 @@ export class Devices {
         at,
         device.expiresAt ?? null,
         person ? 1 : 0,
+        standingKey ?? null,
         device.id,
       );
       return { device, token };
@@ -197,6 +203,7 @@ export class Devices {
       device.expiresAt ?? null,
       installId ?? null,
       person ? 1 : 0,
+      standingKey ?? null,
     );
     return { device, token };
   }
@@ -281,6 +288,19 @@ export class Devices {
     if (!row || generation === undefined || generationOf(row) !== generation) return undefined;
     const device = decode(row);
     return activeDevice(device, at) ? { ...device, generation, person: personOf(row) } : undefined;
+  }
+  /**
+   * The key `id` proves the person's standing with (ADR 0190), while it is active, still holds
+   * the credential of `generation`, and was paired from a person's link naming one.
+   */
+  standingKeyOf(id: string, generation: string | undefined, at: number): string | undefined {
+    const row = this.byId.get(id);
+    if (!row || !this.current(id, generation, at) || !personOf(row)) return undefined;
+    return typeof row.standing_key === "string" ? row.standing_key : undefined;
+  }
+  /** No paired device is the person's any more: the machine's owner changed (ADR 0190). */
+  clearPerson(): void {
+    this.unperson.run();
   }
   authenticate(token: string, at: number): PairedDevice | undefined {
     const row = this.byToken.get(hash(token), at);

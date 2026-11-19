@@ -5,6 +5,7 @@ import { AccessError } from "../remote-auth.ts";
 import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict, provenStanding } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
+import { machineOwner } from "./owner.ts";
 import { encodeBase64url, type GrantKeySet } from "@ace/account-grant";
 import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
@@ -105,6 +106,7 @@ export function machineAccount(options: {
   let noCredentials = false;
   // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
   const personKeys = options.personKeys ?? shippedGrantKeys;
+  const owner = machineOwner(options.dataDir);
   let stopRenewing: () => void = noop;
   let closed = false;
   // Closing gives up every request still out to the backend: shutdown never waits on it.
@@ -316,6 +318,12 @@ export function machineAccount(options: {
    * it is now the machine's sign-in.
    */
   async function recover(pending: PendingCredential): Promise<boolean> {
+    // The daemon stopped after saving this very credential but before clearing the pending file:
+    // it is already the machine's sign-in, and only the file is left to clear.
+    if (session?.token === pending.credential && session.origin === pending.origin) {
+      await writePending(options.dataDir, null);
+      return false;
+    }
     if ((session?.token ?? null) !== pending.predecessor) {
       await client(pending.origin)
         .logout(pending.credential, request())
@@ -483,6 +491,7 @@ export function machineAccount(options: {
     /** Reads the stored session, then keeps it renewed while the daemon runs. */
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
+      await owner.load();
       // A local file, read once: the host id an app's enrollment ticket names (ADR 0190).
       await ownHostId().catch(() => undefined);
       sessionId = session ? newId() : null;
@@ -491,6 +500,10 @@ export function machineAccount(options: {
         options.log?.(error instanceof Error ? error : new Error(String(error))),
       );
       scheduleRenew();
+    },
+    /** This machine's host id on ace's relay, once `load` read its key; what proofs name. */
+    relayHostId(): string | undefined {
+      return hostIdKnown;
     },
     /** Renew the session now (`load` keeps doing it on a timer). */
     renew,
@@ -743,15 +756,36 @@ export function machineAccount(options: {
       /** The socket's channel binding: a relayed stream's handshake hash; none on loopback. */
       binding: string | undefined;
       deviceId: string;
-      account: string;
-    }): Promise<{ until: number } | undefined> {
-      if (active()?.account.id !== input.account) return undefined;
-      return provenStanding({
+    }): Promise<{ until: number; generation: number } | undefined> {
+      // The owner's grants only (ADR 0190). Before there is one, the account this machine is
+      // signed in to, whose first proof makes it the owner.
+      const account = owner.current() ?? active()?.account.id;
+      if (account === undefined) return undefined;
+      const proven = await provenStanding({
         ...input,
+        account,
         keys: personKeys,
         now: options.now(),
         host: await ownHostId(),
       });
+      if (!proven || !(await owner.claim(account))) return undefined;
+      return { until: proven.until, generation: owner.generation() };
+    },
+    /** Every change of owner moves this; standing proven under another owner is over. */
+    ownerGeneration(): number {
+      return owner.generation();
+    },
+    /** The owner's account, or undefined before the first person's proof. */
+    ownerAccount(): string | undefined {
+      return owner.current();
+    },
+    /**
+     * No owner any more: the current owner's own socket released it, or the person reset it
+     * here by removing `ace-owner.json` with the daemon stopped. The next person's proof sets one.
+     */
+    async releaseOwner(): Promise<void> {
+      await owner.release();
+      notify();
     },
     /** Whether an admitted account device keeps access: same account, current code passed. */
     stillAdmitted(deviceId: string, account: string): boolean {

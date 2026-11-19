@@ -479,6 +479,26 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     /** ECDSA P-256 SHA-256 signature, IEEE P1363 (64 bytes), base64url. */
     proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
   }),
+  /**
+   * A paired device proves the person's standing on this socket (ADR 0190): with the key it
+   * named when it redeemed a link the person made, its ECDSA P-256 signature of
+   * `pairedStandingText` over the welcome's `standingHost` and `standingNonce`, this socket's
+   * channel binding and its device id. Answered with `account.standing.result`.
+   */
+  z.object({
+    type: z.literal("device.standing"),
+    requestId: z.string().min(1).max(128),
+    proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+  }),
+  /**
+   * The machine's owner hands it on (ADR 0190): from a socket proven as the owner only. Every
+   * standing proven under it, and every person's pairing, ends; the next person's proof sets
+   * the owner. Answered with `account.owner.release.result`.
+   */
+  z.object({
+    type: z.literal("account.owner.release"),
+    requestId: z.string().min(1).max(128),
+  }),
 ]);
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
@@ -566,6 +586,15 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     standingNonce: z
       .string()
       .regex(/^[A-Za-z0-9_-]{22,64}$/)
+      .optional(),
+    /**
+     * With `standingNonce`: the host a proof of the person's standing names (ADR 0190), this
+     * daemon's host id on ace's relay (its relay key's fingerprint). Not `hostId`, which names
+     * the daemon's home to its clients.
+     */
+    standingHost: z
+      .string()
+      .regex(/^[A-Z2-7]{52}$/)
       .optional(),
   }),
   /**
@@ -694,6 +723,12 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     commands: z.array(z.object({ commandId: CommandId, state: CommandStatusState })),
   }),
   z.object({ type: z.literal("pong") }),
+  /** The answer to `account.owner.release`: whether this socket's owner let the machine go. */
+  z.object({
+    type: z.literal("account.owner.release.result"),
+    requestId: z.string(),
+    ok: z.boolean(),
+  }),
   /** The answer to `account.standing` (ADR 0190): until when this socket is the person's. */
   z.object({
     type: z.literal("account.standing.result"),

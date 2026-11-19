@@ -190,6 +190,10 @@ const migrations = [
   // or 0. NULL for devices paired before it: nobody can tell who made their links, so they are
   // not the person's until paired again from a link the person makes. No row is rewritten.
   `ALTER TABLE devices ADD COLUMN person INTEGER;`,
+  // The public key a device paired from a person's link proves the person's standing with (ADR
+  // 0190): base64url raw P-256. NULL for devices paired before it or by apps that name none:
+  // their bearer token alone is never the person. No row is rewritten.
+  `ALTER TABLE devices ADD COLUMN standing_key TEXT;`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

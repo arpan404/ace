@@ -113,6 +113,15 @@ export class RemoteAuth {
         PendingPairing.parse({ id, label, scopes, expiresAt, deviceTtlMs }),
       );
   }
+  /**
+   * The machine's owner changed (ADR 0190): no paired device is the person's, and no link a
+   * person made can still be redeemed. The devices stay paired, with their other access.
+   */
+  dropPersonStanding(): void {
+    this.devices.clearPerson();
+    for (const pending of this.codes.pending(this.now()))
+      if (pending.person) this.codes.remove(pending.id);
+  }
   /** False when no pending link has that id. */
   cancelPairing(id: string): boolean {
     return this.codes.remove(id);
@@ -122,7 +131,12 @@ export class RemoteAuth {
     this.limit("*");
   }
   /** Redeems a pairing; the same app install (`installId`, ADR 0115) keeps its one record. */
-  redeem(code: string, name: string, installId?: InstallId): { device: Device; token: string } {
+  redeem(
+    code: string,
+    name: string,
+    installId?: InstallId,
+    standingKey?: string,
+  ): { device: Device; token: string } {
     const pairing = this.codes.take(hash(code));
     if (!pairing || pairing.expiresAt <= this.now())
       throw new AccessError(401, "Invalid or expired pairing code");
@@ -135,6 +149,7 @@ export class RemoteAuth {
       pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
       installId,
       pairing.person,
+      pairing.person ? standingKey : undefined,
     );
     // The install's record got a new credential and scopes: what the old one opened ends, so
     // no ticket, socket or lease carries the old authority or picks up the new.

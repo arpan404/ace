@@ -1,6 +1,7 @@
 import {
   GrantError,
   decodeBase64url,
+  pairedStandingText,
   standingProofText,
   verifyGrant,
   verifyStandingGrant,
@@ -130,5 +131,39 @@ export async function provenStanding(input: {
     return signed ? { until: claims.exp } : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Whether a device paired from a person's link proved, on this socket, that it holds the key it
+ * named when it redeemed that link (ADR 0190): `proof` is its signature of `pairedStandingText`
+ * over this host, this socket's nonce and channel binding, and its device id. Its bearer token,
+ * which whoever answered as this host could have collected, proves nothing.
+ */
+export async function provenDevice(input: {
+  /** The device's standing key, base64url raw P-256. */
+  key: string;
+  proof: string;
+  host: string;
+  nonce: string;
+  binding: string | undefined;
+  deviceId: string;
+}): Promise<boolean> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(decodeBase64url(input.key)),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    return await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      new Uint8Array(decodeBase64url(input.proof)),
+      new TextEncoder().encode(pairedStandingText(input)),
+    );
+  } catch {
+    return false;
   }
 }

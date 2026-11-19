@@ -36,6 +36,8 @@ export const nodeOnlySuites = [
   // A daemon signed in through that Worker's account API: what its machine credential may do
   // (ADR 0190). Same harness, same reason.
   "apps/daemon/src/machine-credential.process.test.ts",
+  // Its owner and its paired devices' keys (ADR 0190), on a backend of their own.
+  "apps/daemon/src/machine-owner.process.test.ts",
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",

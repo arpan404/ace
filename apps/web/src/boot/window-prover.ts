@@ -1,8 +1,13 @@
 import type { StandingChallenge } from "@ace/client";
-import { aceAccountClient, standingProofText } from "@ace/client/ace-account";
+import { aceAccountClient } from "@ace/client/ace-account";
+import {
+  makeStandingKey,
+  provePaired,
+  proveStanding,
+  type StandingKey,
+} from "@ace/client/standing";
 import { accountFetch, accountOrigin, windowAccountSession } from "./account-config.ts";
 import { keepStanding, type StandingProver } from "./standing-keeper.ts";
-import { makeStandingKey, type StandingKey } from "./standing-key.ts";
 import { windowSessionStorage } from "./window-session.ts";
 import type { ClientApi } from "@ace/client";
 
@@ -21,22 +26,24 @@ export const windowProver: StandingProver = async (challenge: StandingChallenge)
   const session = origin ? windowAccountSession(windowSessionStorage(), origin) : null;
   if (!origin || !session) return undefined;
   windowKey ??= makeStandingKey();
-  const key = await windowKey;
-  const grant = await aceAccountClient({ origin, fetch: accountFetch(origin) }).grant(
-    session.token,
-    { kind: "device", subject: challenge.device, host: challenge.host, key: key.publicKey },
-    AbortSignal.timeout(15_000),
-  );
-  if (!grant.standing) return undefined;
-  const proof = await key.sign(
-    standingProofText({
-      host: challenge.host,
-      nonce: challenge.nonce,
-      binding: challenge.binding,
-      grant: grant.standing,
-    }),
-  );
-  return { grant: grant.standing, proof };
+  const proven = await proveStanding({
+    challenge,
+    session: session.token,
+    account: aceAccountClient({ origin, fetch: accountFetch(origin) }),
+    key: await windowKey,
+  });
+  return proven && { type: "account.standing", ...proven };
+};
+
+/**
+ * A device paired from a person's link proves with the key this browser kept for it (ADR 0190),
+ * else as the window does.
+ */
+const pairedProver: StandingProver = async (challenge) => {
+  const { pairedStandingKey } = await import("./paired-standing-key.ts");
+  const key = await pairedStandingKey().catch(() => undefined);
+  if (!key) return windowProver(challenge);
+  return { type: "device.standing", proof: await provePaired({ challenge, key }) };
 };
 
 const timers = {
@@ -46,9 +53,12 @@ const timers = {
   },
 };
 
-/** Keeps `client`'s sockets proving the person's standing for as long as it lives. */
-export function proveFromWindow(client: ClientApi): ClientApi {
-  const keeper = keepStanding(client, windowProver, timers);
+/**
+ * Keeps `client`'s sockets proving the person's standing for as long as it lives; `paired`: it
+ * connects as a device this browser paired.
+ */
+export function proveFromWindow(client: ClientApi, paired = false): ClientApi {
+  const keeper = keepStanding(client, paired ? pairedProver : windowProver, timers);
   keepers.add(keeper.proveNow);
   return client;
 }

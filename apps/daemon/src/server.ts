@@ -48,6 +48,7 @@ import { admitUpgrades } from "./socket-upgrade.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
+import { provenDevice } from "./account-access/device-grant.ts";
 import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
 import {
   ACCESS_CHANGED_CLOSE,
@@ -259,6 +260,10 @@ export async function startServer(options: ServerOptions): Promise<{
   const authenticated = new Map<MainSocket, SessionActor>();
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
+  // No owner (ADR 0190): a fresh machine, or the person reset it by removing `ace-owner.json`
+  // with the daemon stopped, which a reader of ACE_HOME can't. No paired device or pending link
+  // is the person's until the next owner's proof makes one.
+  if (options.machineAccount?.ownerAccount() === undefined) auth.dropPersonStanding();
   const stopRevocation = auth.onRevoke((id) => {
     // Preview sessions name the credential that opened them, so the authority decides.
     void preview?.revalidate().catch((error: unknown) => options.log?.(error));
@@ -411,17 +416,22 @@ export async function startServer(options: ServerOptions): Promise<{
     // nonce and, relayed, this stream's Noise handshake hash, and only until the proving grant's
     // expiry; a grant refresh never carries it on.
     const standingNonce = randomBytes(16).toString("base64url");
+    const standingHost = options.machineAccount?.relayHostId();
     const channelBinding = relayed
       ? Buffer.from(relayed.channel.channelBinding).toString("base64url")
       : undefined;
     let personUntil = 0;
-    // Whether this socket's credential is the person's for person-only actions (ADR 0190): one
-    // that proved it, while that lasts; or a device paired from a link the person made. Never the
-    // host token or an account device on its own, and never because someone signed in lately.
-    const personProven = () => {
-      if (personUntil > auth.now()) return true;
-      if (hostCredential() || accountAdmitted !== undefined) return false;
-      return authenticated.get(socket)?.person === true;
+    /** The owner this socket's standing was proven under; another owner since ends it. */
+    let provenUnder = -1;
+    // Whether this socket is the person's for person-only actions (ADR 0190): only once it proved
+    // it, under the machine's current owner, while that lasts. A device paired from a person's
+    // link proves it with its own key; its bearer token alone, the host token or an account
+    // device's admission never do, and nor does someone having signed in lately.
+    const personProven = () =>
+      personUntil > auth.now() && provenUnder === options.machineAccount?.ownerGeneration();
+    const proved = (until: number, generation: number) => {
+      personUntil = until;
+      provenUnder = generation;
     };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
@@ -720,7 +730,8 @@ export async function startServer(options: ServerOptions): Promise<{
           headSeq: options.store.headSeq(),
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
-          standingNonce,
+          // Only a daemon that knows its relay host id can be proved to: proofs name it.
+          ...(standingHost ? { standingNonce, standingHost } : {}),
           ...(next ? { ticket: next } : {}),
           // Announced only where the pinned key authenticates it: over the relay.
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
@@ -771,20 +782,17 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         case "account.standing": {
           const { requestId } = message;
-          // The account an account device was admitted for, else this machine's own.
-          const account = accountId ?? options.machineAccount?.account()?.id;
-          const proven =
-            stillAdmitted() && account !== undefined
-              ? await options.machineAccount?.proveStanding({
-                  grant: message.grant,
-                  proof: message.proof,
-                  nonce: standingNonce,
-                  binding: channelBinding,
-                  deviceId: actor,
-                  account,
-                })
-              : undefined;
-          if (proven) personUntil = Math.max(personUntil, proven.until);
+          // A grant from the machine's owner only (ADR 0190), whatever account it is signed in to.
+          const proven = stillAdmitted()
+            ? await options.machineAccount?.proveStanding({
+                grant: message.grant,
+                proof: message.proof,
+                nonce: standingNonce,
+                binding: channelBinding,
+                deviceId: actor,
+              })
+            : undefined;
+          if (proven) proved(Math.max(personUntil, proven.until), proven.generation);
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({
               type: "account.standing.result",
@@ -797,6 +805,58 @@ export async function startServer(options: ServerOptions): Promise<{
                     message: "That doesn't prove the person on this connection.",
                   },
             });
+          return;
+        }
+        case "device.standing": {
+          // A device paired from a person's link proves it holds the key it paired with, on this
+          // socket and channel (ADR 0190): its bearer token, which a host impersonated with a
+          // key read from ACE_HOME could collect, proves nothing.
+          const { requestId } = message;
+          const paired = authenticated.get(socket);
+          const record =
+            paired?.revocable === true && standingHost !== undefined
+              ? options.store.devices.standingKeyOf(paired.id, paired.generation, auth.now())
+              : undefined;
+          const generation = options.machineAccount?.ownerGeneration();
+          const ok =
+            record !== undefined &&
+            generation !== undefined &&
+            standingHost !== undefined &&
+            (await provenDevice({
+              key: record,
+              proof: message.proof,
+              host: standingHost,
+              nonce: standingNonce,
+              binding: channelBinding,
+              deviceId: actor,
+            }));
+          // As long as this socket lasts: revoking the device ends the socket (ADR 0115).
+          if (ok) proved(Number.MAX_SAFE_INTEGER, generation);
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({
+              type: "account.standing.result",
+              requestId,
+              result: ok
+                ? { ok: true, until: Number.MAX_SAFE_INTEGER }
+                : {
+                    ok: false,
+                    code: "unauthorized",
+                    message: "That doesn't prove the person on this connection.",
+                  },
+            });
+          return;
+        }
+        case "account.owner.release": {
+          // Only the owner's own proven socket hands the machine on (ADR 0190); every standing
+          // proven under it, and every person's pairing, ends with it.
+          const { requestId } = message;
+          const ok = personProven() && options.machineAccount !== undefined;
+          if (ok) {
+            await options.machineAccount?.releaseOwner();
+            auth.dropPersonStanding();
+          }
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({ type: "account.owner.release.result", requestId, ok });
           return;
         }
         case "command":
