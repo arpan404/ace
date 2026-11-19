@@ -24,14 +24,29 @@ export function useOpenFileFollow(threadId: string, path: string | undefined): v
 
   const watch = useMemo(() => watchFolders(client, threadId), [client, threadId]);
   useEffect(() => () => watch.leave(), [watch]);
-  useEffect(() => {
-    watch.set(folder === undefined ? [] : [folder]);
-  }, [watch, folder]);
   const wasOnline = useRef(online);
   useEffect(() => {
     if (online && !wasOnline.current) watch.resume();
     wasOnline.current = online;
   }, [online, watch]);
+  // The file may have been read before its folder was watched (or while offline, or while the
+  // tab was hidden), and a write in that gap names no folder: once the daemon is watching the
+  // folder, the file is read once more.
+  useEffect(() => {
+    if (path === undefined || folder === undefined) {
+      watch.set([]);
+      return;
+    }
+    let unconfirmed = true;
+    const stop = watch.listen((folders) => {
+      if (!unconfirmed || !folders.includes(folder)) return;
+      unconfirmed = false;
+      void queries.invalidateQueries({ queryKey: ["checkout", "file", threadId, path] });
+    });
+    watch.set([folder]);
+    return stop;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- coming back online is a new gap to read past.
+  }, [watch, queries, threadId, path, folder, online]);
 
   useEffect(() => {
     if (path === undefined || folder === undefined) return;

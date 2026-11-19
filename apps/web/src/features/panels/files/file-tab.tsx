@@ -19,7 +19,11 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { ContentSearch } from "./content-search.tsx";
-import { contentSearchStore, useContentSearch } from "./content-search-store.ts";
+import {
+  contentSearchStore,
+  retainContentSearch,
+  useContentSearch,
+} from "./content-search-store.ts";
 import { FileToolbar } from "./file-toolbar.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { FileViewer, NoFile } from "./file-viewer.tsx";
@@ -176,6 +180,7 @@ export function FileTab(props: TabViewProps) {
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
   const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });
+  useEffect(() => retainContentSearch(client, threadId), [client, threadId]);
   const searchStore = useMemo(() => contentSearchStore(client, threadId), [client, threadId]);
   const searchState = useContentSearch(searchStore);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -283,7 +288,9 @@ export function FileTab(props: TabViewProps) {
         />
       )}
       <div className="relative flex min-h-0 flex-1">
-        <div className={cn("relative min-w-0 flex-1", !path && treeShown && "hidden")}>
+        <div
+          className={cn("relative flex min-w-0 flex-1 flex-col", !path && treeShown && "hidden")}
+        >
           {find && (
             <FindBar
               query={find.query}
@@ -296,7 +303,7 @@ export function FileTab(props: TabViewProps) {
               onClose={() => setFind(undefined)}
             />
           )}
-          <div className="relative h-full overflow-auto" tabIndex={-1}>
+          <div className="relative min-h-0 flex-1 overflow-auto" tabIndex={-1}>
             {path && data.draft ? (
               <Suspense fallback={null}>
                 <FileEditor

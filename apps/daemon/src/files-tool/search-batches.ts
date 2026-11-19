@@ -13,20 +13,30 @@ export type SearchBatchOptions = {
   windowMs?: number | undefined;
   /** The most lines one batch carries; 200. */
   maxLines?: number | undefined;
+  /** The most serialized bytes one batch carries; 32 KiB. A single larger line goes alone. */
+  maxBytes?: number | undefined;
 };
 
+/** What one line adds to a batch on the wire, its path counted as if it opened a file entry. */
+function lineBytes(path: string, line: FileSearchLine): number {
+  return Buffer.byteLength(JSON.stringify(line)) + Buffer.byteLength(JSON.stringify(path)) + 24;
+}
+
 /**
- * A search's matches on their way to one connection: full batches of `maxLines` go at once, a
- * partial one after `windowMs`, and nothing goes while the connection's queue is long, so a slow
- * link holds lines here instead of in the socket. What waits is bounded by the search's own
- * `maxMatches`, since every line here is a match ace-files counted.
+ * A search's matches on their way to one connection: full batches (`maxLines` lines or `maxBytes`
+ * serialized bytes) go at once, a partial one after `windowMs`, and nothing goes while the
+ * connection's queue is long, so a slow link holds lines here instead of in the socket. A drain
+ * resolves only once the connection could take another message, so the caller's final reply is
+ * held back too. What waits is bounded by the search's own `maxMatches`, since every line here is
+ * a match ace-files counted.
  */
 export class SearchBatches {
   readonly #options: SearchBatchOptions;
   readonly #windowMs: number;
   readonly #maxLines: number;
+  readonly #maxBytes: number;
   /** Batches waiting to go, the last one still filling. */
-  #batches: { files: FileSearchFile[]; lines: number }[] = [];
+  #batches: { files: FileSearchFile[]; lines: number; bytes: number; full: boolean }[] = [];
   #stopTimer: (() => void) | undefined;
   #drained: { resolve(): void; reject(error: Error): void } | undefined;
   #closing = false;
@@ -36,22 +46,24 @@ export class SearchBatches {
     this.#options = options;
     this.#windowMs = options.windowMs ?? 50;
     this.#maxLines = options.maxLines ?? 200;
+    this.#maxBytes = options.maxBytes ?? 32 * 1024;
   }
 
-  /** Queue one file's lines, splitting them so no batch passes `maxLines`. */
+  /** Queue one file's lines, splitting them so no batch passes `maxLines` or `maxBytes`. */
   add(path: string, lines: FileSearchLine[]): void {
     if (this.#cancelled || this.#closing) return;
-    let rest = lines;
-    while (rest.length) {
+    for (const line of lines) {
+      const bytes = lineBytes(path, line);
       let open = this.#batches.at(-1);
-      if (!open || open.lines >= this.#maxLines) {
-        open = { files: [], lines: 0 };
+      if (open && open.lines && open.bytes + bytes > this.#maxBytes) open.full = true;
+      if (!open || open.full) {
+        open = { files: [], lines: 0, bytes: 0, full: false };
         this.#batches.push(open);
       }
-      const taken = rest.slice(0, this.#maxLines - open.lines);
-      rest = rest.slice(taken.length);
-      appendLines(open.files, path, taken);
-      open.lines += taken.length;
+      appendLines(open.files, path, [line]);
+      open.lines += 1;
+      open.bytes += bytes;
+      if (open.lines >= this.#maxLines) open.full = true;
     }
     this.#sendFull();
     this.#schedule();
@@ -82,7 +94,7 @@ export class SearchBatches {
 
   /** Full batches go as soon as the connection takes them. */
   #sendFull(): void {
-    while (this.#batches.length > 1 || (this.#batches[0]?.lines ?? 0) >= this.#maxLines) {
+    while (this.#batches.length > 1 || this.#batches[0]?.full) {
       if (!this.#options.ready()) return;
       const batch = this.#batches.shift();
       if (batch) this.#options.send(batch.files);
@@ -90,7 +102,7 @@ export class SearchBatches {
   }
 
   #schedule(): void {
-    if (this.#stopTimer || !this.#batches.length || this.#cancelled) return;
+    if (this.#stopTimer || this.#cancelled || (!this.#batches.length && !this.#closing)) return;
     this.#stopTimer = this.#options.clock.setTimeout(() => {
       this.#stopTimer = undefined;
       this.#flush();
@@ -109,6 +121,11 @@ export class SearchBatches {
       return;
     }
     if (this.#closing) {
+      // The reply that follows a drain waits for room, as every batch did.
+      if (!this.#options.ready()) {
+        this.#schedule();
+        return;
+      }
       const drained = this.#drained;
       this.#drained = undefined;
       drained?.resolve();

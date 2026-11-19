@@ -92,3 +92,29 @@ test("the union names the root, sorts, and caps at 512 folders", () => {
   expect(folders).toContain("f511");
   expect(folders).not.toContain("f599");
 });
+
+test("a tree that left and comes back joins the thread's one set, not a second one", () => {
+  vi.useFakeTimers();
+  const { client, sent } = recorder();
+  const a = watchFolders(client, "thread-a");
+  a.set(["apps/"]);
+  advance();
+  // A hidden tab's effects stop: the thread's last tree leaves.
+  a.leave();
+  const b = watchFolders(client, "thread-a");
+  b.set(["docs/"]);
+  advance();
+  sent.length = 0;
+  // The hidden tab shows again with the same handle.
+  a.set(["apps/"]);
+  advance();
+  expect(sent).toEqual([
+    { type: "files.watch", threadId: "thread-a", folders: ["", "apps", "docs"] },
+  ]);
+  sent.length = 0;
+  b.set(["docs/", "lib/"]);
+  advance();
+  expect(sent).toEqual([
+    { type: "files.watch", threadId: "thread-a", folders: ["", "apps", "docs", "lib"] },
+  ]);
+});

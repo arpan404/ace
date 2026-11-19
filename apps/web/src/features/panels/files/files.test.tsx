@@ -218,6 +218,26 @@ test("find in file counts matches and steps through them", async () => {
   expect(within(side).queryByRole("textbox", { name: "Find in file" })).toBeNull();
 });
 
+test("find in a read-only file takes its own row above the source, never over its first lines", async () => {
+  await openThread();
+  await quickOpen("outbox");
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  const source = await within(side).findByRole("region", {
+    name: "Source of apps/web/src/relay/outbox.ts",
+  });
+  await userEvent.click(within(side).getByRole("button", { name: "Find in file" }));
+  const bar = within(side).getByRole("textbox", { name: "Find in file" }).closest("search");
+  expect(bar).toBeTruthy();
+  // A row of its own: not floated over the source, and the source scrolls in the space below it.
+  expect(bar?.className).not.toMatch(/\babsolute\b/);
+  expect(bar?.contains(source)).toBe(false);
+  const below = bar?.nextElementSibling;
+  expect(below?.contains(source)).toBe(true);
+  expect(below?.className).toMatch(/\bflex-1\b/);
+  expect(below?.className).not.toMatch(/\bh-full\b/);
+});
+
 test("an upload lands in the checkout and opens; an existing name asks before replacing it", async () => {
   const { app } = await openThread();
   await quickOpen("socket");
@@ -412,5 +432,28 @@ test("an open file shows what another program wrote to it, once the watcher name
       within(side).getByRole("region", { name: "Source of apps/web/src/relay/socket.ts" })
         .textContent,
     ).toContain("fromDisk"),
+  );
+});
+
+test("a write that lands after the file was read but before its folder is watched still shows", async () => {
+  const { app, folders } = await openThread();
+  const path = "apps/web/src/relay/socket.ts";
+  let readFirst = false;
+  // The shell writes in the gap: the file was already read, the daemon is not watching yet.
+  folders.onWatch((watched) => {
+    if (readFirst || !watched.includes("apps/web/src/relay")) return;
+    readFirst = document.body.textContent?.includes("export class RelaySocket {") ?? false;
+    app.daemon.checkouts.overwrite("thread-cold-start", path, "export const fromDisk = 1;\n");
+  });
+  await quickOpen("sock");
+  await screen.findByRole("option", { name: /socket\.ts/ });
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  await waitFor(() => expect(readFirst).toBe(true));
+  // No change notice comes for that write: the watch went in after it.
+  await waitFor(() =>
+    expect(within(side).getByRole("region", { name: `Source of ${path}` }).textContent).toContain(
+      "fromDisk",
+    ),
   );
 });

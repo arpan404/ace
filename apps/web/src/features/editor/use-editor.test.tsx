@@ -1,5 +1,5 @@
 import { act, render, waitFor } from "@testing-library/react";
-import { useEffect } from "react";
+import { Activity, useEffect } from "react";
 import { expect, test } from "vitest";
 import { useEditorDocument, type EditBatch, type EditorDocumentState } from "./use-editor.ts";
 
@@ -89,4 +89,41 @@ test("a change that landed nothing lets go of the position it remembered", async
   });
 
   expect(events).toEqual(["before", "no edit"]);
+});
+
+function Hideable(props: {
+  mode: "visible" | "hidden";
+  capture(state: EditorDocumentState): void;
+}) {
+  return (
+    <Activity mode={props.mode}>
+      <Probe capture={props.capture} />
+    </Activity>
+  );
+}
+
+test("a tab hidden and shown again keeps its typed text and undo history", async () => {
+  let latest: EditorDocumentState | undefined;
+  const capture = (state: EditorDocumentState) => (latest = state);
+  const view = render(<Hideable mode="visible" capture={capture} />);
+  await waitFor(() => expect(latest?.doc).toBeTruthy());
+
+  act(() => {
+    latest?.select([{ anchor: { line: 2, column: 1 }, head: { line: 2, column: 1 } }]);
+    latest?.edit((doc) => doc.insertText("!"));
+  });
+  expect(latest?.doc?.text()).toBe("a\nb\nc!");
+
+  view.rerender(<Hideable mode="hidden" capture={capture} />);
+  view.rerender(<Hideable mode="visible" capture={capture} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  // The same buffer, still readable: nothing freed it while the tab was away.
+  expect(latest?.doc?.text()).toBe("a\nb\nc!");
+  act(() => {
+    latest?.edit((doc) => doc.undo());
+  });
+  expect(latest?.doc?.text()).toBe("a\nb\nc");
 });

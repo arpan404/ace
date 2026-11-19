@@ -24,9 +24,16 @@ pub(crate) fn preview(line: &[u8], spans: &[Range<usize>]) -> (String, u64, Vec<
         .count() as u64;
     let mut ranges = Vec::with_capacity(spans.len());
     for span in spans {
-        // A span that only touches the window's edge shows no text; keeping it would add an
-        // empty range that points at nothing. A zero-width match survives only inside the window.
-        if span.end <= window.start || span.start >= window.end {
+        // A zero-width match (`^`, `$`, `\b`) is kept anywhere in the window, edges included, so
+        // the editor still lands on it; one past the trimmed terminator sits at the line's end.
+        // A match with text that only touches the window's edge shows nothing and is dropped.
+        let span = span.start.min(line.len())..span.end.min(line.len());
+        let visible = if span.is_empty() {
+            span.start >= window.start && span.start <= window.end
+        } else {
+            span.end > window.start && span.start < window.end
+        };
+        if !visible {
             continue;
         }
         let start = span.start.max(window.start);
