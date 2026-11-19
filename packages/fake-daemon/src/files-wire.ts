@@ -69,6 +69,17 @@ export class FakeFilesWire {
     this.checkout.apply(threadId, { op: "create", path, expected: null, text });
   }
   /**
+   * Replace a checkout file's text as a program outside ace would: a new version on disk and no
+   * message about it; only the watcher (a test's `files.folders_changed`) tells a client.
+   */
+  overwrite(threadId: string, path: string, text: string): void {
+    const key = this.key(threadId, path);
+    const file = this.files.get(key);
+    if (!file) throw new Error("NOT_FOUND");
+    const bytes = new TextEncoder().encode(text);
+    this.files.set(key, { ...file, bytes, version: `outside-${++this.sequence}` });
+  }
+  /**
    * Put a file of raw bytes (and its folders) in a thread's checkout: images, or noise that
    * doesn't compress, so a folder's archive comes out as big as its files.
    */
