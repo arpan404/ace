@@ -156,6 +156,33 @@ fn text_received_before_a_stop_is_kept_once() {
     );
 }
 
+fn failed(reply: &str, text: &str) -> Event {
+    Event::Known(Known::ReplyFailed {
+        reply: reply.into(),
+        text: text.into(),
+        error: "the model's reply ended early".into(),
+        kind: crate::event::FailureKind::Other,
+        endpoint: None,
+    })
+}
+
+#[test]
+fn a_failed_reply_keeps_its_unfinished_words_until_the_person_tries_again() {
+    let mut events = vec![
+        Event::user_message("Plan my week"),
+        Event::reply_started("r1", "m"),
+        failed("r1", "Monday:"),
+    ];
+    assert_eq!(
+        shape(&messages(&events)),
+        vec!["person:Plan my week", "spade:Monday::"]
+    );
+    // Tried again, the new reply answers in its place: the model never reads the old words.
+    events.push(Event::Known(Known::ReplyRetried { reply: "r1".into() }));
+    events.push(Event::reply_started("r2", "m"));
+    assert_eq!(shape(&messages(&events)), vec!["person:Plan my week"]);
+}
+
 #[test]
 fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
     let events = [

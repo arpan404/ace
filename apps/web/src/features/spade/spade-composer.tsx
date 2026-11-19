@@ -9,6 +9,7 @@ import {
   ComposerDock,
   type ComposerHandle,
   type Draft,
+  useStopKey,
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
 import { MicButton, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
@@ -25,7 +26,8 @@ const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const
  * do in a thread: images go as images, anything else as a document Spade reads (ADR 0134). The
  * mic records a voice message whose words land here to be checked. Until Spade runs, sending
  * says why. While the bot has no model it can use, sending is held: one line above the field says
- * so, with Set up a model beside it.
+ * so, with Set up a model beside it. ↑ in the empty field brings back what the person last sent, to
+ * change and send again; Esc twice stops the bot, as in a thread.
  */
 export function SpadeComposer(props: {
   /** The bot it sends to. */
@@ -40,6 +42,8 @@ export function SpadeComposer(props: {
   attached?: ReactNode;
   /** Stops the bot; with it, Stop takes the end of an empty capsule while the bot works. */
   onStop?: (() => void) | undefined;
+  /** What the person wrote `older` messages back, for ↑ in the empty field to bring back. */
+  recall?: ((older: number) => string | undefined) | undefined;
   stopping?: boolean | undefined;
   /** Words to start with, one tap each ("Ask Inbox"), shown above the composer. */
   chips?: readonly { label: string; text: string; face: ReactNode }[] | undefined;
@@ -64,6 +68,12 @@ export function SpadeComposer(props: {
     onWords: (words) => composer.current?.insertText(words),
   });
   const quoted = props.quote?.text;
+  // Esc twice stops, as in a thread: the first press only says so above the field.
+  const onStop = props.onStop;
+  const { armed, stopKey } = useStopKey(
+    props.answering && onStop !== undefined && !props.stopping,
+    () => onStop?.(),
+  );
   // A new quote puts the caret in the field, to say what they want instead.
   useEffect(() => {
     if (quoted) composer.current?.focus();
@@ -105,7 +115,12 @@ export function SpadeComposer(props: {
             {props.blocked}
           </p>
         )}
-        {!props.blocked && props.needsModel && (
+        {armed && (
+          <p role="status" className="mb-2 px-1 text-center text-ui text-muted-foreground">
+            {`Esc again to stop ${props.name}`}
+          </p>
+        )}
+        {!armed && !props.blocked && props.needsModel && (
           <p className="mb-2 flex flex-wrap items-center justify-center gap-x-1 px-1 text-ui text-muted-foreground">
             <span id={reason}>{held}</span>
             <Button size="xs" variant="ghost" onClick={props.needsModel.onSetUp}>
@@ -120,6 +135,8 @@ export function SpadeComposer(props: {
           busy={props.answering}
           sendsNow
           onStop={props.onStop}
+          onStopKey={stopKey}
+          recall={props.recall}
           stopping={props.stopping}
           stopInStrip={!props.onStop}
           capsule

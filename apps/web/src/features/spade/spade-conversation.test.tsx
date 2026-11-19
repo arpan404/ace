@@ -16,6 +16,32 @@ function garden(api: FakeSpadeApi) {
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 const header = () => screen.getByRole("banner");
 
+test("a conversation with nothing said yet shows who the bot is: its name and task", async () => {
+  await spadeApp("/spade/garden", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    api.addAgent({
+      id: "garden",
+      name: "Garden",
+      task: "Keep the beds watered and tell me what to sow",
+    });
+  });
+  const chat = within(await feed("Garden"));
+  expect(chat.getByText("Keep the beds watered and tell me what to sow")).toBeTruthy();
+  expect(chat.getByText("Garden")).toBeTruthy();
+});
+
+test("once something is said, the bot's introduction gives way to the conversation", async () => {
+  await spadeApp("/spade/garden", (api) => {
+    const bot = garden(api);
+    bot.task = "Keep the beds watered";
+    api.reply(bot, "The beds are dry.");
+  });
+  const chat = within(await feed("Garden"));
+  await chat.findByText("The beds are dry.");
+  expect(chat.queryByText("Keep the beds watered")).toBeNull();
+});
+
 test("the pill names the bot over its conversation and opens its profile, with nothing else in the bar but its actions", async () => {
   await spadeApp("/spade/garden", garden);
   await feed("Garden");

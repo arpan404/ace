@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
 import { loadMarkitProse } from "./load.ts";
+import type { ProseKeep } from "./kept-answers.ts";
 import { MarkdownLoading } from "./loading.tsx";
 
 type MarkitRenderer = Awaited<ReturnType<typeof loadMarkitProse>>["MarkitProse"];
@@ -56,12 +57,14 @@ function useMarkitLoaded(): boolean {
  */
 export function Prose(props: {
   text: string;
-  stream?: string;
-  streaming?: boolean;
-  className?: string;
+  stream?: string | undefined;
+  streaming?: boolean | undefined;
+  className?: string | undefined;
   thread?: { threadId: string; cwd?: string; itemId?: string };
   /** Forge text: draws `@name`, `#12` and commit hashes as links to these addresses. */
   forgeReference?: (reference: { kind: string; target: string }) => string | undefined;
+  /** Prose outside a thread kept drawn across remounts once finished, under its own scope. */
+  keep?: ProseKeep | undefined;
 }) {
   // The renderer is module state that changes once, when its code arrives.
   "use no memo";
@@ -78,6 +81,7 @@ export function Prose(props: {
       className={props.className}
       thread={props.thread}
       forgeReference={props.forgeReference}
+      keep={props.keep}
     />
   );
 }

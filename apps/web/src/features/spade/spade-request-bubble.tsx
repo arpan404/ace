@@ -6,7 +6,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
@@ -22,6 +22,7 @@ import {
 } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
+import { useCardFocus } from "./use-card-focus.ts";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
@@ -42,7 +43,7 @@ export type RequestAnswer = "allow" | "always" | "deny";
  * that kind of call (folded when long), then, where the gate keeps it, Always allow, and Deny on
  * the left and Allow on the right. Asked again after the auto-review refused it (ADR 0163), it
  * says so ("… asks again to …") and opens with what was refused before. With focus on it, Enter
- * allows and Escape denies. Once
+ * allows and Escape denies, and it takes focus as it opens unless the person is typing. Once
  * answered it leaves the chat.
  */
 export function SpadeRequestBubble(props: {
@@ -63,6 +64,10 @@ export function SpadeRequestBubble(props: {
     botName: props.nameOf,
   });
   const [answering, setAnswering] = useState<RequestAnswer>();
+  // Open, it takes focus (unless the person is partway through a message), so Enter allows and
+  // Escape denies as its keys say; answered, focus goes back to the composer.
+  const raised = useRef<HTMLDivElement>(null);
+  useCardFocus(raised, 0);
   const answer = (choice: RequestAnswer) => {
     if (answering !== undefined) return;
     setAnswering(choice);
@@ -94,6 +99,7 @@ export function SpadeRequestBubble(props: {
     : outside || (card.always && item.ask !== "undeclared");
   return (
     <RaisedCard
+      ref={raised}
       asks="request"
       role="group"
       aria-label={named}

@@ -171,3 +171,19 @@ function working(
   if (jobs.length) return { label: spadeJobsLine(jobs), since, moving: true };
   return { label: "Working", since, moving: true };
 }
+
+/**
+ * What the person wrote `older` messages back (0: their last), for ↑ in an empty composer to
+ * bring back and send again; another bot's, a routine's and a club's messages are not theirs.
+ */
+export function spadeSentText(entries: readonly SpadeEntry[], older: number): string | undefined {
+  let left = older;
+  for (let at = entries.length - 1; at >= 0; at--) {
+    const entry = entries[at];
+    if (entry?.kind !== "user" || entry.fromAgent || entry.fromRoutine || entry.fromGroup) continue;
+    if (!entry.text.trim()) continue;
+    if (left === 0) return entry.text;
+    left -= 1;
+  }
+  return undefined;
+}

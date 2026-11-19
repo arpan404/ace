@@ -1,3 +1,4 @@
+import { codeText } from "@/test/code-text.ts";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -51,7 +52,7 @@ test("each bubble offers its exact time and Copy, and Copy takes the words witho
   expect(written).toHaveBeenCalledWith("Garlic\n\n- Plant in October");
 });
 
-test("a code block sits in its own well with its language and a Copy of just the code", async () => {
+test("a code block shows its language and a Copy of just the code", async () => {
   const written = vi.fn(() => Promise.resolve());
   vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: written } });
   await spadeApp("/spade/garden", (spade) => {
@@ -61,12 +62,33 @@ test("a code block sits in its own well with its language and a Copy of just the
     spade.reply(garden, "Use the fake clock:\n```ts\nawait clock.advance(5000);\n```");
   });
   const chat = within(await feed("Garden"));
-  const code = await chat.findByText("await clock.advance(5000);");
-  expect(chat.getByText("ts")).toBeTruthy();
+  const code = await chat.findByText(codeText(/await clock\.advance\(5000\);/));
+  expect(chat.getByText(/^(ts|typescript)$/i)).toBeTruthy();
   expect(chat.queryByText(/```/)).toBeNull();
   await userEvent.click(chat.getByRole("button", { name: "Copy code" }));
-  expect(written).toHaveBeenCalledWith("await clock.advance(5000);");
+  expect(written).toHaveBeenCalledWith(expect.stringMatching(/^await clock\.advance\(5000\);\n?$/));
   expect(code.closest("pre")).not.toBeNull();
+});
+
+test("a reply still arriving reads as formatted text, nested lists nested", async () => {
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    spade.store(garden.conversation, { type: "user_message", text: "Plan the beds" });
+    spade.store(garden.conversation, { type: "reply_started", reply: "r1" });
+    spade.store(garden.conversation, {
+      type: "reply_progress",
+      reply: "r1",
+      text: "## Plan\n\n1. Dig the **east** bed\n   - compost first\n2. Sow",
+    });
+  });
+  const chat = within(await feed("Garden"));
+  expect((await chat.findByRole("heading", { name: "Plan" })).textContent).toBe("Plan");
+  expect(chat.queryByText(/\*\*|##/)).toBeNull();
+  // The sub-item sits inside its item, not after the list.
+  const sub = chat.getByText("compost first").closest("li");
+  expect(sub?.parentElement?.closest("li")?.textContent).toMatch(/^Dig the east bed/);
 });
 
 test("a reply's steps fold into one line under its words, a blocked one shown unopened", async () => {
@@ -147,6 +169,46 @@ test("a reply's steps fold into one line under its words, a blocked one shown un
   expect(chat.queryByRole("list", { name: "Steps to look at" })).toBeNull();
 });
 
+test("a reply whose only step must be seen shows it once, with no line counting it", async () => {
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    const store = (event: Record<string, unknown>) => spade.store(garden.conversation, event);
+    store({ type: "user_message", text: "Fetch the seed list" });
+    store({ type: "reply_started", reply: "r1" });
+    const command = "curl -s https://example.com/seeds.json";
+    store({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "d", name: "shell", arguments: { command } }],
+    });
+    store({ type: "tool_started", reply: "r1", call_id: "d", name: "shell" });
+    store({
+      type: "tool_finished",
+      reply: "r1",
+      call_id: "d",
+      name: "shell",
+      content: "",
+      is_error: false,
+    });
+    store({
+      type: "command_ran",
+      reply: "r1",
+      call_id: "d",
+      contained: true,
+      exit_code: 0,
+      refused: [{ host: "example.com", port: 443, reason: "not on the allow-list" }],
+    });
+    store({ type: "reply_finished", reply: "r1", text: "The list is blocked." });
+  });
+  const chat = within(await feed("Garden"));
+  await chat.findByText("The list is blocked.");
+  expect(chat.getAllByText(/^Ran a command/)).toHaveLength(1);
+  expect(chat.getByRole("list", { name: "Steps to look at" })).toBeTruthy();
+});
+
 test("the working line says what a tool does in plain words, not its raw name", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
@@ -172,6 +234,39 @@ test("the working line says what a tool does in plain words, not its raw name", 
   const line = await screen.findByRole("status", { name: "" });
   await waitFor(() => expect(line.textContent).toContain("Using an app on the screen"));
   expect(line.textContent).not.toContain("screen act");
+});
+
+test("the working line names the command running now, and drops it once it has finished", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  });
+  const main = spade.agents[0];
+  if (!main) throw new Error("no Spade");
+  await feed("Spade");
+  const store = (event: Record<string, unknown>) => spade.store(main.conversation, event);
+  store({ type: "user_message", text: "Build it" });
+  store({ type: "reply_started", reply: "r1" });
+  store({
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [{ id: "k1", name: "shell", arguments: { command: "bun run build" } }],
+  });
+  store({ type: "tool_started", reply: "r1", call_id: "k1", name: "shell" });
+  spade.status(main, "working", "Running a command");
+  const line = await screen.findByRole("status", { name: "" });
+  await waitFor(() => expect(line.textContent).toContain("bun run build"));
+  store({
+    type: "tool_finished",
+    reply: "r1",
+    call_id: "k1",
+    name: "shell",
+    content: "built",
+    is_error: false,
+  });
+  spade.status(main, "working", "Thinking");
+  await waitFor(() => expect(line.textContent).not.toContain("bun run build"));
 });
 
 test("another bot's run shows its name and face once, above its first message", async () => {

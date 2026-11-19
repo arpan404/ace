@@ -144,6 +144,32 @@ test("the live stream opens after the history, and closes when the conversation 
   expect(sent.at(-1)).toEqual({ type: "spade.live.unsubscribe", requestId: live?.requestId });
 });
 
+test("a long history shows once it is all read: never a page from partway, still answering", async () => {
+  const { client, reads } = fakeClient();
+  const follow = new ConversationFollow(transport(client), "c1", deps);
+  follow.start();
+  follow.setReady(true);
+  await flush();
+  // The first page ends in the middle of a reply that the second page finishes.
+  const first: { seq: number; at: number; event: Record<string, unknown> }[] = Array.from(
+    { length: 199 },
+    (_, at) => ({ seq: at + 1, at: 1, event: { type: "user_message", text: `Message ${at + 1}` } }),
+  );
+  first.push({ seq: 200, at: 1, event: { type: "reply_started", reply: "r1" } });
+  reads.shift()?.(JSON.stringify(first));
+  await flush();
+  expect(follow.get().view.loaded).toBe(false);
+  expect(follow.get().view.answering).toBe(false);
+  reads.shift()?.(
+    JSON.stringify([
+      { seq: 201, at: 2, event: { type: "reply_finished", reply: "r1", text: "Done." } },
+    ]),
+  );
+  await flush();
+  expect(follow.get().view.loaded).toBe(true);
+  expect(follow.get().view.answering).toBe(false);
+});
+
 /** A follow with its history read and its live stream open. */
 async function following() {
   const fake = fakeClient();

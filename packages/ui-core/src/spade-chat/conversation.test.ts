@@ -778,13 +778,28 @@ describe("Try again on a failed reply", () => {
     );
   });
 
-  test("words a failed reply said stay when it is tried again; only its failure goes", () => {
+  test("tried again, a failed reply's unfinished words give way to the new reply: never twice", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Plan my week" });
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "reply_failed", reply: "r1", text: "Monday:", error: "boom", kind: "model" });
     c.stored({ type: "reply_retried", reply: "r1" });
+    c.stored({ type: "reply_started", reply: "r2" });
+    c.stored({ type: "reply_finished", reply: "r2", text: "Monday: gym. Tuesday: rest." });
     const bot = spadeBubbles(c.view()).filter((b) => b.kind === "bot");
-    expect(bot.map((b) => [b.text, b.failure])).toEqual([["Monday:", undefined]]);
+    expect(bot.map((b) => [b.text, b.failure])).toEqual([
+      ["Monday: gym. Tuesday: rest.", undefined],
+    ]);
+  });
+
+  test("tried again, what a failed reply's finished steps said stays", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Plan my week" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Checking your calendar.", calls: [] });
+    c.stored({ type: "reply_failed", reply: "r1", text: "Monday:", error: "boom", kind: "model" });
+    c.stored({ type: "reply_retried", reply: "r1" });
+    const bot = spadeBubbles(c.view()).filter((b) => b.kind === "bot");
+    expect(bot.map((b) => [b.text, b.failure])).toEqual([["Checking your calendar.", undefined]]);
   });
 });

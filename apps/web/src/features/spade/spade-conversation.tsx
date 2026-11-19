@@ -2,6 +2,7 @@ import {
   spadeForLaterWords,
   spadeLiveSurfaces,
   spadeModelState,
+  spadeSentText,
   spadeStateLine,
   spadeTaskLine,
 } from "@ace/ui-core/spade-chat";
@@ -35,7 +36,13 @@ import {
 } from "./computer/panel-place.ts";
 import { ProfileStripActions, SpadeProfile } from "./spade-profile.tsx";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
-import { ConversationSkeleton, message, Problem, Scroller } from "./spade-screen-parts.tsx";
+import {
+  ConversationSkeleton,
+  ConversationStart,
+  message,
+  Problem,
+  Scroller,
+} from "./spade-screen-parts.tsx";
 import { questionAnchor } from "./spade-question-bubble.tsx";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -97,6 +104,8 @@ export function Conversation(props: {
     void navigate({ to: "/settings/spade/models" });
   };
   const [stopping, setStopping] = useState(false);
+  // Messages sent from here: each one takes the conversation to its end.
+  const [sent, setSent] = useState(0);
   // A decision the person is changing: quoted on their next message (Work's Change).
   const [quote, setQuote] = useState<string>();
   const covering = useMediaQuery(coverQuery, false);
@@ -193,6 +202,7 @@ export function Conversation(props: {
       <ConversationPill bot={bot} onOpen={() => openProfile()} />
       <Scroller
         top="pill"
+        sent={sent}
         seen={
           view.loaded
             ? { conversation: bot.conversation, unseen: bot.unseen, seq: bot.lastMessage?.seq }
@@ -211,6 +221,7 @@ export function Conversation(props: {
         ) : (
           <SpadeChat
             bot={chatBot}
+            start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.
             onWatch={
@@ -301,10 +312,14 @@ export function Conversation(props: {
         blocked={line.ready ? undefined : line.sentence}
         needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
+        recall={(older) => spadeSentText(view.entries, older)}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
-        send={conversation.send}
+        send={(outgoing) => {
+          setSent((count) => count + 1);
+          return conversation.send(outgoing);
+        }}
       />
     </div>
   );

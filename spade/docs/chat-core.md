@@ -45,6 +45,9 @@ approved it. A client folds a reply's steps under it by that field; it needs no 
 
 **Try again** answers a failed reply's turn once more, in place: from the same history, on the
 bot's model now (the person may just have chosen one), with nothing the person sent posted again.
+The words the failed call left unfinished give way to the new reply: neither the chat nor the
+model reads them again, so the answer never shows twice; what the reply's finished steps said and
+did stays.
 Only the conversation's last reply, and only while it failed and nothing is open. A message sent
 to a bot with no model yet is refused (`409`, saying to choose one), so nothing is posted that
 nothing could answer.
