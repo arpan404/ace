@@ -218,9 +218,13 @@ pub fn unaccounted(batches: &[Batch], expected: &[String]) -> Vec<String> {
 
 /// Whether a change accounts for `path`: it names the path, or it is about the folder that holds
 /// it and says that folder's contents changed.
+///
+/// A deletion never accounts for anything here: it says a name is gone, which is the opposite of
+/// the create a burst test is looking for. A deletion of a folder does not cover the names it
+/// used to hold either.
 fn named_change_covers(change: &Change, path: &str) -> bool {
-    change.path == path
-        || (change.directory
-            && !change.kind.eq(&ChangeKind::Deleted)
-            && covers(Some(&change.path), path))
+    if change.kind == ChangeKind::Deleted {
+        return false;
+    }
+    change.path == path || (change.directory && covers(Some(&change.path), path))
 }
