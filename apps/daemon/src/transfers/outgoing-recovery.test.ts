@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import type { CommandId, HostId, Transfer, WorkspaceId } from "@ace/protocol";
+import type { CommandId, HostId, ThreadId, Transfer, WorkspaceId } from "@ace/protocol";
 import { Store } from "../store.ts";
 import { OutgoingRows } from "./outgoing-rows.ts";
 import { OutgoingTransfers, type OutgoingDeps } from "./outgoing.ts";
@@ -102,4 +102,76 @@ it("reads recovery's work and retention's oldest rows from side tables, never al
   rows.expired(1);
   rows.movingThread("t");
   expect(scans).toEqual([]);
+});
+
+it("starts no second move of a thread while an upgraded home's transfers are still indexed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-outgoing-upgrade-"));
+  const directory = join(root, "outgoing");
+  await mkdir(directory, { recursive: true });
+  const store = new Store(join(root, "store.sqlite"));
+  // A home from before the side tables, with the thread's move under way.
+  const moving: Transfer = {
+    transferId: "transfer-old",
+    commandId: "c-old" as CommandId,
+    kind: "thread",
+    threadId: "t-1" as ThreadId,
+    workspaceId: "w" as WorkspaceId,
+    target: { hostId: "studio" as HostId, name: "Studio" },
+    phase: "sending",
+    method: "bundle",
+    sentBytes: 0,
+    startedAt: 0,
+    updatedAt: 0,
+  };
+  const request = {
+    hostId: "studio" as HostId,
+    profile: "studio",
+    includeChanges: true,
+    includeIgnored: false,
+    live: true,
+  };
+  store.atomic((db) => {
+    db.exec(`CREATE TABLE transfer_outgoing (
+      transfer_id TEXT PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, phase TEXT NOT NULL,
+      record TEXT NOT NULL, request TEXT NOT NULL, plan TEXT,
+      delivered INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL)`);
+    db.prepare(
+      "INSERT INTO transfer_outgoing VALUES ('transfer-old', 'c-old', 'sending', ?, ?, NULL, 1, 0, 0)",
+    ).run(JSON.stringify(moving), JSON.stringify(request));
+  });
+  const outgoing = new OutgoingTransfers({
+    store,
+    directory,
+    profiles: () => [{ name: "studio", hostId: "studio" }],
+    // The other machine takes transfers and never answers anything else.
+    transport: (_profile: unknown, route: { body: Buffer | string }) =>
+      JSON.parse(String(route.body)).op === "probe"
+        ? Promise.resolve({ hostId: "studio", name: "Studio", accepts: true })
+        : new Promise(() => {}),
+    origin: async () => ({ hostId: "macbook" as HostId, hostName: "MacBook" }),
+    now: () => 0,
+    sleep: async () => {},
+    nextId: () => "new",
+    log: () => {},
+  } as unknown as OutgoingDeps);
+  cleanups.push(async () => {
+    await Promise.race([outgoing.close(), new Promise((resolve) => setTimeout(resolve, 50))]);
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const start = (id: string) =>
+    outgoing.start({
+      commandId: id as CommandId,
+      kind: "thread",
+      workspaceId: "w" as WorkspaceId,
+      threadId: "t-1" as ThreadId,
+      source: root,
+      name: "app",
+      request,
+      target: { hostId: "studio" as HostId, name: "Studio" },
+    });
+  await expect(start("c-early")).rejects.toMatchObject({ code: "transfers_unavailable" });
+  await new OutgoingRows(store).ready();
+  await expect(start("c-later")).rejects.toMatchObject({ code: "thread_moving" });
 });

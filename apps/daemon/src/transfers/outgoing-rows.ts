@@ -148,6 +148,10 @@ export class OutgoingRows {
   ready(): Promise<void> {
     return this.index.ready();
   }
+  /** The side tables hold every row: until then a read through them may miss an older one. */
+  indexed(): boolean {
+    return this.index.complete();
+  }
   /** An unsettled transfer of this thread, if one is: a thread moves once at a time. */
   movingThread(threadId: string): OutgoingRecord | undefined {
     const raw = this.store

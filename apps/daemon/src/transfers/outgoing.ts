@@ -215,6 +215,14 @@ export class OutgoingTransfers {
       );
     // One move of a thread at a time: checked right before the row is written, with nothing
     // awaited in between, so of two concurrent starts only one gets in.
+    // Until an upgraded home's older rows are indexed, a move already under way may be missing
+    // from the side table, and the thread has no index of its own to look it up by: no new move
+    // starts until indexing ends (ADR 0170), which recovery does first, in bounded pages.
+    if (input.threadId && !this.rows.indexed())
+      throw new TransferError(
+        "transfers_unavailable",
+        "Transfers here are still starting up. Try again in a moment.",
+      );
     if (input.threadId && this.rows.movingThread(input.threadId))
       throw new TransferError("thread_moving", "This thread is already moving to another machine.");
     const at = this.deps.now();

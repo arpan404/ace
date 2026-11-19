@@ -68,6 +68,12 @@ export class TransferIndex {
         .statement(`INSERT INTO ${this.expiry} (transfer_id, at) VALUES (?, ?)`)
         .run(transferId, at);
   }
+  /** Every row a home had before these tables is indexed: the side tables are the whole truth. */
+  complete(): boolean {
+    return (
+      this.store.statement(`SELECT done FROM ${this.progress} WHERE id=1`).get()?.["done"] === 1
+    );
+  }
   /** Indexes the rows a home had before these tables, once, in bounded pages. */
   ready(): Promise<void> {
     this.indexing ??= this.index();
