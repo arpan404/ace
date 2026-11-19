@@ -22,7 +22,7 @@ import {
 /** The routes and relay streams parcels keep to each machine, shared with transfers. */
 export interface MachineLinks {
   machines: MachineLink;
-  relay: RelayLink;
+  relay: Pick<RelayLink, "transfer">;
 }
 
 export interface TransferRoutesDeps {
@@ -138,7 +138,7 @@ function once(
  * end (the target holds less, or already more) ends it: the sender goes on from that offset.
  */
 async function relayChunk(
-  relay: RelayLink,
+  relay: MachineLinks["relay"],
   target: RelayTarget,
   send: Extract<TransferSend, { kind: "chunk" }>,
   options: { timeoutMs: number; signal?: AbortSignal },
