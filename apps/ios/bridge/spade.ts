@@ -43,6 +43,8 @@ export const NativeSpadeAction = z.discriminatedUnion("type", [
   }),
   /** Try following the open conversation again after a problem. */
   z.object({ type: z.literal("spade.retry") }),
+  /** The app's scene is active (or no longer is): the bots are read only while it is. */
+  z.object({ type: z.literal("spade.active"), active: z.boolean() }),
   /** Pull to refresh: read Spade's state, the setting and the bots again now. */
   z.object({ type: z.literal("spade.refresh") }),
 ]);
@@ -97,6 +99,8 @@ export class NativeSpade {
   private watching = false;
   /** This runtime went away: nothing reads again. */
   private stopped = false;
+  /** The app's scene is active: in the background or behind the lock screen nothing reads. */
+  private active = true;
   private stops: (() => void)[] = [];
   private listTimer: (() => void) | undefined;
   private listReading = false;
@@ -142,7 +146,9 @@ export class NativeSpade {
     }
     this.stops.push(
       connection.subscribe(() => {
+        // A dropped connection ends the list's timer; it reads again once ready.
         if (connection.getSnapshot() === "ready") this.refresh();
+        else this.stopList();
       }),
       onSocketMove(this.owner, () => this.refresh()),
     );
@@ -164,6 +170,10 @@ export class NativeSpade {
         return this.openConversation(action.conversationId);
       case "spade.retry":
         return this.open?.follow.retry();
+      case "spade.active":
+        if (action.active === this.active) return;
+        this.active = action.active;
+        return action.active ? this.readList() : this.stopList();
       case "spade.refresh":
         return this.refresh();
     }
@@ -233,9 +243,18 @@ export class NativeSpade {
     this.listTimer = undefined;
   }
 
-  /** The machine shows Spade and it runs: its bots are worth reading. */
+  /**
+   * The machine shows Spade and it runs, the connection is ready and the app's scene is active:
+   * its bots are worth reading.
+   */
   private get listable(): boolean {
-    return !this.stopped && this.ready && this.status?.hidden !== true;
+    return (
+      !this.stopped &&
+      this.active &&
+      this.owner.connectionState().getSnapshot() === "ready" &&
+      this.ready &&
+      this.status?.hidden !== true
+    );
   }
 
   /**

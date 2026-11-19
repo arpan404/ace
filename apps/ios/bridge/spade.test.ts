@@ -126,6 +126,29 @@ test("with the Spade tab away, a bot starting or ending work still shows, at the
   await until(() => research()?.state === "rest");
 });
 
+/** Waits long enough for several reads at the quick away pace. */
+const quiet = () => new Promise((resolve) => setTimeout(resolve, 1_000));
+
+test("while the app isn't active the bots aren't read, and they are read the moment it is", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, patches, spade } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Research" });
+  }, quick);
+  if (!bot) throw new Error("no bot");
+  const research = () => patches.state?.list.rows?.find((row) => row.name === "Research");
+  await until(() => research()?.state === "rest");
+
+  spade.handle({ type: "spade.active", active: false });
+  const reads = api.sent("GET", "/v1/agents").length;
+  api.status(bot, "working", "Reading the notes");
+  await quiet();
+  expect(api.sent("GET", "/v1/agents").length).toBe(reads);
+  expect(research()?.state).toBe("rest");
+
+  spade.handle({ type: "spade.active", active: true });
+  await until(() => research()?.state === "working");
+});
+
 test("the list puts Spade first, then whoever needs the person, then working, then the rest", async () => {
   const { patches, spade } = await setUp((api) => {
     api.addAgent({ name: "Quiet", last_activity: 50, last_message: lastWords("All done.") });

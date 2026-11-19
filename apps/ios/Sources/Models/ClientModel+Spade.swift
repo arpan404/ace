@@ -7,6 +7,12 @@ extension ClientModel {
         spade.watching = on
         action(["type": "spade.watch", "on": on])
     }
+    /// The app's scene is active or no longer is: the bridge reads the bots only while it is.
+    func spadeActive(_ on: Bool) {
+        guard spade.active != on else { return }
+        spade.active = on
+        action(["type": "spade.active", "active": on])
+    }
     /// Follow `id` live, or no conversation.
     func spadeOpen(_ id: String?) {
         guard spade.opened != id else { return }
@@ -18,6 +24,7 @@ extension ClientModel {
     func spadeRefresh() { action(["type": "spade.refresh"]) }
     /// A new runtime knows nothing of what shows: tell it again.
     func spadeResume() {
+        if !spade.active { action(["type": "spade.active", "active": false]) }
         if spade.watching { action(["type": "spade.watch", "on": true]) }
         if let id = spade.opened { action(["type": "spade.open", "conversationId": id]) }
     }

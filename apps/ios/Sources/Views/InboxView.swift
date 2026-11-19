@@ -99,6 +99,8 @@ struct InboxView: View {
             }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
             .task(id: scenePhase) {
+                // Spade's bots are read only while the app is on screen (`spadeActive`).
+                for session in inbox.sessions { session.client.spadeActive(scenePhase == .active) }
                 // Foreground reconciliation: renew every live activity's `staleDate` while
                 // the inbox is mounted, including its thread destinations. Cancelled on
                 // background or unmount; rows stay truthful and nothing ends here — `update`
