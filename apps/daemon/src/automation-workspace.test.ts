@@ -117,6 +117,90 @@ test("a file trigger fires for matching non-ignored changes and reconciles a res
   }
 });
 
+test("an event that lands while the baseline is read is delivered once, after ready", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
+  try {
+    const order: string[] = [];
+    let listener: ((payload: EventPayload) => void) | undefined;
+    const versions = new Map([
+      ["src/main.ts", { size: 1, mtime: 1 }],
+      ["src/late.ts", { size: 2, mtime: 2 }],
+    ]);
+    const tool = {
+      watch: async (_path: string, onBatch: (payload: EventPayload) => void) => {
+        listener = onBatch;
+        return async () => {};
+      },
+      listFolder: async () => {
+        // The watcher reports a create while the baseline is still being read, and the walk
+        // that builds the baseline already sees the file.
+        listener?.({
+          type: "changes",
+          changes: [{ path: "src/late.ts", kind: "created", directory: false }],
+        });
+        return {
+          entries: [...versions].map(([path, entry]) => ({
+            name: path.split("/").at(-1) ?? path,
+            path,
+            kind: "file" as const,
+            size: entry.size,
+            mtimeMs: entry.mtime,
+            ignored: false,
+          })),
+          nextCursor: null,
+          total: versions.size,
+        };
+      },
+      run: async <T>(
+        _path: string,
+        task: (client: {
+          stat: (
+            root: number,
+            path: string,
+          ) => Promise<{
+            path: string;
+            kind: { type: string };
+            size: number;
+            mtimeMs: number;
+          }>;
+        }) => Promise<T>,
+      ): Promise<T> =>
+        task({
+          stat: async (_root, path) => {
+            const entry = versions.get(path);
+            if (!entry) throw new FilesRequestError("NOT_FOUND", `${path} is gone`);
+            return { path, kind: { type: "file" }, size: entry.size, mtimeMs: entry.mtime };
+          },
+        }),
+    };
+    const context = {
+      id: () => "trigger",
+      log: { log: () => {} },
+      resources: { own: () => {} },
+      store: { atomic: () => ({ path: root }) },
+      services: { filesNative: { tool } },
+    } as unknown as ServiceContext;
+    const dispose = automationWorkspace(context).subscribe(
+      root,
+      ["src/**"],
+      async (event) => {
+        order.push(`${event.variables.kind}:${event.variables.path}`);
+      },
+      { onReady: () => order.push("ready") },
+    );
+    await until(() => order.includes("ready") && order.includes("created:src/late.ts"));
+    expect(order).toEqual(["ready", "created:src/late.ts"]);
+
+    // The replayed create moved the baseline, so a rescan has nothing to report again.
+    listener?.({ type: "rescan" });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(order).toEqual(["ready", "created:src/late.ts"]);
+    dispose();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a rescan of an untouched checkout reports nothing", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-automation-files-")));
   try {

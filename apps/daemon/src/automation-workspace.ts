@@ -141,7 +141,11 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
         }
       };
       /** One live batch: a version read now decides whether it names a real transition. */
-      const batch = async (tool: FilesTool, changes: ChangesPayload["changes"]) => {
+      const batch = async (
+        tool: FilesTool,
+        changes: ChangesPayload["changes"],
+        announce = false,
+      ) => {
         const rules = await ignoring();
         const ignored = await rules.ignored(changes.map((change) => change.path));
         const matched: TriggerChange[] = [];
@@ -149,7 +153,7 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           if (ignored.has(change.path) || !matches(change.path)) continue;
           const before = known.get(change.path);
           if (change.kind === "deleted") {
-            if (!before) continue;
+            if (!before && !announce) continue;
             known.delete(change.path);
             matched.push({ path: change.path, kind: "deleted" });
             continue;
@@ -163,7 +167,14 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             }
             continue;
           }
-          if (before === undefined) matched.push({ path: change.path, kind: "created" });
+          // A batch held while the baseline was read is newer than that baseline: report what it
+          // says once, even when the seed already saw the file it names.
+          if (announce) {
+            matched.push({
+              path: change.path,
+              kind: change.kind === "modified" ? "changed" : change.kind,
+            });
+          } else if (before === undefined) matched.push({ path: change.path, kind: "created" });
           else if (before !== now) matched.push({ path: change.path, kind: "changed" });
           if (!known.has(change.path) && known.size >= snapshotLimit) continue;
           known.set(change.path, now);
@@ -200,8 +211,8 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
         for (const [path, now] of current) known.set(path, now);
         fire(changes);
       };
-      const receivePayload = (tool: FilesTool, payload: EventPayload) => {
-        if (payload.type === "changes") run(() => batch(tool, payload.changes));
+      const receivePayload = (tool: FilesTool, payload: EventPayload, announce = false) => {
+        if (payload.type === "changes") run(() => batch(tool, payload.changes, announce));
         else if (payload.type === "rescan") run(() => rescan(tool));
         else if (payload.type === "warning")
           context.log.log(
@@ -229,13 +240,20 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           return;
         }
         stop = unsubscribe;
-        await seed(tool);
+        try {
+          await seed(tool);
+        } catch (error) {
+          // A baseline that could not be read leaves nothing to reconcile against: stop watching
+          // rather than report every later change as a create.
+          await unsubscribe();
+          throw error;
+        }
         if (closed) return;
         const replay = buffered ?? [];
         buffered = undefined;
         hooks?.onReady?.();
         if (overflowed) run(() => rescan(tool));
-        else for (const payload of replay) receivePayload(tool, payload);
+        else for (const payload of replay) receivePayload(tool, payload, true);
       })().catch((error) => {
         context.log.log("error", "Automation watcher unavailable", logError(error));
         hooks?.onError?.(error);
