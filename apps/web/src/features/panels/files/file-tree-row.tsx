@@ -170,7 +170,9 @@ function MoreRow(args: {
   const { row, index, props, indent } = args;
   const ref = useRef<HTMLButtonElement>(null);
   const onMore = useRef(props.onMore);
-  onMore.current = props.onMore;
+  useEffect(() => {
+    onMore.current = props.onMore;
+  });
   const folder = row.folder ?? "";
   useEffect(() => {
     const node = ref.current;
