@@ -1,9 +1,10 @@
-import type { Platform } from "./release-pick.ts";
+import { chipName, type Arch, type FileKind, type Platform } from "./release-pick.ts";
 
 /*
  * The download page's words (pages/download.astro): the devices in its opening row, and for
- * each platform its installers and how to install it in three steps. The links themselves come
- * from release.ts; the builds listed here follow apps/desktop/scripts/package.ts.
+ * each platform the kinds of build it has and how to install it in three steps. The files
+ * themselves, and which chips each kind exists for, come from the release (release.ts), so the
+ * page never offers a build that wasn't published.
  */
 
 /** A desktop platform, or the phone and tablet apps. */
@@ -35,10 +36,12 @@ export interface PlatformGuide {
   /** The label over its device in the opening row: the device, then its system. */
   device: string;
   system: string;
-  /** One line under the platform's name. */
+  /** One line under the platform's name, when it isn't written from the release's chips. */
   line: string;
-  /** Each kind of build: its format and the chips it is made for. */
-  files: { format: string; chips: string }[];
+  /** A desktop platform's kinds of build, as the page names them. */
+  kinds?: { kind: FileKind; format: string }[];
+  /** The phone's panel lists what the app does instead of files. */
+  notes?: { name: string; body: string }[];
   steps: [string, string, string];
 }
 
@@ -48,10 +51,10 @@ export const platformGuides: PlatformGuide[] = [
     tab: "Mac",
     device: "Mac",
     system: "macOS",
-    line: "For Apple silicon and Intel Macs.",
-    files: [
-      { format: "Disk image (.dmg)", chips: "Apple silicon · Intel" },
-      { format: "Zip archive (.zip)", chips: "Apple silicon · Intel" },
+    line: "For macOS.",
+    kinds: [
+      { kind: "dmg", format: "Disk image (.dmg)" },
+      { kind: "zip", format: "Zip archive (.zip)" },
     ],
     steps: [
       "Open the disk image and drag ace to Applications.",
@@ -64,8 +67,8 @@ export const platformGuides: PlatformGuide[] = [
     tab: "Windows",
     device: "Windows",
     system: "PC",
-    line: "For x64 and Arm PCs.",
-    files: [{ format: "Installer (.exe)", chips: "x64 · Arm64" }],
+    line: "For Windows 10 and 11.",
+    kinds: [{ kind: "exe", format: "Installer (.exe)" }],
     steps: [
       "Run the installer and follow its steps.",
       "Open ace from the Start menu. It finds the agent CLIs you're signed in to.",
@@ -77,11 +80,11 @@ export const platformGuides: PlatformGuide[] = [
     tab: "Linux",
     device: "Linux",
     system: "laptop",
-    line: "For x64 and Arm64, on any recent distribution.",
-    files: [
-      { format: "AppImage", chips: "x64 · Arm64" },
-      { format: "Debian package (.deb)", chips: "x64 · Arm64" },
-      { format: "Archive (.tar.gz)", chips: "x64 · Arm64" },
+    line: "For Ubuntu 24.04 or newer, Fedora, Debian 12 or newer and Omarchy, on Wayland.",
+    kinds: [
+      { kind: "appimage", format: "AppImage" },
+      { kind: "deb", format: "Debian package (.deb)" },
+      { kind: "tar", format: "Archive (.tar.gz)" },
     ],
     steps: [
       "Make the AppImage executable and run it, or install the .deb with apt.",
@@ -95,11 +98,11 @@ export const platformGuides: PlatformGuide[] = [
     device: "iPhone",
     system: "iOS",
     line: "Follow and steer the agents on your computers from anywhere.",
-    files: [
-      { format: "Push notifications", chips: "For approvals and questions" },
-      { format: "Live Activities", chips: "A thread's progress on the Lock Screen" },
-      { format: "Widgets", chips: "Your threads at a glance" },
-      { format: "Allow and Deny", chips: "Right on the Lock Screen" },
+    notes: [
+      { name: "Push notifications", body: "For approvals and questions" },
+      { name: "Live Activities", body: "A thread's progress on the Lock Screen" },
+      { name: "Widgets", body: "Your threads at a glance" },
+      { name: "Allow and Deny", body: "Right on the Lock Screen" },
     ],
     steps: [
       "Install ace on a computer first: your agents run there, not on the phone.",
@@ -114,3 +117,9 @@ export const phoneNotes = {
   more: { href: "/features/mobile/", label: "How the iPhone and iPad apps work" },
   android: "Android is coming soon. Until then, any browser can pair with your machines.",
 } as const;
+
+/** "Built for Apple silicon." or "Built for x64 and Arm64.": the chips a release has builds for. */
+export function chipsLine(platform: Platform, archs: readonly Arch[]): string | undefined {
+  const names = [...new Set(archs)].map((arch) => chipName[platform][arch]);
+  return names.length > 0 ? `Built for ${names.join(" and ")}.` : undefined;
+}

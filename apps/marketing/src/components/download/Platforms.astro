@@ -1,12 +1,19 @@
 ---
 /*
- * Every platform under tabs (Mac, Windows, Linux, iPhone and iPad): its builds, its download and
- * how to install it in three steps. The visitor's own platform opens first. Without the script
- * every platform shows, one under the other.
+ * Every platform under tabs (Mac, Windows, Linux, iPhone and iPad): its download, every build
+ * the release has for it (each kind and chip its own link, with its size), and how to install
+ * it in three steps. The visitor's own platform opens first. Without the script every platform
+ * shows, one under the other.
  */
-import { downloadPage, phoneNotes, platformGuides } from "../../content/download.ts";
-import { isPlatform } from "../../content/release-pick.ts";
-import { buildText, defaultArch, downloads, platformInfo } from "../../content/release.ts";
+import { chipsLine, downloadPage, phoneNotes, platformGuides } from "../../content/download.ts";
+import { chipName, isPlatform } from "../../content/release-pick.ts";
+import {
+  buildText,
+  defaultArch,
+  downloads,
+  formatSize,
+  platformInfo,
+} from "../../content/release.ts";
 import TabList from "../site/TabList.astro";
 
 const prefix = "platform";
@@ -31,6 +38,13 @@ const prefix = "platform";
       platformGuides.map((guide, index) => {
         const platform = isPlatform(guide.id) ? guide.id : undefined;
         const file = platform ? downloads.byPlatform[platform] : undefined;
+        const files = platform ? downloads.files[platform] : [];
+        const chips = platform && chipsLine(platform, files.map((entry) => entry.arch));
+        // A kind the release has no file of is left out; when the release couldn't be read at
+        // all, every kind shows and points at the release page.
+        const kinds = (guide.kinds ?? [])
+          .map((entry) => ({ ...entry, files: files.filter((found) => found.kind === entry.kind) }))
+          .filter((entry) => entry.files.length > 0 || files.length === 0);
         return (
           <div
             class="panel card"
@@ -40,15 +54,47 @@ const prefix = "platform";
           >
             <div class="get">
               <h3>{guide.tab}</h3>
-              <p class="line">{guide.line}</p>
-              <ul class="files">
-                {guide.files.map((entry) => (
-                  <li>
-                    <b>{entry.format}</b>
-                    <span>{entry.chips}</span>
-                  </li>
-                ))}
-              </ul>
+              <p class="line">
+                {guide.line}
+                {chips && ` ${chips}`}
+              </p>
+              {platform && (
+                <ul class="files">
+                  {kinds.map((entry) => (
+                    <li>
+                      <b>{entry.format}</b>
+                      <span class="chips">
+                        {entry.files.map((found) => (
+                          <a
+                            class="chip"
+                            href={found.url}
+                            data-file={`${platform}:${found.kind}:${found.arch}`}
+                            aria-label={`Download the ${entry.format} for ${chipName[platform][found.arch]}`}
+                          >
+                            {chipName[platform][found.arch]}
+                            <span data-file-size>{formatSize(found.bytes)}</span>
+                          </a>
+                        ))}
+                        {entry.files.length === 0 && (
+                          <a class="chip" href={downloads.notesUrl} data-release-notes>
+                            On the release page
+                          </a>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {guide.notes && (
+                <ul class="files">
+                  {guide.notes.map((entry) => (
+                    <li>
+                      <b>{entry.name}</b>
+                      <span class="note">{entry.body}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {platform && file && (
                 <div class="action">
                   <a
@@ -168,9 +214,11 @@ const prefix = "platform";
   .files li {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: space-between;
-    gap: 2px 16px;
-    padding: 12px 0;
+    gap: 8px 16px;
+    min-height: 54px;
+    padding: 9px 0;
     border-bottom: 1px solid var(--border);
     font-size: 15px;
   }
@@ -179,10 +227,46 @@ const prefix = "platform";
     font-weight: 500;
   }
 
-  .files span {
+  .note {
     color: var(--line);
     font-family: var(--font-mono);
     font-size: 13px;
+  }
+
+  /* A build: its chip and size, and a download in its own right. */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    color: var(--foreground);
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out);
+  }
+
+  .chip:hover {
+    border-color: var(--subtle);
+    background: var(--wash);
+  }
+
+  .chip span {
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 400;
   }
 
   .action {
