@@ -12,7 +12,7 @@ import {
   type Downloads,
 } from "../content/release.ts";
 import { partGroups, type Part } from "../content/parts.ts";
-import { zoomCaptions } from "../content/zoom.ts";
+import { captionWith, zoomCaptions } from "../content/zoom.ts";
 import { links } from "../site.ts";
 
 /*
@@ -74,7 +74,7 @@ function home(href: Href, downloads: Downloads): string[] {
     ...zoomCaptions.flatMap((caption) => [
       `### ${caption.title}`,
       "",
-      caption.body,
+      captionWith(caption.body, builtInAgents[0]?.label ?? "An agent"),
       "",
       `More: ${href(caption.href)}`,
       "",

@@ -1,40 +1,53 @@
 ---
 /*
  * The agents ace runs, right after the story that shows them at work: the statement on one side
- * and, on the other, the list as ace's own Agents settings would show it on a machine where
- * every CLI is signed in: mark, name, the model its CLI offers first, and that it is signed in.
- * Each row opens the agent's page; /agents/ has the rest.
+ * and, on the other, every agent in one ruled grid, each with its mark. The six built in come
+ * first and open their pages; the rest are the agents ace runs through the Agent Client
+ * Protocol, from the app's own registry (content/agents.ts). The last cell stands for any other.
  */
 import { agentGuides } from "../content/agent-guides.ts";
-import { currentModels } from "../content/agents.ts";
+import { acpAgents, builtInAgents } from "../content/agents.ts";
 import BrandMark from "./BrandMark.astro";
-import AppIcon from "./mac/AppIcon.astro";
+
+const page = (label: string) => {
+  const guide = agentGuides.find((entry) => entry.label === label);
+  return guide ? `/agents/${guide.slug}/` : undefined;
+};
+const agents = [...builtInAgents, ...acpAgents].map((agent) => ({
+  brand: agent.brand,
+  label: agent.label,
+  href: page(agent.label),
+}));
 ---
 
 <section class="section page agents" aria-label="Agents ace runs">
   <div class="say reveal">
     <h2 class="section-title">It runs the agents you already pay for.</h2>
     <p class="lede">
-      Each one signs in through its own CLI, on the subscription you have. ace never asks for a key.
+      {agents.length} agents today, and any other that speaks the Agent Client Protocol. Each signs in
+      through its own CLI, on the subscription you have. ace never asks for a key.
     </p>
-    <a class="text-link" href="/agents/">All agents, and any that speaks ACP</a>
+    <a class="text-link" href="/agents/">How each one runs in ace</a>
   </div>
-  <ul class="card reveal" data-stagger>
+  <ul class="card reveal">
     {
-      agentGuides.map((guide) => (
+      agents.map((agent) => (
         <li>
-          <a href={`/agents/${guide.slug}/`}>
-            <BrandMark brand={guide.brand} size={22} />
-            <span class="name">{guide.label}</span>
-            <span class="model">{currentModels[guide.label]?.model}</span>
-            <span class="in">
-              <AppIcon name="check-circle" size={14} />
-              Signed in
+          {agent.href ? (
+            <a href={agent.href}>
+              <BrandMark brand={agent.brand} size={20} />
+              {agent.label}
+            </a>
+          ) : (
+            <span>
+              <BrandMark brand={agent.brand} size={20} />
+              {agent.label}
             </span>
-          </a>
+          )}
         </li>
       ))
     }
+    <li class="any"><a href="/agents/">Any ACP agent</a></li>
   </ul>
 </section>
 
@@ -61,55 +74,46 @@ import AppIcon from "./mac/AppIcon.astro";
     margin-top: 20px;
   }
 
-  /* The list: flat rows ruled with hairlines, as the app rules a list. */
+  /* One grid ruled with hairlines: the gaps between the cells are the rules. */
   ul {
-    padding: 6px;
-  }
-
-  li + li {
-    border-top: 1px solid var(--border);
-  }
-
-  li a {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1fr) auto auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  @media (min-width: 520px) {
+    ul {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  li {
+    display: grid;
+    background: var(--surface);
+  }
+
+  li > * {
+    display: flex;
     align-items: center;
-    gap: 14px;
-    min-height: 56px;
-    padding: 0 14px;
-    border-radius: 8px;
-    color: inherit;
+    gap: 11px;
+    min-height: 54px;
+    padding: 0 16px;
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
     text-decoration: none;
+    white-space: nowrap;
     transition: background-color var(--motion-fast) var(--ease-out);
   }
 
-  li a:hover {
+  li > a:hover {
     background: var(--wash);
   }
 
-  .name {
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -0.015em;
-  }
-
-  .model {
+  .any > a {
     color: var(--muted);
-    font-size: 14px;
-  }
-
-  .in {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 92px;
-    color: var(--status-done);
-    font-size: 13px;
-  }
-
-  @media (max-width: 519px) {
-    .in {
-      display: none;
-    }
   }
 </style>

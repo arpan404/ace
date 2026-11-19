@@ -12,6 +12,7 @@
 import { builtInAgents, currentModels } from "../../content/agents.ts";
 import { product } from "../../content/product.ts";
 import {
+  agentSlot,
   zoomCaptions,
   zoomCast,
   zoomHeadline,
@@ -132,10 +133,17 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
         <div class="facts">
           <ul aria-label="Agents ace runs">
             {
-              builtInAgents.map((agent) => (
-                <li title={agent.label}>
-                  <BrandMark brand={agent.brand} size={18} />
-                  <span class="sr-only">{agent.label}</span>
+              builtInAgents.map((agent, index) => (
+                <li>
+                  <button
+                    type="button"
+                    title={agent.label}
+                    data-zoom-pick
+                    aria-pressed={index === 0 ? "true" : "false"}
+                  >
+                    <BrandMark brand={agent.brand} size={18} />
+                    <span class="sr-only">{agent.label}</span>
+                  </button>
                 </li>
               ))
             }
@@ -156,7 +164,10 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
             </span>
             <h2>{caption.title}</h2>
             <p>
-              {caption.body} <a href={caption.href}>More</a>
+              {caption.body.split(agentSlot).flatMap((part, at) =>
+                at === 0 ? [part] : [<span data-zoom-agent>{builtInAgents[0]?.label}</span>, part],
+              )}{" "}
+              <a href={caption.href}>More</a>
             </p>
           </li>
         ))
@@ -220,6 +231,7 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
   }
 
   /* The chosen agent's mark, at the size the app's picker draws it. */
+  .zoom :global(.ace .composer .model .provider svg),
   .ghost :global(.model .provider svg) {
     width: 15px;
     height: 15px;
@@ -418,6 +430,25 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 
   .facts li {
     display: grid;
+  }
+
+  /* Where the wheel doesn't fit, the marks choose the agent: the chosen one stands at full ink. */
+  .facts button {
+    display: grid;
+    padding: 4px;
+    margin: -4px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.45;
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+
+  .facts button:hover,
+  .facts button[aria-pressed="true"] {
+    opacity: 1;
   }
 
   .zoom[data-team="dial"] .facts ul {

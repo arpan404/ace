@@ -232,27 +232,47 @@ export function startZoomStory(root: HTMLElement): void {
   const picker = ghost?.querySelector<HTMLElement>(".model");
   const pickerCaret = picker?.querySelector(":scope > svg:last-child")?.outerHTML ?? "";
   const well = q("[data-dial-well]");
+  const picks = [...root.querySelectorAll<HTMLElement>("[data-zoom-pick]")];
 
   /** Turns the wheel to one agent: the chips take their seats and the composer shows the choice. */
   function choose(index: number): void {
     chosen = index;
-    if (!dial) return;
-    dialSeats(dial, seats.length, chosen, chipSize).forEach((seat, at) => {
-      const chip = seats[at];
-      if (!chip) return;
-      chip.style.translate = `${seat.x}px ${seat.y}px`;
-      chip.style.scale = String(seat.scale);
-      chip.style.setProperty("--tilt", `${seat.tilt}deg`);
-      chip.style.opacity = String(seat.opacity);
-      chip.toggleAttribute("data-out", seat.opacity === 0);
-      chip.setAttribute("aria-pressed", at === chosen ? "true" : "false");
-    });
-    if (!picker) return;
+    if (dial) {
+      dialSeats(dial, seats.length, chosen, chipSize).forEach((seat, at) => {
+        const chip = seats[at];
+        if (!chip) return;
+        chip.style.translate = `${seat.x}px ${seat.y}px`;
+        chip.style.scale = String(seat.scale);
+        chip.style.setProperty("--tilt", `${seat.tilt}deg`);
+        chip.style.opacity = String(seat.opacity);
+        chip.toggleAttribute("data-out", seat.opacity === 0);
+      });
+    }
+    seats.forEach((chip, at) =>
+      chip.setAttribute("aria-pressed", at === chosen ? "true" : "false"),
+    );
+    picks.forEach((pick, at) =>
+      pick.setAttribute("aria-pressed", at === chosen ? "true" : "false"),
+    );
+
+    // The choice carries through the story: the app's own composer, the thread's row in every
+    // window's list and the captions all name the agent the visitor picked.
     const chip = seats[chosen];
     const mark = chip?.querySelector("svg")?.outerHTML ?? "";
     const effort = chip?.dataset.effort ? ` <span>· ${chip.dataset.effort}</span>` : "";
-    // The picker reads as the app's does: the agent's mark, its model, the effort, the caret.
-    picker.innerHTML = `<span class="provider">${mark}</span>${chip?.dataset.model ?? ""}${effort}${pickerCaret}`;
+    const reads = `<span class="provider">${mark}</span>${chip?.dataset.model ?? ""}${effort}${pickerCaret}`;
+    for (const each of [picker, thisMac?.querySelector<HTMLElement>(".composer .model")]) {
+      if (each) each.innerHTML = reads;
+    }
+    for (const old of root.querySelectorAll('[data-row="cold-start"] .provider svg')) {
+      const fresh = chip?.querySelector("svg")?.cloneNode(true);
+      if (!(fresh instanceof SVGElement)) continue;
+      fresh.setAttribute("width", "15");
+      fresh.setAttribute("height", "15");
+      old.replaceWith(fresh);
+    }
+    const name = chip?.textContent?.trim() ?? "";
+    for (const slot of root.querySelectorAll("[data-zoom-agent]")) slot.textContent = name;
   }
 
   /** Seats the opening's wheel of agents beside the composer as the first shot shows it. */
@@ -310,6 +330,12 @@ export function startZoomStory(root: HTMLElement): void {
       seats[chosen]?.focus();
     });
   });
+  picks.forEach((pick, index) =>
+    pick.addEventListener("click", () => {
+      settle();
+      choose(index);
+    }),
+  );
   // Scrolling over the wheel turns it, a place for every notch of travel, and the page stays put.
   let travelled = 0;
   dialRoot?.addEventListener(
@@ -421,8 +447,6 @@ export function startZoomStory(root: HTMLElement): void {
       if (dialRoot) {
         dialRoot.style.opacity = String(waiting);
         dialRoot.style.visibility = waiting === 0 ? "hidden" : "";
-        // The story is about its own agent: once it starts, the wheel is back on it.
-        if (waiting < 1 && chosen !== 0) choose(0);
       }
       if (cue) {
         cue.style.opacity = String(waiting);

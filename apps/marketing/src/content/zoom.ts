@@ -14,6 +14,12 @@ export const zoomHeadline: string[] = product.headline
   .match(/[^.]+\./g)
   ?.map((line) => line.trim()) ?? [product.headline];
 
+/** Where a caption names the agent the visitor chose in the opening. */
+export const agentSlot = "{agent}";
+
+/** A caption's words with the agent named, for anywhere that can't swap the name live. */
+export const captionWith = (body: string, agent: string) => body.replaceAll(agentSlot, agent);
+
 export interface ZoomCaption {
   /** The shot this caption is read on. */
   shot: Exclude<ShotId, "prompt">;
@@ -27,7 +33,7 @@ export const zoomCaptions: ZoomCaption[] = [
   {
     shot: "thread",
     title: "It splits the work.",
-    body: "Claude fixes the server and hands off the rest: Codex writes the test, Cursor reviews the change, and the soak test goes to your Linux server.",
+    body: "{agent} fixes the server and hands off the rest: Codex writes the test, Cursor reviews the change, and the soak test goes to your Linux server.",
     href: "/features/orchestration/",
   },
   {
