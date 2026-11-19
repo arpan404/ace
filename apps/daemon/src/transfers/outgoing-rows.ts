@@ -10,6 +10,7 @@ import {
   TransferPhase,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { TransferIndex } from "./transfer-index.ts";
 
 /** What the sender decided while preparing, kept so a restart sends the same thing. */
 export const TransferPlan = z.object({
@@ -109,6 +110,7 @@ const decode = (raw: unknown): OutgoingRecord => {
   };
 };
 
+/** Phases a transfer is still being carried out in. */
 export const unsettledPhases: readonly TransferPhase[] = [
   "preparing",
   "cloning",
@@ -129,6 +131,32 @@ export class OutgoingRows {
         delivered INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL)`),
     );
+    // Recovery's work and retention's oldest rows, without scanning the table (ADR 0170): open
+    // while unsettled or an agent's result is still owed; expiring once settled and delivered.
+    this.index = new TransferIndex(store, {
+      table: "transfer_outgoing",
+      columns: "phase, delivered, updated_at",
+      opens: (row) => unsettled.has(String(row["phase"])) || row["delivered"] === 0,
+      expiresAt: (row) =>
+        !unsettled.has(String(row["phase"])) && row["delivered"] === 1
+          ? Number(row["updated_at"])
+          : undefined,
+    });
+  }
+  private index: TransferIndex;
+  /** Indexes rows from before the side tables, once and in pages; recovery waits for it. */
+  ready(): Promise<void> {
+    return this.index.ready();
+  }
+  /** An unsettled transfer of this thread, if one is: a thread moves once at a time. */
+  movingThread(threadId: string): OutgoingRecord | undefined {
+    const raw = this.store
+      .statement(
+        `SELECT t.* FROM transfer_outgoing_open o CROSS JOIN transfer_outgoing t USING (transfer_id)
+        WHERE json_extract(t.record,'$.threadId')=? AND t.phase IN (${unsettledPhases.map(() => "?").join(",")}) LIMIT 1`,
+      )
+      .get(threadId, ...unsettledPhases);
+    return raw ? decode(raw) : undefined;
   }
   get(transferId: string): OutgoingRecord | undefined {
     const raw = this.store
@@ -155,16 +183,20 @@ export class OutgoingRows {
   unsettled(after = ""): OutgoingRecord[] {
     return this.store
       .statement(
-        `SELECT * FROM transfer_outgoing WHERE phase IN (${unsettledPhases.map(() => "?").join(",")}) AND transfer_id>? ORDER BY transfer_id LIMIT 64`,
+        `SELECT t.* FROM transfer_outgoing_open o CROSS JOIN transfer_outgoing t USING (transfer_id)
+        WHERE o.transfer_id>? AND t.phase IN (${unsettledPhases.map(() => "?").join(",")})
+        ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all(...unsettledPhases, after)
+      .all(after, ...unsettledPhases)
       .map(decode);
   }
   /** Agents' settled transfers whose result their thread hasn't been given yet. */
   undelivered(): OutgoingRecord[] {
     return this.store
       .statement(
-        `SELECT * FROM transfer_outgoing WHERE delivered=0 AND phase NOT IN (${unsettledPhases.map(() => "?").join(",")}) ORDER BY started_at LIMIT 64`,
+        `SELECT t.* FROM transfer_outgoing_open o CROSS JOIN transfer_outgoing t USING (transfer_id)
+        WHERE t.delivered=0 AND t.phase NOT IN (${unsettledPhases.map(() => "?").join(",")})
+        ORDER BY t.started_at LIMIT 64`,
       )
       .all(...unsettledPhases)
       .map(decode)
@@ -177,12 +209,19 @@ export class OutgoingRows {
   expired(before: number): OutgoingRecord[] {
     return this.store
       .statement(
-        `SELECT * FROM transfer_outgoing WHERE updated_at<? AND delivered=1 AND phase NOT IN (${unsettledPhases.map(() => "?").join(",")}) LIMIT 64`,
+        `SELECT t.* FROM transfer_outgoing_expiry e CROSS JOIN transfer_outgoing t USING (transfer_id)
+        WHERE e.at<? ORDER BY e.at LIMIT 64`,
       )
-      .all(before, ...unsettledPhases)
+      .all(before)
       .map(decode);
   }
   insert(record: OutgoingRecord): void {
+    this.store.atomic(() => {
+      this.write(record);
+      this.index.sync(record.transfer.transferId);
+    });
+  }
+  private write(record: OutgoingRecord): void {
     const { transfer } = record;
     this.store
       .statement(
@@ -201,17 +240,20 @@ export class OutgoingRows {
       );
   }
   save(transfer: Transfer, plan?: TransferPlan): void {
-    this.store
-      .statement(
-        "UPDATE transfer_outgoing SET phase=?,record=?,plan=COALESCE(?,plan),updated_at=? WHERE transfer_id=?",
-      )
-      .run(
-        transfer.phase,
-        JSON.stringify(transfer),
-        plan ? JSON.stringify(plan) : null,
-        transfer.updatedAt,
-        transfer.transferId,
-      );
+    this.store.atomic(() => {
+      this.store
+        .statement(
+          "UPDATE transfer_outgoing SET phase=?,record=?,plan=COALESCE(?,plan),updated_at=? WHERE transfer_id=?",
+        )
+        .run(
+          transfer.phase,
+          JSON.stringify(transfer),
+          plan ? JSON.stringify(plan) : null,
+          transfer.updatedAt,
+          transfer.transferId,
+        );
+      this.index.sync(transfer.transferId);
+    });
   }
   /** Forgets the written file, so a resend builds it again. */
   dropFile(transferId: string, plan: TransferPlan): void {
@@ -221,11 +263,19 @@ export class OutgoingRows {
       .run(JSON.stringify(rest), transferId);
   }
   markDelivered(transferId: string): void {
-    this.store
-      .statement("UPDATE transfer_outgoing SET delivered=1 WHERE transfer_id=?")
-      .run(transferId);
+    this.store.atomic(() => {
+      this.store
+        .statement("UPDATE transfer_outgoing SET delivered=1 WHERE transfer_id=?")
+        .run(transferId);
+      this.index.sync(transferId);
+    });
   }
   delete(transferId: string): void {
-    this.store.statement("DELETE FROM transfer_outgoing WHERE transfer_id=?").run(transferId);
+    this.store.atomic(() => {
+      this.store.statement("DELETE FROM transfer_outgoing WHERE transfer_id=?").run(transferId);
+      this.index.sync(transferId);
+    });
   }
 }
+
+const unsettled = new Set<string>(unsettledPhases);

@@ -213,6 +213,10 @@ export class OutgoingTransfers {
         "machine_forbidden",
         `${input.target.name} doesn't let this machine move projects there. Link the machines again with Projects allowed.`,
       );
+    // One move of a thread at a time: checked right before the row is written, with nothing
+    // awaited in between, so of two concurrent starts only one gets in.
+    if (input.threadId && this.rows.movingThread(input.threadId))
+      throw new TransferError("thread_moving", "This thread is already moving to another machine.");
     const at = this.deps.now();
     const transfer: Transfer = {
       transferId: `transfer-${this.deps.nextId()}`,
@@ -249,6 +253,8 @@ export class OutgoingTransfers {
    */
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
+    // Rows from before the side tables are indexed first, in pages (ADR 0170).
+    await this.rows.ready();
     // Payloads a crash left behind: removed only once their own transfer's row says it is
     // settled or gone, never by guess from a list that could be cut short.
     await removeStray(this.deps.directory, (name) => {
