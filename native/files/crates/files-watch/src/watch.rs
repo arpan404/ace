@@ -38,16 +38,6 @@ const CHANNEL: usize = 65_536;
 /// The longest a window may stay open before it closes with what it has.
 pub(crate) const DEFAULT_MAX_WAIT: Duration = Duration::from_secs(1);
 
-/// The file the watcher writes once, into the root it watches, to prove its stream delivers
-/// before the watch is handed to a caller. Its own news is filtered out of translation.
-pub(crate) const PROBE: &str = ".ace-watch-probe";
-
-/// How long one stream gets to report that probe.
-const PROBE_WAIT: Duration = Duration::from_secs(2);
-
-/// How many streams a watch tries before it answers without one that proved itself.
-const PROBE_ATTEMPTS: usize = 2;
-
 /// Which backend the watcher is using.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -127,39 +117,17 @@ impl Watcher {
             overflow: Arc::clone(&overflow),
             failure: Arc::clone(&failure),
         };
-        // A stream can come up and then deliver nothing: a watch handed to a caller in that state
-        // misses everything written after it, and the caller has no way to know. Each stream is
-        // therefore proved with one probe file before it is accepted, and a fresh one is started
-        // when it stays silent. When none proves itself the worker still starts, and its first
-        // batch is a rescan, so a caller re-reads the tree rather than trusting a silent watch.
-        let mut live = false;
-        let mut backend = None;
-        for attempt in 0..PROBE_ATTEMPTS {
-            let started = match Native::start(&root, &excluder, events.clone()) {
-                Ok(native) => Backend::Native(native),
-                Err(error) => {
-                    let watcher = backend::poll(&root, events.clone())?;
-                    polling.store(true, Ordering::Release);
-                    if attempt == 0 {
-                        sink(Batch::Warning(format!(
-                            "native file watching is unavailable ({error}); polling every {} s",
-                            POLL_INTERVAL.as_secs()
-                        )));
-                    }
-                    Backend::Polling(watcher)
-                }
-            };
-            live = prove_live(&root, &commands);
-            if live || matches!(started, Backend::Polling(_)) {
-                backend = Some(started);
-                break;
+        let backend = match Native::start(&root, &excluder, events.clone()) {
+            Ok(native) => Backend::Native(native),
+            Err(error) => {
+                let watcher = backend::poll(&root, events.clone())?;
+                polling.store(true, Ordering::Release);
+                sink(Batch::Warning(format!(
+                    "native file watching is unavailable ({error}); polling every {} s",
+                    POLL_INTERVAL.as_secs()
+                )));
+                Backend::Polling(watcher)
             }
-            started.stop();
-        }
-        let Some(backend) = backend else {
-            return Err(Error::Unsupported(
-                "the file system watch never reported a probe change".to_owned(),
-            ));
         };
         let worker = Worker {
             root,
@@ -175,7 +143,6 @@ impl Watcher {
             failure,
             warning: None,
             readings: Readings::new(),
-            rescan_first: !live,
         };
         let running = std::thread::spawn(move || worker.run());
         Ok(Watcher {
@@ -194,40 +161,6 @@ impl Watcher {
             Mode::Native
         }
     }
-}
-
-/// Writes a probe into the root and waits for the stream to report it.
-///
-/// The probe is removed either way, and translation drops its news: it exists to answer one
-/// question, whether this stream delivers at all, before a caller is told it is watching.
-fn prove_live(root: &Root, commands: &Receiver<Command>) -> bool {
-    let probe = root.path().join(PROBE);
-    if std::fs::write(&probe, b"").is_err() {
-        return false;
-    }
-    let deadline = Instant::now() + PROBE_WAIT;
-    let live = loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            break false;
-        }
-        match commands.recv_timeout(left) {
-            Ok(Command::Event(Ok(event))) => {
-                if event
-                    .paths
-                    .iter()
-                    .any(|path| path.file_name().is_some_and(|name| name == PROBE))
-                {
-                    break true;
-                }
-            }
-            Ok(Command::Event(Err(_)) | Command::Failed(_)) => {}
-            Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break false,
-            Err(RecvTimeoutError::Timeout) => break false,
-        }
-    };
-    let _ = std::fs::remove_file(&probe);
-    live
 }
 
 impl Drop for Watcher {
@@ -327,18 +260,10 @@ struct Worker {
     /// The folders and stored names this window has already read. Cleared when a batch is
     /// delivered, so the next window judges folders as they are then.
     readings: Readings,
-    /// Whether the first thing the caller hears must be a rescan, because no stream proved it
-    /// delivers. The tree may have changed while nothing was watching it.
-    rescan_first: bool,
 }
 
 impl Worker {
     fn run(mut self) {
-        if self.rescan_first {
-            // Nothing proved this watch delivers, so the caller is told to read the tree rather
-            // than wait for news that may never come.
-            self.deliver(Batch::Rescan { dir: None });
-        }
         let mut coalescer = Coalescer::new(
             self.options.debounce,
             self.options.max_wait,
