@@ -387,6 +387,21 @@ send, post or pay as the person, and nothing looked.
   an approval to run outside is held to what Spade read the command would run, so it is created,
   and checked again right before the launch, only from a classification that succeeded; one that
   fails at the launch refuses the call.
+- **An approval binds an exact, fully read decision; anything incomplete or changed refuses.**
+  - What a command runs is read whole or marked incomplete (a script past the read limit,
+    outside its folder or unreadable, or the reading's budget spent): a call that would run
+    outside the sandbox with an incomplete reading is refused, never asked about or run
+    unreviewed, and one allowed outside doesn't start if, read again right before the launch,
+    any of it is incomplete or differs. This replaces ADR 0163's rule that a script the reviewer
+    can't be shown goes to the person, for every command that would run outside the sandbox.
+  - Every approval request records where the call was decided to run then (`launch`: contained
+    only, as the sandbox finds it, or outside). When the person answers, a call that would now
+    run anywhere wider (the bot's commands moved outside meanwhile) doesn't run on that answer:
+    it needs a fresh decision. A word this build doesn't know reads as the narrowest.
+  - Spade's classifier is read once per call, and that one reading routes the call and screens
+    it, so switching the classifier off in between never lets an app's write skip both the
+    screening and the reviewer; one routed counting on a screening that then can't happen goes to
+    the reviewer.
 - **Every launch keeps the gate's decision.** What the gate authorized (outside, only contained,
   or as the sandbox finds it) is carried to the launch of a one-shot command, a terminal command
   and an owned service (recorded with the service, so a kept one started again after a restart is

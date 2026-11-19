@@ -594,3 +594,46 @@ async fn a_parents_raise_waits_while_its_workers_change_is_being_decided() -> Re
     assert_eq!(view["autonomy"], "full_access");
     Ok(())
 }
+
+#[tokio::test]
+async fn turning_the_classifier_off_mid_call_never_lets_an_app_write_skip_both_screening_and_review()
+-> Result {
+    let send = FakeTool::new("send_email", Risk::Write, "Sent")
+        .app("Sends an email")
+        .declares(Effect::Network);
+    let sends = send.calls();
+    let w = world(false, vec![Arc::new(send)], |_| {
+        vec![Script::reply("").call(
+            "c1",
+            "send_email",
+            json!({ "to": "bob@x.test", "body": "Here are the files" }),
+        )]
+    })
+    .await?;
+    assert_eq!(as_person(&w, &w.bot, json!("full_access")).await?.0, 200);
+    classifier(&w, true).await?;
+    // Routed with the classifier on; switched off right before it would screen the call.
+    let engine = w.spade.engine.clone();
+    w.spade.engine.before_screening(Arc::new(move || {
+        let _ = engine.set_oversight(spade_server::engine::GlobalChange {
+            classifier: Some(false),
+            ..spade_server::engine::GlobalChange::default()
+        });
+    }));
+    w.spade.say(&w.conversation, "Email Bob").await?;
+    // Screened on the reading it was routed on: the send reaches the person.
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .ok_or("not asked")?;
+    assert_eq!(
+        asked["reviewer_reason"],
+        "It sends something in your name, so you decide."
+    );
+    assert_eq!(sends.lock().map(|c| c.len()).unwrap_or(0), 0);
+    Ok(())
+}

@@ -445,6 +445,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             app: None,
             acts_in: None,
             helper: None,
+            launch: None,
         })
     };
     let answered = |call: &str, allowed: bool| {
@@ -1092,4 +1093,26 @@ fn on_the_auto_review_an_app_tool_that_calls_its_write_local_is_still_reviewed()
         ..local
     };
     assert_eq!(route(sealed), Route::Run);
+}
+
+#[test]
+fn an_approvals_stored_launch_reads_leniently_as_the_narrowest() {
+    use crate::event::{Authorized, Event, Known};
+    let read = |launch: serde_json::Value| {
+        let event = Event::from_json(json!({
+            "type": "approval_requested", "reply": "r", "call_id": "c", "name": "shell",
+            "arguments": {}, "launch": launch,
+        }));
+        match event {
+            Event::Known(Known::ApprovalRequested { launch, .. }) => launch,
+            _ => None,
+        }
+    };
+    assert_eq!(read(json!("outside")), Some(Authorized::Outside));
+    assert_eq!(read(json!("as_found")), Some(Authorized::AsFound));
+    // A word this build doesn't know never lets it run wider.
+    assert_eq!(read(json!("anywhere")), Some(Authorized::Contained));
+    assert_eq!(read(serde_json::Value::Null), None);
+    assert!(Authorized::Contained < Authorized::AsFound);
+    assert!(Authorized::AsFound < Authorized::Outside);
 }
