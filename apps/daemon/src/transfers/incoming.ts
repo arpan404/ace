@@ -22,6 +22,7 @@ import {
   removeIfOwned,
   removeQuietly,
   removeStray,
+  transferOfFile,
 } from "./files.ts";
 import { neverPlaced } from "./ignored-files.ts";
 import {
@@ -34,6 +35,7 @@ import { TransferError, type TransferArchive, type TransferGit } from "./ports.t
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
 import { finalFolder, type LiveTarget } from "./live/target.ts";
+import { persist } from "./retry.ts";
 
 export interface IncomingDeps {
   store: Store;
@@ -49,6 +51,8 @@ export interface IncomingDeps {
   /** Threads moved while working (ADR 0191); without it, this target takes none. */
   live?: LiveTarget | undefined;
   now(): number;
+  /** Waits between retries of a setup or a start that failed; real time by default. */
+  sleep?(ms: number): Promise<void>;
   log(message: string, fields: Record<string, unknown>): void;
 }
 
@@ -56,6 +60,23 @@ const retentionMs = 24 * 60 * 60 * 1000;
 /** The most registrations, most recently used first, a begin reads origins of. */
 const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
+/** What a receiving transfer holds beside its id: the code, the ignored files, the final payload. */
+const incomingSuffixes = [".part", ".ignored.part", ".final.part", ".final.d"];
+
+/** Runs `each` over every row `page` returns, page after page by transfer id, to the end. */
+async function batches(
+  page: (after: string) => IncomingRecord[],
+  each: (record: IncomingRecord) => Promise<void>,
+): Promise<void> {
+  for (let after = ""; ;) {
+    const batch = page(after);
+    for (const record of batch) await each(record);
+    const last = batch.at(-1);
+    if (!last || batch.length < 64) return;
+    after = last.transferId;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
 
 /** Git failures a person can act on, in their words; the rest are `import_failed`. */
 const gitFailures: Partial<Record<string, { code: string; message: string }>> = {
@@ -112,6 +133,8 @@ export class IncomingTransfers {
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
   private held = new Set<string>();
+  /** Setups and starts being tried again, by key, so each runs once at a time. */
+  private retries = new Set<string>();
   /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
   private origins: OriginCache;
   constructor(deps: IncomingDeps) {
@@ -124,24 +147,34 @@ export class IncomingTransfers {
     await ensureDirectory(this.deps.directory);
     // Rows from before the side tables are indexed first, in pages (ADR 0170).
     await this.rows.ready();
-    for (const record of this.rows.unsettled()) {
-      // Past the cutoff the result stands: finish setting it up instead of undoing it.
-      if (record.result) {
-        // Left importing when it fails: the next start tries the setup again.
-        await this.complete(record, record.result);
-        continue;
-      }
-      await this.rollback(record);
-      this.import(this.rows.get(record.transferId) ?? record);
-    }
+    // Every import a restart left, in batches until none are left.
+    await batches(
+      (after) => this.rows.unsettled(after),
+      async (record) => {
+        // Past the cutoff the result stands: finish setting it up instead of undoing it.
+        if (record.result) {
+          await this.complete(record, record.result);
+          return;
+        }
+        await this.rollback(record);
+        this.import(this.rows.get(record.transferId) ?? record);
+      },
+    );
     // Moved threads whose first turn a restart interrupted, every one of them.
     if (this.deps.live)
       for await (const start of this.deps.live.unfinished()) this.startLive(start.transferId);
-    // Rows a cancel or failure settled before their rollback finished.
-    for (const record of this.rows.leftovers()) await this.rollback(record);
-    // Files a crash left behind for transfers that are settled or gone.
-    const live = this.rows.live().map((transferId) => `${transferId}.`);
-    await removeStray(this.deps.directory, (name) => live.some((id) => name.startsWith(id)));
+    // Rows a cancel or failure settled before their rollback finished, every one of them.
+    await batches(
+      (after) => this.rows.leftovers(after),
+      (record) => this.rollback(record),
+    );
+    // Files a crash left behind: removed only once their own transfer's row says it is settled
+    // or gone, never by guess from a list that could be cut short.
+    await removeStray(this.deps.directory, (name) => {
+      const transferId = transferOfFile(name, incomingSuffixes);
+      const record = transferId ? this.rows.get(transferId) : undefined;
+      return record !== undefined && !settled.has(record.state);
+    });
     await this.sweep();
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
@@ -539,17 +572,69 @@ export class IncomingTransfers {
     record: IncomingRecord,
     result: NonNullable<IncomingRecord["result"]>,
   ): Promise<void> {
-    try {
+    const setUp = async () => {
       await this.prepareLive(record, result);
-      this.finish(record, result);
+      this.finish(this.rows.get(record.transferId) ?? record, result);
       await this.removeFiles(record.transferId);
       this.startLive(record.transferId);
+    };
+    try {
+      await setUp();
     } catch (error) {
       this.deps.log("Transfer setup not finished", {
         transferId: record.transferId,
         error: String(error),
       });
+      // Tried again without a restart; when it keeps failing the transfer still ends, so the
+      // sender is answered and never waits on it (ADR 0191).
+      void this.retrying(`setup:${record.transferId}`, setUp, (lastError) =>
+        this.endWithoutSetup(record, result, lastError),
+      );
     }
+  }
+  /** Retries `run` in the background, once per key at a time; see `persist`. */
+  private retrying(
+    key: string,
+    run: () => Promise<void>,
+    giveUp: (error: unknown) => Promise<void> | void,
+  ): Promise<void> {
+    if (this.retries.has(key)) return Promise.resolve();
+    this.retries.add(key);
+    return persist({
+      attempts: 8,
+      run,
+      giveUp,
+      sleep: this.deps.sleep ?? realSleep,
+      closed: () => this.closed,
+      log: this.deps.log,
+      label: key,
+    })
+      .catch((error: unknown) => this.deps.log("Retry ended", { key, error: String(error) }))
+      .finally(() => this.retries.delete(key));
+  }
+  /**
+   * Past the cutoff the thread is this machine's, but its setup keeps failing: the transfer
+   * completes without it, and a moved thread's start is recorded as not started, said on the
+   * thread, so the sender moves on and the person sees why there.
+   */
+  private async endWithoutSetup(
+    record: IncomingRecord,
+    result: NonNullable<IncomingRecord["result"]>,
+    error: unknown,
+  ): Promise<void> {
+    const reason = `the thread couldn't be set up here (${String(error).slice(0, 120)})`;
+    this.rows.update(record.transferId, { state: "completed", result }, this.deps.now());
+    if (record.commit?.live && result.threadId)
+      this.deps.live?.giveUp({
+        transferId: record.transferId,
+        deviceId: record.deviceId,
+        method: record.method,
+        threadId: result.threadId,
+        result,
+        from: record.begin.origin.hostName,
+        reason,
+      });
+    await this.removeFiles(record.transferId);
   }
   /**
    * A moved thread (ADR 0191): its carried session placed, or the summary chosen, before its
@@ -576,17 +661,33 @@ export class IncomingTransfers {
     const live = this.deps.live;
     const commit = record?.commit;
     if (!record || !live || !commit?.live || !commit.thread || !record.result?.threadId) return;
-    live
-      .start({
-        transferId,
-        live: commit.live,
-        from: record.begin.origin.hostName,
-        path: record.result.path,
-        handoff: commit.thread.handoff,
-      })
-      .catch((error: unknown) =>
-        this.deps.log("Moved thread's turn didn't start", { transferId, error: String(error) }),
-      );
+    const threadId = record.result.threadId;
+    const result = record.result;
+    const thread = commit.thread;
+    const carried = commit.live;
+    // Tried again without a restart; when it keeps failing the start is recorded as not
+    // started, so the sender is answered and never waits on it (ADR 0191).
+    void this.retrying(
+      `start:${transferId}`,
+      () =>
+        live.start({
+          transferId,
+          live: carried,
+          from: record.begin.origin.hostName,
+          path: result.path,
+          handoff: thread.handoff,
+        }),
+      (error) =>
+        live.giveUp({
+          transferId,
+          deviceId: record.deviceId,
+          method: record.method,
+          threadId,
+          result,
+          from: record.begin.origin.hostName,
+          reason: `its first turn couldn't be started here (${String(error).slice(0, 120)})`,
+        }),
+    );
   }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
   private finish(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>): void {
@@ -718,4 +819,12 @@ export class IncomingTransfers {
       this.rows.delete(record.transferId);
     }
   }
+}
+
+/** Real time between retries; nothing waits on it at exit. */
+function realSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref();
+  });
 }

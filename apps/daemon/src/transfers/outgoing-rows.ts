@@ -151,12 +151,13 @@ export class OutgoingRows {
       .all(...unsettledPhases, since)
       .map(decode);
   }
-  unsettled(): OutgoingRecord[] {
+  /** One batch of unsettled transfers after `after` in id order; recovery reads on to the end. */
+  unsettled(after = ""): OutgoingRecord[] {
     return this.store
       .statement(
-        `SELECT * FROM transfer_outgoing WHERE phase IN (${unsettledPhases.map(() => "?").join(",")}) ORDER BY started_at LIMIT 64`,
+        `SELECT * FROM transfer_outgoing WHERE phase IN (${unsettledPhases.map(() => "?").join(",")}) AND transfer_id>? ORDER BY transfer_id LIMIT 64`,
       )
-      .all(...unsettledPhases)
+      .all(...unsettledPhases, after)
       .map(decode);
   }
   /** Agents' settled transfers whose result their thread hasn't been given yet. */

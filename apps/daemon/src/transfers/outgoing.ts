@@ -23,7 +23,14 @@ import { ChunkPace } from "./chunk-pace.ts";
 import type { Store } from "../store.ts";
 import type { TransferIdentities } from "./identity.ts";
 import { TransferClient, type TransferTransport } from "./client.ts";
-import { ensureDirectory, fileBytes, readAt, removeQuietly, removeStray } from "./files.ts";
+import {
+  ensureDirectory,
+  fileBytes,
+  readAt,
+  removeQuietly,
+  removeStray,
+  transferOfFile,
+} from "./files.ts";
 import {
   OutgoingRows,
   type OutgoingRecord,
@@ -99,6 +106,8 @@ async function ignoredHeld(plan: TransferPlan): Promise<boolean> {
   return (await fileBytes(plan.ignored.path)) === plan.ignored.bytes;
 }
 const terminal = new Set<TransferPhase>(["completed", "failed", "cancelled"]);
+/** What a sending transfer writes beside its id: the code, the ignored files, the final payload. */
+const outgoingSuffixes = [".bundle", ".tar", ".ignored.tar", ".final.tar", ".final.d"];
 const cancellable = new Set<TransferPhase>(["preparing", "cloning", "sending", "importing"]);
 
 /**
@@ -240,11 +249,22 @@ export class OutgoingTransfers {
    */
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
-    const unsettled = this.rows.unsettled();
-    // Payloads a crash left behind for transfers that are settled or gone.
-    const live = unsettled.map((record) => `${record.transfer.transferId}.`);
-    await removeStray(this.deps.directory, (name) => live.some((id) => name.startsWith(id)));
-    for (const record of unsettled) this.run(record.transfer.transferId);
+    // Payloads a crash left behind: removed only once their own transfer's row says it is
+    // settled or gone, never by guess from a list that could be cut short.
+    await removeStray(this.deps.directory, (name) => {
+      const transferId = transferOfFile(name, outgoingSuffixes);
+      const record = transferId ? this.rows.get(transferId) : undefined;
+      return record !== undefined && !terminal.has(record.transfer.phase);
+    });
+    // Every unsettled transfer carries on, in batches until none are left.
+    for (let after = ""; ;) {
+      const batch = this.rows.unsettled(after);
+      for (const record of batch) this.run(record.transfer.transferId);
+      const last = batch.at(-1);
+      if (!last || batch.length < 64) break;
+      after = last.transfer.transferId;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
       for (const path of payloads(record.plan)) await removeQuietly(path);
       this.rows.delete(record.transfer.transferId);

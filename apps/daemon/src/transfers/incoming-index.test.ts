@@ -106,7 +106,6 @@ describe("the target's transfer rows over time", () => {
     }) as typeof store.statement;
     rows.unsettled();
     rows.leftovers();
-    rows.live();
     rows.expired(1);
     expect(scans).toEqual([]);
   });

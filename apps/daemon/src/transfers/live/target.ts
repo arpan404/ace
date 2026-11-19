@@ -183,6 +183,44 @@ export class LiveTarget {
       return { kind: "summary", reason: error.message.slice(0, 256) };
     }
   }
+  /**
+   * The start can't happen: recorded as not started, with why, and said on the thread there.
+   * The sender is then answered that the thread is this machine's and moves on (ADR 0191).
+   */
+  giveUp(input: {
+    transferId: string;
+    deviceId: string;
+    method: TransferMethod;
+    threadId: string;
+    result: NonNullable<IncomingTransfer["result"]>;
+    from: string;
+    reason: string;
+  }): void {
+    const { ports } = this;
+    const start = ports.starts.get(input.transferId);
+    if (start?.running !== undefined) return;
+    if (!start)
+      ports.starts.begin(
+        {
+          transferId: input.transferId,
+          deviceId: input.deviceId,
+          method: input.method,
+          threadId: input.threadId,
+          session: { kind: "summary", reason: input.reason },
+          result: input.result,
+        },
+        ports.now(),
+      );
+    ports.starts.started(input.transferId, false, ports.now(), input.reason);
+    try {
+      ports.notice(
+        input.threadId,
+        `This thread moved here from ${input.from}, but ${input.reason}. Send a message to carry on.`,
+      );
+    } catch (error) {
+      ports.log("Moved thread's notice not shown", { error: String(error) });
+    }
+  }
   /** Records that this machine owns the thread; called inside the thread's own transaction. */
   own(input: {
     transferId: string;

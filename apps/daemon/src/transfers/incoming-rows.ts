@@ -164,35 +164,25 @@ export class IncomingRows {
    * Rows a restart left mid-import: with a `result` they passed the cutoff and are finished,
    * otherwise they are rolled back and run again.
    */
-  unsettled(): IncomingRecord[] {
+  unsettled(after = ""): IncomingRecord[] {
     return this.store
       .statement(
         `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
-        WHERE t.state IN ('cloning','importing') ORDER BY t.created_at LIMIT 64`,
+        WHERE o.transfer_id>? AND t.state IN ('cloning','importing') ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all()
+      .all(after)
       .map((raw) => decode(Row.parse(raw)));
   }
   /** Settled rows still naming a project or folder to undo, after a crash mid-rollback. */
-  leftovers(): IncomingRecord[] {
+  leftovers(after = ""): IncomingRecord[] {
     return this.store
       .statement(
         `SELECT t.* FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
-        WHERE t.state IN ('failed','cancelled')
-        AND (t.registered_id IS NOT NULL OR t.created_path IS NOT NULL) LIMIT 64`,
+        WHERE o.transfer_id>? AND t.state IN ('failed','cancelled')
+        AND (t.registered_id IS NOT NULL OR t.created_path IS NOT NULL) ORDER BY o.transfer_id LIMIT 64`,
       )
-      .all()
+      .all(after)
       .map((raw) => decode(Row.parse(raw)));
-  }
-  /** Transfers whose files are still wanted: receiving, cloning or importing. */
-  live(): string[] {
-    return this.store
-      .statement(
-        `SELECT t.transfer_id FROM transfer_incoming_open o CROSS JOIN transfer_incoming t USING (transfer_id)
-        WHERE t.state IN ('receiving','cloning','importing') LIMIT 1024`,
-      )
-      .all()
-      .map((row) => String(row["transfer_id"]));
   }
   /**
    * Settled rows older than `before`, oldest first, for retention. A moved thread's transfer
