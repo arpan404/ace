@@ -95,10 +95,33 @@ fn every_watch_on_a_root_reports_the_same_batch() {
     await_reported(&mut client, checkout.path(), second, "created.txt");
 }
 
+/// Waits until the OS watch reports a write made now, so a burst test does not start behind a
+/// backlog: fseventsd serves every client on a Mac, and the last run's burst can keep it busy for
+/// a minute and more. The write lands in a subfolder no one has open, which only the OS watch
+/// reports.
+fn os_watch_caught_up(client: &mut Client) {
+    let probe = checkout(&[("sub/keep.txt", "")]);
+    let root = client.open_root(probe.path());
+    let subscription = watch(client, root);
+    write_file(probe.path(), "sub/sentinel.txt", "now\n");
+    let deadline = Instant::now() + Duration::from_secs(180);
+    while Instant::now() < deadline {
+        if let Some(files_wire::EventPayload::Changes { changes }) =
+            client.try_event(subscription, Duration::from_millis(100))
+            && changes
+                .iter()
+                .any(|change| change.path == "sub/sentinel.txt")
+        {
+            return;
+        }
+    }
+}
+
 #[test]
 fn a_burst_of_twenty_thousand_files_ends_up_in_quick_open() {
     let checkout = checkout(&[]);
     let mut client = Client::greeted();
+    os_watch_caught_up(&mut client);
     let root = client.open_root(checkout.path());
     let subscription = watch(&mut client, root);
 
