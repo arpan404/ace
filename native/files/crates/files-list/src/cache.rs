@@ -37,14 +37,14 @@ impl<V> Lru<V> {
     }
 
     /// Stores `value`, dropping the least recently used values until it fits. A value heavier than
-    /// the whole capacity is not stored; the caller still gets to use it.
-    pub(crate) fn insert(&mut self, key: &str, value: Arc<V>, weight: usize) {
+    /// the whole capacity is not stored and `false` says so; the caller still has it.
+    pub(crate) fn insert(&mut self, key: &str, value: Arc<V>, weight: usize) -> bool {
         if let Some((_, previous)) = self.values.remove(key) {
             self.weight -= previous;
             self.order.retain(|existing| existing != key);
         }
         if weight > self.capacity {
-            return;
+            return false;
         }
         while self.weight + weight > self.capacity {
             let Some(oldest) = self.order.pop_front() else {
@@ -57,6 +57,20 @@ impl<V> Lru<V> {
         self.weight += weight;
         self.order.push_back(key.to_owned());
         self.values.insert(key.to_owned(), (value, weight));
+        true
+    }
+
+    /// Whether a value of `weight` can be kept: one heavier than the whole capacity never is.
+    pub(crate) fn admits(&self, weight: usize) -> bool {
+        weight <= self.capacity
+    }
+
+    /// Drops the value for `key`, returning what was there.
+    pub(crate) fn remove(&mut self, key: &str) -> Option<Arc<V>> {
+        let (value, weight) = self.values.remove(key)?;
+        self.weight -= weight;
+        self.order.retain(|existing| existing != key);
+        Some(value)
     }
 
     /// Drops every value whose key `keep` rejects.

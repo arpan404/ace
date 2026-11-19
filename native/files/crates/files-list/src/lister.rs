@@ -2,8 +2,11 @@
 
 //! One lister per checkout: it answers folder listings and stats, and remembers what it read.
 
+use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use cap_std::fs::Dir;
 
 use crate::cache::Lru;
 
@@ -43,10 +46,43 @@ pub struct Lister {
 }
 
 /// One folder as a traversal first read it, kept until its pages are done.
-#[derive(Debug)]
-struct Pinned {
-    dir: String,
-    snapshot: Arc<Snapshot>,
+enum Pinned {
+    /// The whole listing, so every page is exactly what the traversal first read, even after the
+    /// folder is renamed, deleted or edited.
+    Listed {
+        dir: String,
+        /// The handle the listing was read through, so later pages never re-open the path.
+        handle: Arc<Dir>,
+        snapshot: Arc<Snapshot>,
+    },
+    /// A folder too large to keep in memory. Each page re-reads it through this handle, so the
+    /// traversal stays bounded without ever handing out a cursor whose listing was not kept.
+    Streamed {
+        dir: String,
+        handle: Arc<Dir>,
+        rules: Arc<Rules>,
+        hidden: Hidden,
+    },
+}
+
+impl std::fmt::Debug for Pinned {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pinned::Listed {
+                dir,
+                handle: _,
+                snapshot,
+            } => formatter
+                .debug_struct("Listed")
+                .field("dir", dir)
+                .field("total", &snapshot.total())
+                .finish(),
+            Pinned::Streamed { dir, .. } => formatter
+                .debug_struct("Streamed")
+                .field("dir", dir)
+                .finish(),
+        }
+    }
 }
 
 impl Lister {
@@ -59,12 +95,21 @@ impl Lister {
     /// Wraps a root and a clock. Tests pass a clock they control so a folder they just wrote counts
     /// as settled instead of being inside the racy window.
     pub fn with_clock(root: Root, clock: Arc<dyn Clock>) -> Lister {
+        Lister::with_clock_and_budget(root, clock, MAX_CACHED_ENTRIES)
+    }
+
+    /// Wraps a root, a clock and the number of listing entries memory may hold.
+    ///
+    /// The budget bounds both the folder cache and the listings pinned for a traversal: a folder
+    /// larger than the budget is streamed page by page instead of being kept. Production uses the
+    /// default; a test shrinks it so a folder too large to keep needs only a handful of files.
+    pub fn with_clock_and_budget(root: Root, clock: Arc<dyn Clock>, entries: usize) -> Lister {
         Lister {
             root,
             clock,
             rules: Mutex::new(Lru::new(MAX_CACHED_CHAINS)),
-            snapshots: Mutex::new(Lru::new(MAX_CACHED_ENTRIES)),
-            pinned: Mutex::new(Lru::new(MAX_CACHED_ENTRIES)),
+            snapshots: Mutex::new(Lru::new(entries)),
+            pinned: Mutex::new(Lru::new(entries)),
             next_pin: AtomicU64::new(1),
         }
     }
@@ -110,22 +155,8 @@ impl Lister {
                     "this cursor belongs to a pinned traversal".into(),
                 ));
             }
-            let handle = self.root.open_dir(dir)?;
             let listing = self.pinned_listing(dir, &pin)?;
-            let total = listing.total();
-            let offset = pin.offset(total)?;
-            let end = offset.saturating_add(options.limit).min(total);
-            return Ok(Page {
-                entries: listing.entries(&handle, offset..end),
-                next_cursor: (end < total).then(|| {
-                    Pin {
-                        token: pin.token,
-                        offset: end as u64,
-                    }
-                    .encode()
-                }),
-                total,
-            });
+            return self.pinned_page(dir, &pin, options.limit, &listing);
         }
         let cursor = match cursor {
             None => None,
@@ -170,24 +201,33 @@ impl Lister {
             }
         };
         let end = offset.saturating_add(options.limit).min(total);
-        let next_cursor = (end < total).then(|| {
+        let next_cursor = if end < total {
             if pinned {
                 let token = self.next_pin.fetch_add(1, Ordering::Relaxed);
-                self.pin(dir, token, Arc::clone(&snapshot), total);
-                Pin {
-                    token,
-                    offset: end as u64,
-                }
-                .encode()
+                // The listing keeps the handle it was read through, so a folder renamed or
+                // deleted after this page still answers the pages that follow.
+                let held = Arc::new(handle.try_clone()?);
+                self.pin(dir, token, held, &snapshot, rules, hidden)?;
+                Some(
+                    Pin {
+                        token,
+                        offset: end as u64,
+                    }
+                    .encode(),
+                )
             } else {
-                Cursor {
-                    stamp: snapshot.stamp,
-                    count: total as u64,
-                    offset: end as u64,
-                }
-                .encode()
+                Some(
+                    Cursor {
+                        stamp: snapshot.stamp,
+                        count: total as u64,
+                        offset: end as u64,
+                    }
+                    .encode(),
+                )
             }
-        });
+        } else {
+            None
+        };
         Ok(Page {
             entries: snapshot.entries(&handle, offset..end),
             next_cursor,
@@ -228,33 +268,153 @@ impl Lister {
         })
     }
 
-    /// Keeps `snapshot` as the pinned listing `token` names, until its traversal finishes or the
-    /// cache passes its cap.
-    fn pin(&self, dir: &str, token: u64, snapshot: Arc<Snapshot>, weight: usize) {
-        let pinned = Pinned {
-            dir: dir.to_owned(),
-            snapshot,
+    /// Keeps the listing of the folder a traversal is paging, under `token`.
+    ///
+    /// A listing that fits the memory budget is kept whole. A larger one is not stored at all,
+    /// since keeping it would be the memory blow-up the budget exists to prevent: the token names
+    /// a bounded stream that re-reads the folder through `handle` on each page instead. Admission
+    /// is checked here, before the caller issues a cursor, so no cursor ever names a listing that
+    /// was silently dropped.
+    fn pin(
+        &self,
+        dir: &str,
+        token: u64,
+        handle: Arc<Dir>,
+        snapshot: &Arc<Snapshot>,
+        rules: Arc<Rules>,
+        hidden: Hidden,
+    ) -> Result<(), Error> {
+        let mut cache = self
+            .pinned
+            .lock()
+            .map_err(|_| Error::Io(std::io::Error::other("the pinned listings are poisoned")))?;
+        let key = token.to_string();
+        let total = snapshot.total();
+        let entry = if cache.admits(total) {
+            Pinned::Listed {
+                dir: dir.to_owned(),
+                handle,
+                snapshot: Arc::clone(snapshot),
+            }
+        } else {
+            Pinned::Streamed {
+                dir: dir.to_owned(),
+                handle,
+                rules,
+                hidden,
+            }
         };
-        if let Ok(mut cache) = self.pinned.lock() {
-            cache.insert(&token.to_string(), Arc::new(pinned), weight);
+        // A stream holds one handle, not the folder's entries, so it costs one slot.
+        let weight = if matches!(entry, Pinned::Listed { .. }) {
+            total
+        } else {
+            1
+        };
+        if !cache.insert(&key, Arc::new(entry), weight) {
+            return Err(Error::Io(std::io::Error::other(
+                "no room to keep the listing this traversal pins",
+            )));
+        }
+        Ok(())
+    }
+
+    /// One page of a traversal from the listing it pinned, after the folder itself changed.
+    fn pinned_page(
+        &self,
+        dir: &str,
+        pin: &Pin,
+        limit: usize,
+        listing: &Pinned,
+    ) -> Result<Page, Error> {
+        match listing {
+            Pinned::Listed {
+                dir: listed,
+                handle,
+                snapshot,
+            } if listed == dir => {
+                let total = snapshot.total();
+                let offset = pin.offset(total)?;
+                self.pinned_entries(pin.token, offset, limit, total, |range| {
+                    snapshot.entries(handle, range)
+                })
+            }
+            Pinned::Streamed {
+                dir: streamed,
+                handle,
+                rules,
+                hidden,
+            } if streamed == dir => {
+                // Bounded by one folder read: this listing is used for this page and dropped. A
+                // folder that shrank below the offset simply ends the traversal.
+                let stamp = Stamp::of(&handle.dir_metadata()?);
+                let snapshot = snapshot::read(
+                    dir,
+                    handle,
+                    stamp,
+                    stamp.is_racy(self.clock.now()),
+                    rules,
+                    hidden,
+                )?;
+                let total = snapshot.total();
+                let offset = usize::try_from(pin.offset).unwrap_or(usize::MAX).min(total);
+                self.pinned_entries(pin.token, offset, limit, total, |range| {
+                    snapshot.entries(handle, range)
+                })
+            }
+            _ => Err(Error::InvalidCursor(format!(
+                "the pinned listing is not for {dir:?}"
+            ))),
         }
     }
 
+    /// One page of a pinned listing, releasing the pin once its traversal reaches the end.
+    fn pinned_entries(
+        &self,
+        token: u64,
+        offset: usize,
+        limit: usize,
+        total: usize,
+        entries: impl FnOnce(Range<usize>) -> Vec<Entry>,
+    ) -> Result<Page, Error> {
+        let end = offset.saturating_add(limit).min(total);
+        let next_cursor = if end < total {
+            Some(
+                Pin {
+                    token,
+                    offset: end as u64,
+                }
+                .encode(),
+            )
+        } else {
+            self.release(token);
+            None
+        };
+        Ok(Page {
+            entries: entries(offset..end),
+            next_cursor,
+            total,
+        })
+    }
+
     /// The listing `pin` names, which must be the one this folder's traversal pinned.
-    fn pinned_listing(&self, dir: &str, pin: &Pin) -> Result<Arc<Snapshot>, Error> {
+    fn pinned_listing(&self, dir: &str, pin: &Pin) -> Result<Arc<Pinned>, Error> {
         let found = self
             .pinned
             .lock()
             .ok()
             .and_then(|mut cache| cache.get(&pin.token.to_string()));
         match found {
-            Some(listing) if listing.dir == dir => Ok(Arc::clone(&listing.snapshot)),
-            Some(_) => Err(Error::InvalidCursor(format!(
-                "the pinned listing is not for {dir:?}"
-            ))),
+            Some(listing) => Ok(listing),
             None => Err(Error::InvalidCursor(format!(
                 "the pinned listing of {dir:?} expired; start again"
             ))),
+        }
+    }
+
+    /// Forgets a pinned listing whose traversal reached its end.
+    fn release(&self, token: u64) {
+        if let Ok(mut cache) = self.pinned.lock() {
+            cache.remove(&token.to_string());
         }
     }
 
