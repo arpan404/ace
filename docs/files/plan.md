@@ -304,6 +304,21 @@ operations go through `files-safe`. Acceptance: `version_matches_javascript_form
 `detects_utf16_bom_and_latin1`, `binary_file_is_flagged`, `max_size_returns_no_bytes`,
 `rename_refuses_to_overwrite`, `remove_folder_recursively`, `operations_refuse_paths_outside_root`.
 
+A versioned save stages a complete copy, journals the names it will use and the identities of both
+entries, and publishes it with one atomic exchange (a move aside and an insert on Windows). A save
+interrupted between those steps is resolved when the checkout is next opened: the entry the save
+displaced is put back at its name without replacing one, or kept under a visible recovery name, so
+the journal is dropped only once nothing of the caller's is hidden.
+
+The guarantees hold against another program replacing, renaming, deleting or creating the path:
+those change the directory entry, so the save sees them and preserves the version that left the
+name. They do not hold against a second program that holds the same file open and writes in place
+at the exact instant of the save. An open handle can write after any check the save makes, and a
+write squeezed between the swap and the cleanup of the displaced entry goes into an entry the
+cleanup removes. That write can be lost. ace takes no file lock and does not watch in-place writes
+during a save, the same limit every editor that saves by rename has; a save is one person's
+version replacing another's whole, never a merge of two writers' bytes.
+
 ### files-wire
 
 Crates: `serde`, `serde_json`, `thiserror`.
