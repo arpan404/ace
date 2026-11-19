@@ -2,6 +2,12 @@ export { BrowserService, type BrowserServiceOptions } from "./service.ts";
 export type { BrowserMedia } from "./media-video.ts";
 export { detectChromium, installChromium } from "./discovery.ts";
 export { connectBrowser } from "./bridge.ts";
+export type {
+  BrowserEngine,
+  EngineMove,
+  EnginePreference,
+  EnginePreferencePort,
+} from "./engine-move.ts";
 export type { ViewerSink } from "./viewer-sink.ts";
 export { screencastSettings } from "./capture-policy.ts";
 export { SessionLogs } from "./logs.ts";

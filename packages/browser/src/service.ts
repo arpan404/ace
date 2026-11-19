@@ -34,6 +34,7 @@ import type { AgentScreenshot } from "./session-images.ts";
 import { defaultCursorStyle, type CursorStyle } from "@ace/browser-annotate";
 import type { ViewerSink } from "./viewer-sink.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
+import { EngineMoves, type EngineMove, type EnginePreferencePort } from "./engine-move.ts";
 
 /** How long an agent's cursor glides before its click lands: long enough to follow by eye. */
 const defaultGlideMs = 220;
@@ -86,6 +87,7 @@ export class BrowserService {
   private desktopCanDraw = true;
   /** Per `auto` session: move its pages from the desktop to ace's Chromium. */
   private handOffs = new Map<string, () => Promise<void>>();
+  private engineMoves = new EngineMoves(this);
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
@@ -966,6 +968,13 @@ export class BrowserService {
   }
   stopRecording(threadId: string, actor?: Actor): Promise<BrowserArtifact> {
     return this.get(threadId).stopRecording(actor);
+  }
+  /**
+   * Moves the thread's browser to another engine for a person (ADR 0193), one move per thread at
+   * a time: `preference` is where the daemon keeps the thread's `browser.backend`.
+   */
+  moveEngine(move: EngineMove, preference: EnginePreferencePort, actor: Actor) {
+    return this.engineMoves.run(move, preference, actor);
   }
   async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
     // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.
