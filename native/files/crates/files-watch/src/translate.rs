@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use files_safe::Root;
+use files_safe::{Found, Readings, Root};
 use notify::Event;
 use notify::event::{EventKind, ModifyKind, RemoveKind, RenameMode};
 
@@ -45,35 +45,23 @@ pub(crate) enum Presence {
 
 /// What is at `path`, asked through the root's handle.
 ///
-/// The leaf is opened through the root's handle without following it, so a link is reported
-/// as the link itself and never as the tree it points at.
-pub(crate) fn look(root: &Root, path: &str) -> Presence {
-    let (folder, name) = match root.open_parent(path) {
-        Ok(found) => found,
+/// The leaf is looked up through the folder that holds it without following it, so a link is
+/// reported as the link itself and never as the tree it points at. The folders, and the names
+/// their volume stores, are kept in `readings`, which the caller clears between batches: a burst
+/// that creates twenty thousand files in one folder opens that folder once and reads its names
+/// once, instead of walking to it and listing it for every create.
+pub(crate) fn look(root: &Root, readings: &mut Readings, path: &str) -> Presence {
+    match root.look(path, readings) {
+        Ok(Found::Folder) => Presence::Here(true),
+        Ok(Found::Other) => Presence::Here(false),
+        // A name the volume only knows under another spelling is gone as far as the caller is
+        // concerned: the spelling it asked about no longer names an entry.
+        Ok(Found::Missing | Found::Renamed) => Presence::Gone,
         Err(files_safe::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Presence::Gone;
+            Presence::Gone
         }
-        Err(_) => return Presence::Unknown,
-    };
-    match folder.symlink_metadata(&name) {
-        Ok(metadata) => {
-            // `open_parent` hands back the spelling the folder stores. On a volume that ignores
-            // case, a case-only rename finds the entry under its new spelling, so the spelling
-            // that was asked for is gone even though the entry lives on. Reporting it present
-            // would keep the old name in the index next to the new one.
-            if name != leaf(path) {
-                return Presence::Gone;
-            }
-            Presence::Here(metadata.is_dir())
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Presence::Gone,
         Err(_) => Presence::Unknown,
     }
-}
-
-/// The last segment of a relative path.
-fn leaf(path: &str) -> &str {
-    path.rsplit_once('/').map_or(path, |(_, leaf)| leaf)
 }
 
 /// The `Notice` form of a presence: only a path seen on disk says anything.
@@ -89,7 +77,7 @@ pub(crate) fn translate(
     event: Event,
     root: &Root,
     excluder: &Excluder,
-    look: &dyn Fn(&str) -> Presence,
+    look: &mut impl FnMut(&str) -> Presence,
 ) -> Translation {
     let mut translation = Translation {
         notices: Vec::new(),
@@ -183,7 +171,7 @@ fn push(
     translation: &mut Translation,
     root: &Root,
     excluder: &Excluder,
-    look: &dyn Fn(&str) -> Presence,
+    look: &mut impl FnMut(&str) -> Presence,
     absolute: &Path,
     kind: ChangeKind,
     rename: bool,
@@ -249,11 +237,11 @@ mod tests {
                 .iter()
                 .map(|(rel, is_dir)| ((*rel).to_owned(), *is_dir))
                 .collect();
-            let look = move |path: &str| match table.get(path) {
+            let mut look = move |path: &str| match table.get(path) {
                 Some(directory) => Presence::Here(*directory),
                 None => Presence::Gone,
             };
-            let translation = translate(event, &self.root, &excluder, &look);
+            let translation = translate(event, &self.root, &excluder, &mut look);
             let changes = translation
                 .notices
                 .into_iter()
@@ -420,7 +408,7 @@ mod tests {
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
         assert_eq!(
-            translate(event, &fixture.root, &outside, &|_| Presence::Gone).rescan,
+            translate(event, &fixture.root, &outside, &mut |_| Presence::Gone).rescan,
             Some(Some("node_modules/pkg".to_owned())),
             "a package folder is listed, so it can be rescanned"
         );
@@ -428,7 +416,7 @@ mod tests {
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
         assert_eq!(
-            translate(event, &fixture.root, &inside, &|_| Presence::Gone).rescan,
+            translate(event, &fixture.root, &inside, &mut |_| Presence::Gone).rescan,
             Some(None),
             "an excluded folder's overflow names the root instead"
         );

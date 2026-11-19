@@ -72,7 +72,7 @@ impl Names {
 }
 
 /// One folder's entries, by identity.
-struct Listing {
+pub(crate) struct Listing {
     entries: HashMap<Key, Names>,
 }
 
@@ -96,6 +96,22 @@ impl Listing {
     fn find(&self, wanted: &Key, requested: &OsStr) -> Option<&OsStr> {
         self.entries.get(wanted)?.pick(requested)
     }
+
+    /// The name this listing stores for the entry `metadata` describes, preferring exactly the
+    /// spelling that was asked for.
+    ///
+    /// `None` means the listing does not know that entry: the folder changed after it was read, or
+    /// the entry was created after it. A caller watching a burst sees both, and treats a name it
+    /// cannot place as the spelling that was asked for, which is what creating one stores.
+    pub(crate) fn name_of(&self, requested: &OsStr, metadata: &Metadata) -> Option<&OsStr> {
+        self.find(&wanted_key(requested, metadata), requested)
+    }
+}
+
+/// Reads the names `dir` stores, for a caller that keeps the reading instead of this cache.
+pub(crate) fn read(dir: &Dir, folder: &str) -> Result<Listing, Error> {
+    let stamp = stamp(dir, folder)?;
+    Listing::read(dir, stamp.dev).map_err(Into::into)
 }
 
 /// Whether two names are the same entry on a volume that ignores case.

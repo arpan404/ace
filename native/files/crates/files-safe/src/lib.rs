@@ -13,15 +13,18 @@
 //! walkers, which must walk with `follow_links(false)` and compare each opened file's identity
 //! with the entry they walked before they trust a byte of it.
 
+mod case;
 mod check;
 mod error;
 mod identity;
+mod look;
 mod names;
 mod walk;
 #[cfg(any(windows, test))]
 mod windows;
 
 pub use crate::error::Error;
+pub use crate::look::{Found, Readings};
 pub use crate::walk::{Parent, Stored};
 
 use std::path::{Component, Path, PathBuf};
@@ -37,6 +40,7 @@ pub struct Root {
     opened: PathBuf,
     dir: Arc<cap_std::fs::Dir>,
     cache: Arc<Mutex<names::Cache>>,
+    folds_case: bool,
 }
 
 impl Root {
@@ -52,12 +56,23 @@ impl Root {
             return Err(Error::NotDirectory(path.display().to_string()));
         }
         let dir = cap_std::fs::Dir::open_ambient_dir(&path, cap_std::ambient_authority())?;
+        let folds_case = case::folds(&dir);
         Ok(Root {
             path,
             opened,
             dir: Arc::new(dir),
             cache: Arc::new(Mutex::new(names::Cache::default())),
+            folds_case,
         })
+    }
+
+    /// Whether this volume folds name case, decided once when the root opened.
+    ///
+    /// A volume that folds case answers a name it stores under any case, so a caller that reports
+    /// the spelling on disk has to ask what is really stored. A volume that keeps case gives back
+    /// exactly the spelling it was given, which is why a watcher can skip that question there.
+    pub fn folds_case(&self) -> bool {
+        self.folds_case
     }
 
     /// Folder listings remembered for this root, so resolving many entries of one folder lists it

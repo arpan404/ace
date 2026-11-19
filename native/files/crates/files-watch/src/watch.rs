@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use files_safe::Root;
+use files_safe::{Readings, Root};
 use notify::Event;
 #[cfg(windows)]
 use notify::event::{EventKind, Flag};
@@ -142,6 +142,7 @@ impl Watcher {
             polling: Arc::clone(&polling),
             failure,
             warning: None,
+            readings: Readings::new(),
         };
         let running = std::thread::spawn(move || worker.run());
         Ok(Watcher {
@@ -256,6 +257,9 @@ struct Worker {
     polling: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<String>>>,
     warning: Option<String>,
+    /// The folders and stored names this window has already read. Cleared when a batch is
+    /// delivered, so the next window judges folders as they are then.
+    readings: Readings,
 }
 
 impl Worker {
@@ -287,8 +291,12 @@ impl Worker {
             // stops hold `recv_timeout(0)` open forever and the window would never close. The
             // deadline is checked before the queue is touched.
             if wait == Some(Duration::ZERO) {
-                let look = |path: &str| translate::look(&self.root, path);
-                if let Some(batch) = coalescer.settle(now, &look) {
+                let batch = {
+                    let mut look =
+                        |path: &str| translate::look(&self.root, &mut self.readings, path);
+                    coalescer.settle(now, &mut look)
+                };
+                if let Some(batch) = batch {
                     self.deliver(batch);
                 }
                 continue;
@@ -308,12 +316,12 @@ impl Worker {
                     // only be discarded with the change. Skipping it also lets a large backlog
                     // drain quickly, so the rescan is sent soon after the burst ends.
                     let mut translation = if coalescer.is_rescanning() {
-                        translate::translate(event, &self.root, &self.excluder, &|_| {
-                            translate::Presence::Unknown
-                        })
+                        let mut absent = |_: &str| translate::Presence::Unknown;
+                        translate::translate(event, &self.root, &self.excluder, &mut absent)
                     } else {
-                        let look = |path: &str| translate::look(&self.root, path);
-                        translate::translate(event, &self.root, &self.excluder, &look)
+                        let mut look =
+                            |path: &str| translate::look(&self.root, &mut self.readings, path);
+                        translate::translate(event, &self.root, &self.excluder, &mut look)
                     };
                     if let Some(dir) = translation.rescan {
                         coalescer.overflow(dir, now);
@@ -329,8 +337,12 @@ impl Worker {
                 }
                 Ok(Command::Failed(message)) => self.backend_failed(message),
                 Err(RecvTimeoutError::Timeout) => {
-                    let look = |path: &str| translate::look(&self.root, path);
-                    if let Some(batch) = coalescer.settle(Instant::now(), &look) {
+                    let batch = {
+                        let mut look =
+                            |path: &str| translate::look(&self.root, &mut self.readings, path);
+                        coalescer.settle(Instant::now(), &mut look)
+                    };
+                    if let Some(batch) = batch {
                         self.deliver(batch);
                     }
                 }
@@ -428,6 +440,9 @@ impl Worker {
     }
 
     fn deliver(&mut self, batch: Batch) {
+        // The window is closed: folders read while it filled may have changed since, and the next
+        // window starts from what the tree holds then.
+        self.readings.clear();
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend
