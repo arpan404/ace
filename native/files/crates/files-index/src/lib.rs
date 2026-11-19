@@ -52,8 +52,8 @@ use walk::Filters;
 /// rules respected, and the entries a person never opens hidden.
 #[derive(Debug, Clone)]
 pub struct IndexOptions {
-    /// Hard cap on indexed files. A larger checkout keeps the first files the walk finds and
-    /// reports [`PathIndex::truncated`].
+    /// Hard cap on indexed paths, folders included. A larger checkout keeps the first paths the
+    /// walk finds and reports [`PathIndex::truncated`].
     pub max_files: usize,
     /// Index files that git ignores. Off by default, as the Files panel dims ignored entries.
     pub include_ignored: bool,

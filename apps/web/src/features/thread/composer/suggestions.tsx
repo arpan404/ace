@@ -2,7 +2,7 @@ import { commandSuggestions, mentionSuggestions } from "@ace/ui-core";
 import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
 import { useConnectionGeneration, useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Trigger } from "./draft.ts";
@@ -38,15 +38,16 @@ const threadReference = (thread: ThreadListEntry) => ({
 /** A building index is asked for about this long before the list offers Try again. */
 export const buildingWaitMs = 12_000;
 /**
- * Whether the answer is still an index being built, not a list of matches. `updatedAt` is when the
- * answer arrived: past the wait it is not a list that will fill in, so the caller can say so.
+ * Whether the answer is still an index being built, not a list of matches. `since` is when the
+ * first still-building answer arrived: later identical answers keep it, so polling cannot renew
+ * the wait forever.
  */
 export function indexStillBuilding(
   answer: { ready?: boolean | undefined } | undefined,
-  updatedAt: number,
+  since: number,
   now = Date.now(),
 ): boolean {
-  return answer?.ready === false && now - updatedAt < buildingWaitMs;
+  return answer?.ready === false && now - since < buildingWaitMs;
 }
 const sameThread = (a: ReturnType<typeof threadReference>, b: ReturnType<typeof threadReference>) =>
   a.id === b.id && a.title === b.title && a.workspaceId === b.workspaceId;
@@ -91,14 +92,20 @@ export function useSuggestions(
     // Opening the menu retries discovery even when its target is unchanged.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [sources, scoped, ready, socket, reference, commandOpen, draft, provider]);
+  // When the first still-building answer arrived, kept across the refetches it causes.
+  const buildingSince = useRef<number | undefined>(undefined);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
     enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
-    refetchInterval: (query) =>
-      indexStillBuilding(query.state.data, query.state.dataUpdatedAt) ? 300 : false,
+    refetchInterval: (query) => {
+      const since = buildingSince.current;
+      return since !== undefined && indexStillBuilding(query.state.data, since) ? 300 : false;
+    },
   });
+  if (mentions.data?.ready === false) buildingSince.current ??= Date.now();
+  else buildingSince.current = undefined;
   const known =
     catalog && catalog.reference === reference && !catalog.failed ? catalog.entries : undefined;
   if (!trigger) return { state: "closed", entries: known };
@@ -106,7 +113,9 @@ export function useSuggestions(
   if (!scoped || !ready) return { state: "loading", kind, query };
   let items: Suggestion[];
   if (kind === "mention") {
-    const building = indexStillBuilding(mentions.data, mentions.dataUpdatedAt);
+    const building =
+      buildingSince.current !== undefined &&
+      indexStillBuilding(mentions.data, buildingSince.current);
     const failing = mentions.isError || mentions.isRefetchError;
     items = mentionSuggestions({
       query,
