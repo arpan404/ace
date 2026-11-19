@@ -1,0 +1,208 @@
+---
+/*
+ * A feature page's story: its sections as the steps of a scroll story (site/ScrollStory),
+ * beside ace drawn on a MacBook, with the other hardware the feature involves standing next to
+ * it: the Linux build server, the Windows workstation, the iPhone. As each step becomes
+ * current the drawing acts out that part and the camera travels to it
+ * (scripts/feature-story.ts). The drawing is one world in the app's own pixels; labels and the
+ * verbs on the lines sit outside it, so they keep their size at every zoom. Without the script
+ * the drawing is left out and the story reads as its steps.
+ */
+import type { Feature } from "../../content/features.ts";
+import { zoomCast } from "../../content/zoom.ts";
+import Laptop from "../devices/Laptop.astro";
+import LinuxScreen from "../devices/LinuxScreen.astro";
+import MacBook from "../devices/MacBook.astro";
+import Monitor from "../devices/Monitor.astro";
+import WindowsScreen from "../devices/WindowsScreen.astro";
+import MacScreen from "../mac/MacScreen.astro";
+import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
+import ScrollStory from "../site/ScrollStory.astro";
+
+interface Props {
+  feature: Feature;
+}
+
+const { feature } = Astro.props;
+const steps = feature.sections.map((section) => ({
+  title: section.heading,
+  body: section.body.join(" "),
+}));
+const plan = feature.sections.map((section) => section.show);
+const has = (id: Feature["cast"][number]) => feature.cast.includes(id);
+const labelled = feature.cast.length > 1;
+---
+
+<ScrollStory steps={steps} label={`${feature.name}, step by step`}>
+  <div slot="art" class="frame card" data-feature-story data-plan={JSON.stringify(plan)}>
+    <div class="world" data-world>
+      <svg class="links" width="1" height="1">
+        {feature.links.map((line) => <path data-link data-to={line.to} />)}
+      </svg>
+      <div class="thing" data-thing="mac">
+        <MacBook><MacScreen /></MacBook>
+      </div>
+      {
+        has("build") && (
+          <div class="thing" data-thing="build">
+            <Laptop>
+              <LinuxScreen />
+            </Laptop>
+          </div>
+        )
+      }
+      {
+        has("workstation") && (
+          <div class="thing" data-thing="workstation">
+            <Monitor>
+              <WindowsScreen />
+            </Monitor>
+          </div>
+        )
+      }
+      {
+        has("phone") && (
+          <div class="thing phone" data-thing="phone">
+            <PhoneLockScreen />
+          </div>
+        )
+      }
+    </div>
+    {
+      labelled && (
+        <div class="marks">
+          {feature.cast.map((id) => (
+            <span class="mark" data-label={id}>
+              <b>{zoomCast[id].name}</b>
+              <span class="os">{zoomCast[id].note}</span>
+            </span>
+          ))}
+          {feature.links.map((line) => (
+            <span class="verb" data-verb>
+              {line.verb}
+            </span>
+          ))}
+        </div>
+      )
+    }
+  </div>
+</ScrollStory>
+
+<style>
+  /* The picture's window onto the drawing: it fills the story's art and crops what's outside. */
+  .frame {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--band);
+    contain: paint;
+  }
+
+  /* Without the script there is no camera, and the story is its words. */
+  .frame:not([data-live]) {
+    display: none;
+  }
+
+  .world {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    transform-origin: 0 0;
+  }
+
+  .thing {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+
+  /* The phone at life size beside the Mac, its Lock Screen lit. */
+  .phone {
+    width: 330px;
+    height: 700px;
+  }
+
+  .phone :global(.lock) {
+    left: 0;
+    top: 0;
+    right: auto;
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .links {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+  }
+
+  .links path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.6;
+  }
+
+  /* Labels: outside the scaled world, moved into place by the script. */
+  .marks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .mark,
+  .verb {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    color: var(--subtle);
+    white-space: nowrap;
+  }
+
+  /* A label stands just above its drawing's top left corner. */
+  .mark {
+    margin: -24px 0 0 2px;
+  }
+
+  .mark b {
+    margin-right: 8px;
+    color: var(--foreground);
+    font-weight: 600;
+  }
+
+  .verb {
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  @media (max-width: 759px) {
+    .os,
+    .verb {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import type { StepPlan } from "../../scripts/feature-steps.ts";
+  import { startFeatureStory } from "../../scripts/feature-story.ts";
+
+  for (const frame of document.querySelectorAll<HTMLElement>("[data-feature-story]")) {
+    // The plan was written into the page by this site's own build, from content/features.ts.
+    const plan: StepPlan[] = JSON.parse(frame.dataset.plan ?? "[]");
+    startFeatureStory(frame, plan);
+  }
+</script>
