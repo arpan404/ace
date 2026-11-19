@@ -323,7 +323,9 @@ export function deriveAgentStatus(state: ThreadState, key: Key, now: number): Ag
  */
 export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   const status = liveThreadStatus(state);
-  if (state.movedTo && ["done", "new", "failed"].includes(status.state))
+  // Messages queued here stay held: nothing will send them on this machine (ADR 0191).
+  const held = status.state === "waiting" && status.on === "queue";
+  if (state.movedTo && (held || ["done", "new", "failed"].includes(status.state)))
     return { state: "moved", to: state.movedTo };
   return status;
 }

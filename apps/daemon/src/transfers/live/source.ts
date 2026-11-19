@@ -37,6 +37,8 @@ export interface LiveSourcePorts {
   hold(threadId: string, transferId: string, change: { title: string } | { ended: true }): void;
   /** The thread reads moved and records where (one transaction with the ownership change). */
   moved(threadId: string, to: { hostId: string; name: string; threadId: string }): void;
+  /** The fence lifted: work held while it stood (queued messages, controls) dispatches. */
+  released(threadId: string): void;
   /** Sends the agent a message, keyed so a repeat sends once. */
   send(threadId: string, key: string, text: string): void;
   atomic<T>(run: () => T): T;
@@ -100,8 +102,7 @@ export class LiveSource {
       queued: ports.queued(threadId),
     };
     await ports.stopTerminals(threadId);
-    for (const child of ports.localChildren(threadId))
-      ports.stopChild(child.threadId, `transfer-live:${transferId}:stop:${child.threadId}`);
+    await this.stopChildren(threadId, transferId, signal);
     // The provider's process goes, so its background shells stop and its session file is whole.
     await ports.stopProvider(threadId);
     const folder = join(input.directory, `${transferId}.final.d`);
@@ -135,6 +136,25 @@ export class LiveSource {
       };
     } finally {
       await rm(folder, { recursive: true, force: true });
+    }
+  }
+  /**
+   * Stops every subagent thread running here and waits until each has really stopped: its turn
+   * ended (up to 30 s after the interrupt) and its provider process closed, which ends it
+   * regardless once that wait runs out. Only then is the final snapshot taken.
+   */
+  private async stopChildren(threadId: string, transferId: string, signal: AbortSignal) {
+    const { ports } = this;
+    const children = ports.localChildren(threadId);
+    for (const child of children)
+      ports.stopChild(child.threadId, `transfer-live:${transferId}:stop:${child.threadId}`);
+    const since = ports.now();
+    for (const child of children) {
+      while (ports.turnFacts(child.threadId).turnRunning && ports.now() - since < interruptMs) {
+        signal.throwIfAborted();
+        await ports.sleep(250, signal);
+      }
+      await ports.stopProvider(child.threadId);
     }
   }
   private async safePoint(
@@ -229,6 +249,14 @@ export class LiveSource {
       return { unsupported: error.message.slice(0, 256) };
     }
   }
+  /** Where this transfer's handover stands in the thread's ownership record, if it holds it. */
+  owner(record: OutgoingRecord): "stopping" | "handing" | "moved" | undefined {
+    const threadId = record.transfer.threadId;
+    const found = threadId ? this.ports.ownership.get(threadId) : undefined;
+    if (!found || found.transferId !== record.transfer.transferId || found.state === "owned")
+      return undefined;
+    return found.state;
+  }
   /** The commit may reach the target from now on; recorded before it leaves. */
   handing(record: OutgoingRecord): void {
     this.ports.ownership.change(need(record.transfer.threadId), {
@@ -275,6 +303,7 @@ export class LiveSource {
         at: this.ports.now(),
       });
     if (!record.request.agent) this.ports.hold(threadId, transferId, { ended: true });
+    this.ports.released(threadId);
     if (input.interrupted)
       this.ports.send(
         threadId,

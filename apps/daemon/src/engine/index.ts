@@ -197,6 +197,7 @@ export class Engine {
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
+      fenced: (id) => this.fenced(id),
       wake: (id) => this.wake(id),
       released: (id) => {
         this.releaseDormant(id);
@@ -436,6 +437,8 @@ export class Engine {
       await this.settledTrees.stop(id, this.settleFailed);
   }
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
+  /** Moving or moved (ADR 0191): nothing new runs here, at admission, dispatch or session open. */
+  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
   /** A thread moving or moved to another machine refuses new turns (ADR 0191). */
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
@@ -449,6 +452,8 @@ export class Engine {
       liveMove.adoptCarriedSession(this.repo, id, session),
     dropSession: (id: ThreadId) => liveMove.dropCarriedSession(this.repo, id),
     shells: (id: ThreadId) => liveMove.runningShells(this.repo, id),
+    /** The fence lifted: anything held while it stood dispatches now. */
+    released: (id: ThreadId) => this.wake(id),
   };
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
@@ -1315,7 +1320,7 @@ export class Engine {
       !actor.session &&
       (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
         ? pendingControls.filter((intent) => intent.kind === "thread.interrupt")
-        : pendingControls;
+        : liveMove.admittedControls(pendingControls, this.fenced(actor.id));
     for (const intent of controls) {
       if (this.closing) return;
       const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1352,6 +1357,7 @@ export class Engine {
       return;
     }
     if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;
+    if (this.fenced(actor.id)) return this.releaseDormant(actor.id);
     // Controls own idle retirement; sends must remain free to open a replacement.
     if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
@@ -1421,6 +1427,7 @@ export class Engine {
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
+    if (this.fenced(actor.id)) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
     await this.steerLane.run(actor);

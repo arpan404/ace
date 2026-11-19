@@ -49,6 +49,8 @@ interface SessionDependencies {
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
+  /** The thread is moving or moved to another machine (ADR 0191): no provider opens for it. */
+  fenced?(id: ThreadId): boolean;
   wake(id: ThreadId): void;
   openFailed?(
     id: ThreadId,
@@ -85,6 +87,8 @@ export class Sessions {
       throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
     if (this.dependencies.repo.cleaning(actor.id)) throw new Error("Thread is being deleted");
+    if (this.dependencies.fenced?.(actor.id))
+      throw new Error("This thread moved to another machine; nothing more runs here");
     const stateBefore = this.dependencies.repo.requireState(actor.id);
     if (actor.session && this.turnPermissions.get(actor.id) === actor.generation) return;
     // A prepared root is starting before its first turn, not a pinned live policy.

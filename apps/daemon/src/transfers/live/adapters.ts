@@ -126,6 +126,7 @@ export function liveSourcePorts(
         name: to.name.slice(0, 256),
         threadId: id(to.threadId),
       }),
+    released: (threadId) => engineOf(context).liveMove.released(id(threadId)),
     send: (threadId, key, text) => send(context, threadId, key, text),
     atomic: (run) => store.atomic(run),
     now,
@@ -175,6 +176,8 @@ export function liveTargetPorts(
       });
     },
     send: (threadId, key, text) => send(context, threadId, key, text),
+    notice: (threadId, text) =>
+      engineOf(context).hostNotice(id(threadId), `transfer-live:${threadId}:start`, text, "error"),
     now,
     sleep: (ms) =>
       new Promise((resolve) => {

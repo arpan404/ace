@@ -32,6 +32,17 @@ export function fenceCommand(
     : undefined;
 }
 
+/** Controls that only take work down: they still run while the thread is fenced. */
+const teardown = new Set(["thread.interrupt", "thread.archive"]);
+
+/**
+ * The pending controls that may run now. While the thread is fenced only teardown goes; the
+ * rest (a goal, a model, a permission change, an answer) waits, so no provider reopens here.
+ */
+export function admittedControls<T extends { kind: string }>(controls: T[], fenced: boolean): T[] {
+  return fenced ? controls.filter((intent) => teardown.has(intent.kind)) : controls;
+}
+
 /** Whether a turn runs and what it is in the middle of, for the safe point. */
 export function turnFacts(repo: EngineRepository, id: ThreadId) {
   const state = repo.state(id);

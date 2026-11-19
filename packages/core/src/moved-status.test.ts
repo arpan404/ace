@@ -12,6 +12,13 @@ describe("a thread whose work moved to another machine (ADR 0191)", () => {
     expect(deriveThreadStatus(h.state)).toEqual({ state: "moved", to });
   });
 
+  it("reads moved with messages still held in its queue here", () => {
+    const h = endedRoot();
+    h.send({ type: "queue.changed", count: 2 });
+    h.send({ type: "thread.moved", to });
+    expect(deriveThreadStatus(h.state)).toEqual({ state: "moved", to });
+  });
+
   it("still shows work that runs here as working", () => {
     const h = activeRoot();
     h.send({ type: "thread.moved", to });
