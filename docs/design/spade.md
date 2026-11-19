@@ -26,8 +26,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 
 ## 2. List
 
-- **Toolbar.** A slim row above the rows, the list's and not Spade's: Search, Apps, plugins and
-  skills, and + as round 32px buttons.
+- **Toolbar.** A slim row above the rows, the list's and not Spade's: Search and + as round 32px
+  buttons. No marketplace button: apps, plugins and skills open from the rail's marketplace.
 - **Spade.** The first row, drawn exactly as any other bot's: same row, same size, same face and
   line, same hover, open and right-click states. Its dot is its state, never "online": no dot at
   rest or while working (its eyes move), amber while it needs the person, grey while Spade is off

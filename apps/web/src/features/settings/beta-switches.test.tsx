@@ -113,13 +113,8 @@ const appsButton = async () => {
   return within(toolbar).queryByRole("button", { name: "Apps, plugins and skills" });
 };
 
-test("Spade's apps button leads to the marketplace while it is on", async () => {
+test("Spade's list has no apps button: the marketplace opens from the rail", async () => {
   await spadeApp("/spade", () => {});
-  expect(await appsButton()).not.toBeNull();
-});
-
-test("Spade has no apps button while the marketplace is off", async () => {
-  await spadeApp("/spade", () => {}, { daemon: marketplaceOff });
   expect(await appsButton()).toBeNull();
 });
 
