@@ -61,7 +61,7 @@ struct SkillSourceView: View {
                         Button("Review changes") {
                             if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }
                         }
-                        .buttonStyle(.textAction(.prominent))
+                        .buttonStyle(.primaryAction).controlSize(.large)
                         .disabled(source == original || source.utf16.count > 262144)
                         .padding(.horizontal, AceDesign.Space.margin)
                     } else {
@@ -73,7 +73,7 @@ struct SkillSourceView: View {
                         }
                         if model.canOperate {
                             Button("Edit source") { editing = true }
-                                .buttonStyle(.textAction(.prominent))
+                                .buttonStyle(.secondaryAction)
                                 .disabled(source.utf16.count > 262144)
                                 .padding(.horizontal, AceDesign.Space.margin)
                         }

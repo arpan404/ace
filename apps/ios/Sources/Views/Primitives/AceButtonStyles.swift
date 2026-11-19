@@ -40,14 +40,18 @@ extension PrimitiveButtonStyle where Self == SecondaryActionStyle {
 }
 
 /// An action that is a list row ("Check again", "Sign in again", "Revoke all other devices"):
-/// its words in the action colour on the row title's role, the full row's width and height to
-/// tap, and the faint caret when it opens a page.
+/// its words in the action colour on the row title's role, the full row's width to tap, and the
+/// faint caret when it opens a page. It is as tall as the list's other rows: where the list
+/// already holds rows to a full tap's height it adds none of its own, and its tap reaches into
+/// the row's top and bottom padding instead; a list that lets rows shrink gets the tap's height.
 struct RowActionStyle: ButtonStyle {
     var opensPage = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.defaultMinListRowHeight) private var listRowHeight
 
     func makeBody(configuration: Configuration) -> some View {
+        let listHolds = listRowHeight >= AceDesign.Size.tap
         HStack(spacing: AceDesign.Space.related) {
             configuration.label
                 .aceFont(AceDesign.TextRole.rowTitle)
@@ -56,8 +60,10 @@ struct RowActionStyle: ButtonStyle {
             Spacer(minLength: AceDesign.Space.related)
             if opensPage { RowCaret() }
         }
-        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: listHolds ? nil : AceDesign.Size.rowLine, alignment: .leading)
+        .padding(.vertical, listHolds ? AceDesign.Space.row : 0)
         .contentShape(Rectangle())
+        .padding(.vertical, listHolds ? -AceDesign.Space.row : 0)
         .opacity(enabled ? configuration.isPressed ? AceDesign.Ink.pressed : 1 : AceTheme.Opacity.disabled(scheme))
     }
 }

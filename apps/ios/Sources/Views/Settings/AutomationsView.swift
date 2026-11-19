@@ -32,14 +32,16 @@ struct AutomationsView: View {
 
     var body: some View {
         List {
+            if let problem {
+                Section { ProblemRow(problem, id: "automations.problem") { Task { await read(fresh: true) } } }
+            }
             Section {
                 Button { creating = true } label: { AddRow("New automation") }
                 .disabled(!model.canOperate || unavailable)
                 .accessibilityIdentifier("automations.new")
                 if !model.canOperate {
-                    ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
+                    ViewOnlyNote(message: "View only. To change automations from this iPhone, pair it again with View and act.")
                 }
-                ServiceProblem(message: problem)
                 if let off = page?.off {
                     // Nothing runs while the machine has automations off: said once, above the rows.
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -59,12 +61,10 @@ struct AutomationsView: View {
                     .transition(.opacity)
             } else if person.isEmpty && threads.isEmpty && problem == nil {
                 Section {
-                    Text("No automations yet. Schedule a task or choose a trigger.")
-                        .font(AceDesign.Typeface.title)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                        .padding(.vertical, AceDesign.Space.related)
+                    EmptyState(icon: .timer, title: "No automations yet")
+                        .padding(.vertical, AceDesign.Space.group)
                 }
-                .insetRowBackground()
+                .listRowBackground(Color.clear)
                 .transition(.opacity)
             }
             group("Upcoming", active)
@@ -159,10 +159,10 @@ struct AutomationListRowView: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.title).font(AceDesign.Typeface.body)
+                Text(row.title).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(row.enabled ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .lineLimit(2)
-                Text(row.detail).font(AceDesign.Typeface.meta)
+                Text(row.detail).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
             Spacer(minLength: AceDesign.Space.related)
@@ -171,8 +171,7 @@ struct AutomationListRowView: View {
                     .font(AceDesign.Typeface.meta)
                     .transition(.opacity)
             }
-            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
-                .foregroundStyle(AceDesign.Ink.muted).accessibilityHidden(true)
+            RowCaret()
         }
         .padding(.vertical, AceDesign.Space.tight)
         .frame(minHeight: AceDesign.Size.tap)

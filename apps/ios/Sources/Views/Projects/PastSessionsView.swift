@@ -33,43 +33,46 @@ struct PastSessionsView: View {
     @State private var continuing = false
     @State private var path: [String] = []
     @State private var loading = false
-    var body: some View {
-        QuietPage {
-            QuietGroup {
-                ForEach(sessions) { session in
-                    let title = session.title.isEmpty ? "Untitled session" : session.title
-                    HStack(spacing: AceDesign.Space.related) {
-                        Button {
-                            begin(session, action: "import")
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                                    QuietRowText(title: title, detail: "\(session.provider.capitalized) · \(session.messageCount) messages")
-                                    if let reason = session.support.reason { Text(reason).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.subtle) }
-                                }
-                                Spacer(minLength: 0)
-                            }.contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Import \(title)")
-                        if session.continuable {
-                            // Imports it, then resumes it in its provider: the next message goes to the CLI's own session.
-                            Button("Continue") { begin(session, action: "continue") }
-                                .accessibilityLabel("Continue \(title)")
-                        }
-                        RowCaret()
-                    }
-                    .disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
-                }
-                if loading || importing != nil { WorkingMark(label: importing == nil ? "Loading sessions" : continuing ? "Continuing session" : "Opening session") }
-                ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { await read() } } }
-                if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
-                if !loading && sessions.isEmpty && problem == nil { EmptyState.search(query) }
-                if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
+    private var list: some View {
+        List {
+            if let problem {
+                Section { ProblemRow("Couldn't read past sessions.", detail: problem, id: "pastSessions.problem") { Task { await read() } } }
             }
-
+            if ["scanning", "retrying"].contains(state) || loading || importing != nil {
+                Section {
+                    HStack(spacing: AceDesign.Space.related) {
+                        WorkingMark()
+                        Text(importing != nil ? (continuing ? "Continuing session…" : "Opening session…") : loading && sessions.isEmpty ? "Loading sessions…" : "Reading CLI history…")
+                            .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    }
+                }
+                .listRowBackground(Color.clear)
+            }
+            if !loading, sessions.isEmpty, problem == nil {
+                Section {
+                    if query.isEmpty { EmptyState(systemImage: "clock.arrow.circlepath", title: "No past CLI sessions in this folder") }
+                    else { EmptyState.search(query) }
+                }
+                .listRowBackground(Color.clear)
+            }
+            if !sessions.isEmpty {
+                Section {
+                    ForEach(sessions) { session in row(session) }
+                    if next != nil {
+                        Button("Show more sessions") { Task { await read(more: true) } }
+                            .buttonStyle(.rowAction).disabled(loading)
+                    }
+                } footer: { Text("Tap a session to bring it into ace as a thread.") }
+                .insetRowBackground()
+            }
         }
+    }
 
+    var body: some View {
+        list
+        .insetGroupedList()
+        .searchBarEdge()
+        .smoothChange(sessions.map(\.id))
         .searchable(text: $query, prompt: "Search past sessions")
         .navigationTitle("Past CLI sessions").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {
@@ -80,11 +83,45 @@ struct PastSessionsView: View {
             }
         }
         .refreshable { await read(rescan: true) }
-        .navigationDestination(isPresented: Binding(get: { !path.isEmpty }, set: { if !$0 { path = []; model.back() } })) {
-            if let thread = model.thread { ThreadView(model: model, thread: thread) { model.open($0) } }
-        }
+        .navigationDestination(isPresented: opened) { threadPage }
         .onDisappear { Task { _ = try? await model.service(["type": "history.release"], as: ServiceValue.self) } }
     }
+    /// The thread an opened session became.
+    @ViewBuilder private var threadPage: some View {
+        if let thread = model.thread { ThreadView(model: model, thread: thread) { model.open($0) } }
+    }
+
+    /// Whether an opened session's thread is showing; going back leaves it.
+    private var opened: Binding<Bool> {
+        Binding(get: { !path.isEmpty }, set: { if !$0 { path = []; model.back() } })
+    }
+
+    /// A session: tapping it imports it as a thread; Continue also resumes it in its CLI.
+    private func row(_ session: PastSession) -> some View {
+        let title = session.title.isEmpty ? "Untitled session" : session.title
+        return HStack(spacing: AceDesign.Space.related) {
+            Button { begin(session, action: "import") } label: {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    QuietRowText(title: title, detail: "\(session.provider.capitalized) · \(session.messageCount) messages")
+                    if let reason = session.support.reason {
+                        Text(reason).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Import \(title)")
+            if session.continuable {
+                // Imports it, then resumes it in its provider: the next message goes to the CLI's own session.
+                Button("Continue") { begin(session, action: "continue") }
+                    .buttonStyle(.secondaryAction).controlSize(.small)
+                    .accessibilityLabel("Continue \(title)")
+            }
+        }
+        .disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+    }
+
     private func read(more: Bool = false, rescan: Bool = false) async {
         loading = true; problem = nil
         defer { loading = false }

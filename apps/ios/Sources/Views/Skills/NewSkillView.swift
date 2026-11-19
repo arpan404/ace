@@ -121,8 +121,8 @@ struct NewSkillView: View {
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("skill.new.nameReadProblem")
-                Button("Retry") { Task { await checkName() } }
-                    .buttonStyle(.textAction(.prominent))
+                Button("Try again") { Task { await checkName() } }
+                    .buttonStyle(.textAction())
             }
         } else if let problem = check?.problem, !trimmed.isEmpty {
             Text(problem).aceFont(AceDesign.TextRole.meta)
