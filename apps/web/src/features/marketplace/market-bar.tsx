@@ -126,7 +126,12 @@ export function MarketBar(props: {
               margin: "0 4px",
             }}
           >
-            <Avatar name={me.profile.displayName} size={30} picture={avatar} />
+            <Avatar
+              name={me.profile.displayName}
+              size={30}
+              ace={me.profile.official}
+              picture={avatar}
+            />
           </button>
         ) : signedOut ? (
           <Button variant="secondary" onClick={() => nav.push({ kind: "profile" })}>

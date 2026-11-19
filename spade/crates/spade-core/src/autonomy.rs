@@ -214,6 +214,9 @@ pub struct Classed {
     /// Whether this machine can hold the command in a read-only sandbox confined to the bot's
     /// folder (ADR 0172, amendment 7); the classifier settles a read only when it can.
     pub sandboxable: bool,
+    /// Something it runs couldn't be read whole (`shell::Assessment::incomplete`): nothing that
+    /// binds to what was read (an approval to run it outside the sandbox) can be made from it.
+    pub incomplete: bool,
 }
 
 /// Tools that read configuration from the project or its surroundings that can make them run a
@@ -300,6 +303,7 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         workspace: None,
         config_clean: ConfigTools::default(),
         sandboxable: false,
+        incomplete: assessed.incomplete,
     }
 }
 

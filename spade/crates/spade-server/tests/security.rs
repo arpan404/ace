@@ -844,3 +844,133 @@ impl Drop for Release {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 }
+
+/// A script `bytes` long (past Spade's read limit when large) that writes `outside.txt` beside the
+/// test's folders.
+fn writes_outside(at: &Path, bytes: usize) -> String {
+    let line = format!("echo ran > {}\n", quoted(&at.join("outside.txt")));
+    let mut script = line.clone();
+    while script.len() < bytes {
+        script.push_str("# padding to make the script long enough\n");
+    }
+    script
+}
+
+#[tokio::test]
+async fn an_outside_request_for_a_script_past_the_read_limit_is_never_asked_about() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": "sh run.sh", "outside_sandbox": true }),
+            ),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
+    let workspace = w.workspaces.of(&w.bot)?.path()?;
+    // Too long to read whole: an approval would hold it to nothing, so it could change after.
+    std::fs::write(workspace.join("run.sh"), writes_outside(&root, 40_000))?;
+    w.spade.say(&w.conversation, "Run it outside").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    let said = output(&events, "c1");
+    assert!(said.contains("couldn't be read whole"), "{said}");
+    assert!(!root.join("outside.txt").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_approved_outside_script_that_grows_past_the_read_limit_doesnt_start() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": "sh run.sh", "outside_sandbox": true }),
+            ),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
+    let workspace = w.workspaces.of(&w.bot)?.path()?;
+    std::fs::write(workspace.join("run.sh"), writes_outside(&root, 0))?;
+    w.spade.say(&w.conversation, "Run it outside").await?;
+    w.spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    // While the person is asked, it grows past what Spade reads whole.
+    std::fs::write(workspace.join("run.sh"), writes_outside(&root, 40_000))?;
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let said = output(&events, "c1");
+    assert!(said.contains("couldn't be read whole again"), "{said}");
+    assert!(!root.join("outside.txt").exists(), "it ran outside");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_answer_for_a_contained_command_never_runs_it_outside_once_the_bot_moved_outside()
+-> Result {
+    let w = world(true, vec![], |at| {
+        vec![
+            shell(
+                "c1",
+                format!("echo ran > {}", quoted(&at.root.join("outside.txt"))),
+            ),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    std::fs::create_dir_all(workspace_of(&w))?;
+    // No checkpoint can be taken, so the contained command is reviewed, and (the reviewer
+    // unreachable here) the person is asked about it as a contained command.
+    let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
+    std::fs::write(data.join("checkpoints"), "not a folder")?;
+    w.spade.say(&w.conversation, "Write it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    let request = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .ok_or("not asked")?;
+    assert_eq!(request["launch"], "contained", "{request}");
+    // Before the answer, the bot's commands are set to run outside the sandbox.
+    let (status, body) = w
+        .spade
+        .put(
+            &format!("/v1/agents/{}/security/commands", w.bot),
+            json!({ "commands": "outside" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let said = output(&events, "c1");
+    assert!(
+        said.contains("wider than when the person allowed it"),
+        "{said}"
+    );
+    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
+    assert!(!root.join("outside.txt").exists(), "it ran outside");
+    Ok(())
+}

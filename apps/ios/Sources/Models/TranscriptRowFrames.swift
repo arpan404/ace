@@ -43,6 +43,9 @@ struct TranscriptRowFrames: Equatable, Sendable {
     /// The height of each row on screen.
     var heights: [String: CGFloat] { content.mapValues(\.height) }
 
+    /// The row's frame in the content, if it's on screen: a scroll leaves it alone.
+    func inContent(_ id: String) -> CGRect? { content[id] }
+
     /// The row's frame in viewport coordinates, if it's on screen.
     func frame(_ id: String) -> CGRect? {
         content[id]?.offsetBy(dx: 0, dy: origin)

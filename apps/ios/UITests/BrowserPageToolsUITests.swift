@@ -209,6 +209,42 @@ final class BrowserPageToolsUITests: XCTestCase {
         screenshot("browser-connection-1-stats")
     }
 
+    /// With two browser-help requests open, the second one's card hands the browser to that
+    /// request: its sheet closes first, the browser asks about the second sign-in, and its Done
+    /// answers that one, leaving the first open in the thread.
+    @MainActor func testTheSecondHelpCardOpensTheBrowserForItsOwnRequest() async throws {
+        let threadId = try await fresh("browserHelp")
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", port, "--spike-open", threadId]
+        app.launchWithArguments()
+        let pager = app.staticTexts["strip.pager"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 25), "two requests page in the strip")
+        app.buttons["Next request"].tap()
+        XCTAssertTrue(app.staticTexts["2 of 2"].waitForExistence(timeout: 10))
+        app.buttons["strip.review"].tap()
+        let open = app.buttons["help.open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        open.tap()
+        XCTAssertTrue(open.waitForNonExistence(timeout: 10), "the request's sheet closes before the browser opens")
+        let strip = app.otherElements["browser.strip"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 15))
+        XCTAssertTrue(strip.staticTexts["Sign in to gitlab.com in the Browser"].exists, "the browser asks about the card that opened it")
+        app.buttons["browser.help.done"].tap()
+        let left = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "github.com")).firstMatch
+        XCTAssertTrue(left.waitForExistence(timeout: 15), "the first request is still open in the thread")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "gitlab.com")).firstMatch.exists,
+                       "Done answered the second request")
+    }
+    /// A new thread from the fixture, seeded with `scenario`, so answering it changes no other test's thread.
+    private func fresh(_ scenario: String) async throws -> String {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/fresh")))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["scenario": scenario])
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try XCTUnwrap(try JSONDecoder().decode([String: String].self, from: data)["threadId"])
+    }
+
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)

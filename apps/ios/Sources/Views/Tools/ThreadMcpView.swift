@@ -19,45 +19,55 @@ struct ThreadMcpView: View {
     @State private var address = ""
     @State private var busy = false
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-            ServiceProblem(message: problem)
+        List {
+            if let problem {
+                ProblemRow(problem, id: "mcp.problem", disabled: busy) { Task { await read() } }
+            }
             if let sources {
-                QuietSection(sources.live ? "Connected session" : "Configured servers") {
+                Section {
                     ForEach(sources.servers) { server in
-                        QuietSectionRow {
-                        VStack(alignment: .leading) {
-                            QuietRowText(title: server.name, detail: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                            HStack {
-                                Button(server.status == "disabled" ? "Enable" : "Disable") { perform(server.status == "disabled" ? "mcp.enable" : "mcp.disable", name: server.name) }
-                                    .accessibilityIdentifier("mcp.toggle.\(server.name)")
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            InsetRow(server.name, systemImage: nil,
+                                     value: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                            HStack(spacing: AceDesign.Space.related) {
+                                Button(server.status == "disabled" ? "Enable" : "Disable") {
+                                    perform(server.status == "disabled" ? "mcp.enable" : "mcp.disable", name: server.name)
+                                }
+                                .accessibilityIdentifier("mcp.toggle.\(server.name)")
                                 Button("Reconnect") { perform("mcp.reconnect", name: server.name) }
-                            }.buttonStyle(.textAction()).disabled(busy || !model.canOperate)
+                            }
+                            .buttonStyle(.secondaryAction)
+                            .controlSize(.small)
+                            .disabled(busy || !model.canOperate)
                         }
-                        }
+                        .padding(.vertical, AceDesign.Space.tight)
                     }
-                    if sources.servers.isEmpty { Text("No MCP servers configured.") }
+                    if sources.servers.isEmpty {
+                        Text("No MCP servers configured").foregroundStyle(AceDesign.Ink.muted)
+                    }
+                } header: {
+                    InsetHeader(sources.live ? "Connected session" : "Configured servers")
+                } footer: {
                     if sources.appliesNextTurn { Text("Changes apply on the next turn.") }
                 }
+                .insetRowBackground()
                 if sources.canAdd && model.canOperate {
-                    QuietSection("Add HTTP server") {
-                        QuietSectionRow {
-                        VStack(alignment: .leading) {
+                    Section {
                         TextField("Server name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
                         TextField("https://example.com/mcp", text: $address).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         Button("Add server") { perform("mcp.add", name: name, server: ["transport": "http", "url": address]) }
-                            .buttonStyle(.textAction(.prominent))
+                            .buttonStyle(.rowAction)
                             .disabled(name.isEmpty || address.isEmpty || busy)
-                        }
-                        }
+                    } header: {
+                        InsetHeader("Add HTTP server")
                     }
+                    .insetRowBackground()
                 }
             } else if problem == nil {
                 SkeletonRows(count: 3, label: "Reading servers").listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             }
-            }.padding(.vertical, AceDesign.Space.related)
         }
-        .background(AceDesign.Surface.background)
+        .insetGroupedList()
         .navigationTitle("MCP servers").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }.refreshable { await read() }
     }

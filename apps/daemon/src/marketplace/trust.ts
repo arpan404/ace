@@ -120,6 +120,7 @@ export interface Badges {
   verified(publisherId: string | undefined): boolean;
   verifiedHandle(handle: string): boolean;
   official(publisherId: string | undefined): boolean;
+  officialHandle(handle: string): boolean;
   proofs(publisherId: string | undefined): MarketVerificationProof[];
   tier(publisherId: string | undefined): RankingTier;
 }
@@ -132,10 +133,12 @@ export function badgesOf(trust: TrustLists): Badges {
     (trust.verified?.publishers ?? []).map((publisher) => publisher.handle),
   );
   const officialId = trust.official?.publisher.id;
+  const officialHandle = trust.official?.publisher.name;
   const badges: Badges = {
     verified: (id) => id !== undefined && verifiedIds.has(id),
     verifiedHandle: (handle) => verifiedHandles.has(handle),
     official: (id) => id !== undefined && officialId !== undefined && id === officialId,
+    officialHandle: (handle) => handle === officialHandle,
     proofs: (id) => (id === undefined ? [] : (verifiedIds.get(id) ?? [])),
     tier: (id) => tierOf({ official: badges.official(id), verified: badges.verified(id) }),
   };

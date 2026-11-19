@@ -523,6 +523,7 @@ impl Engine {
             tool_key,
             app,
             acts_in,
+            launch,
             ..
         }) = asked
         else {
@@ -539,6 +540,7 @@ impl Engine {
             tool_key: tool_key.clone(),
             app: app.clone(),
             acts_in: acts_in.clone(),
+            launch: *launch,
             helper: Some(Box::new(HelperAsk {
                 // The bot's job, whose end clears the wait, even for a rerun.
                 job: routing::base_job(&helper.job).to_owned(),

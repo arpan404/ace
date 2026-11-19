@@ -37,7 +37,7 @@ struct RecentlyDeletedView: View {
                 .listRowBackground(AceTheme.Colours.background)
             }
             if let next {
-                Button("Show older") { Task { await load(after: next) } }.disabled(loading)
+                Button("Show older") { Task { await load(after: next) } }.buttonStyle(.rowAction).disabled(loading)
                     .listRowBackground(AceTheme.Colours.background)
             }
         }

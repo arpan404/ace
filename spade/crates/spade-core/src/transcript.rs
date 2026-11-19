@@ -543,6 +543,7 @@ mod tests {
                 app: None,
                 acts_in: None,
                 helper: None,
+                launch: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -568,6 +569,7 @@ mod tests {
                 app: None,
                 acts_in: None,
                 helper: None,
+                launch: None,
             }),
             Event::Known(Known::StopRequested {
                 reply: Some("r1".into()),
@@ -603,6 +605,7 @@ mod tests {
                 app: None,
                 acts_in: None,
                 helper: None,
+                launch: None,
             }),
             Event::Known(Known::ApprovalAnswered {
                 reply: "r1".into(),
@@ -918,6 +921,7 @@ mod tests {
                     conversation: "h1".into(),
                     call_id: "call_0".into(),
                 })),
+                launch: None,
             })
         };
         let mut events = vec![

@@ -138,6 +138,7 @@ fn day() -> Vec<Event> {
             app: None,
             acts_in: None,
             helper: None,
+            launch: None,
         }),
         k(Known::ApprovalAnswered {
             reply: "r1".into(),

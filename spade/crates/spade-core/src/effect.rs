@@ -14,6 +14,8 @@ use crate::tools::Risk;
 pub mod drive;
 mod full_access;
 
+pub use full_access::NO_CLASSIFIER;
+
 /// What a tool does, from least to most serious (the order a set of declarations is read in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
