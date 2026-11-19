@@ -9,6 +9,12 @@ struct SpadeQuestionInputs: View {
     /// A number's keypad may have no return key: Done above it puts the keyboard away so Send
     /// shows.
     @FocusState private var typingNumber: Bool
+    @State private var selection: TextSelection?
+    /// The number as it was when Select All took all of it, until the selection moves on. It is
+    /// kept from `onChange`, which runs after the edit's text and selection both land, in
+    /// whichever order the field reports them, so a paste over it is still seen as a
+    /// replacement.
+    @State private var selectedWhole: String?
 
     var body: some View {
         switch question.kind {
@@ -30,11 +36,27 @@ struct SpadeQuestionInputs: View {
     /// keyboard writes numbers, not the app's locale.
     private var numberBinding: Binding<String> {
         Binding(get: { if case let .number(text, _, _) = draft { text } else { "" } },
-                set: { draft = draft.typingNumber($0, on: KeyboardLanguage.typing()) })
+                set: { text in
+                    let language = KeyboardLanguage.typing()
+                    if case let .number(old, _, _) = draft, !old.isEmpty, old == selectedWhole {
+                        draft = draft.replacingNumber(with: text, on: language)
+                    } else {
+                        draft = draft.typingNumber(text, on: language)
+                    }
+                    selectedWhole = nil
+                })
+    }
+
+    /// The number's text when `selection` covers all of it, else nil.
+    private func wholeNumber(selected selection: TextSelection?) -> String? {
+        guard case let .number(text, _, _) = draft, !text.isEmpty,
+              case let .selection(range) = selection?.indices,
+              range.lowerBound <= text.startIndex, range.upperBound >= text.endIndex else { return nil }
+        return text
     }
 
     private func field(_ prompt: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
-        TextField(prompt, text: text, axis: .vertical)
+        TextField(prompt, text: text, selection: $selection, axis: .vertical)
             .aceFont(AceDesign.TextRole.message)
             .lineLimit(lines)
             .padding(.horizontal, AceDesign.Space.row)
@@ -102,6 +124,7 @@ struct SpadeQuestionInputs: View {
                 // The decimal pad has no minus key.
                 .keyboardType(question.signed ? .numbersAndPunctuation : .decimalPad)
                 .focused($typingNumber)
+                .onChange(of: selection) { _, now in selectedWhole = wholeNumber(selected: now) }
                 .accessibilityIdentifier("spade.question.number")
                 .toolbar {
                     if typingNumber {
