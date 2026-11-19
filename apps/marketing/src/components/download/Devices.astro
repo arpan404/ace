@@ -1,0 +1,236 @@
+---
+/*
+ * The download page's opening row: ace on a MacBook, a Windows monitor, a Linux laptop and an
+ * iPhone, drawn as hardware on one baseline. The visitor's own computer (`html[data-os]`, set
+ * before paint; anyone else counts as a Mac) stands first and larger, and carries the download
+ * button with its version note. The row comes in once as the page opens.
+ */
+import { platformGuides, type DeviceId } from "../../content/download.ts";
+import DownloadButton from "../DownloadButton.astro";
+import Laptop from "../devices/Laptop.astro";
+import LinuxScreen from "../devices/LinuxScreen.astro";
+import MacBook from "../devices/MacBook.astro";
+import Monitor from "../devices/Monitor.astro";
+import WindowsScreen from "../devices/WindowsScreen.astro";
+import MacDesktop from "../mac/MacDesktop.astro";
+import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
+import Fit from "../site/Fit.astro";
+
+const guide = (id: DeviceId) => platformGuides.find((entry) => entry.id === id);
+const label = (id: DeviceId) => {
+  const entry = guide(id);
+  return entry ? { device: entry.device, system: entry.system } : { device: id, system: "" };
+};
+const order: DeviceId[] = ["mac", "windows", "linux", "phone"];
+---
+
+<div class="stage">
+<div class="devices" aria-hidden="true">
+  {
+    order.map((id, index) => (
+      <figure class:list={["device", id]} style={`--i: ${index}`}>
+        <figcaption class="label">
+          <b>{label(id).device}</b> <span>{label(id).system}</span>
+        </figcaption>
+        {id === "mac" && (
+          <Fit width={1616} height={968} fallback={0.2}>
+            <MacBook>
+              <MacDesktop />
+            </MacBook>
+          </Fit>
+        )}
+        {id === "windows" && (
+          <Fit width={700} height={500} fallback={0.3}>
+            <Monitor>
+              <WindowsScreen />
+            </Monitor>
+          </Fit>
+        )}
+        {id === "linux" && (
+          <Fit width={760} height={462} fallback={0.28}>
+            <Laptop>
+              <LinuxScreen />
+            </Laptop>
+          </Fit>
+        )}
+        {id === "phone" && (
+          <Fit width={330} height={700} fallback={0.2}>
+            <div class="phone" data-phone-shown>
+              <PhoneLockScreen />
+            </div>
+          </Fit>
+        )}
+      </figure>
+    ))
+  }
+</div>
+<div class="carry">
+  <DownloadButton withNote />
+</div>
+</div>
+
+<style>
+  /*
+   * One row on a shared baseline. Each device's width is a share of the row; the visitor's own
+   * takes the largest share and goes first.
+   */
+  .devices {
+    display: flex;
+    align-items: flex-end;
+    gap: clamp(16px, 2.6vw, 40px);
+    margin-top: clamp(40px, 6vw, 72px);
+  }
+
+  .device {
+    flex: 0 1 auto;
+    margin: 0;
+    width: var(--share);
+  }
+
+  .mac {
+    --share: 25%;
+  }
+
+  .windows {
+    --share: 21%;
+  }
+
+  .linux {
+    --share: 21%;
+  }
+
+  .phone {
+    --share: 6.5%;
+  }
+
+  /* The visitor's computer: Mac unless the page knows better. */
+  :global(html:not([data-os])) .mac,
+  :global(html[data-os="windows"]) .windows,
+  :global(html[data-os="linux"]) .linux {
+    order: -1;
+    --share: 44%;
+  }
+
+  .label {
+    margin: 0 0 12px 2px;
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .label b {
+    margin-right: 6px;
+    color: var(--line);
+    font-weight: 600;
+  }
+
+  /* Where the row is tight, only the visitor's computer names its system. */
+  @media (max-width: 1099px) {
+    .label span {
+      display: none;
+    }
+
+    :global(html:not([data-os])) .mac .label span,
+    :global(html[data-os="windows"]) .windows .label span,
+    :global(html[data-os="linux"]) .linux .label span {
+      display: inline;
+    }
+  }
+
+  /* The phone is drawn to sit at the right of a Mac's desktop; here it stands on its own. */
+  .phone :global(.lock) {
+    left: 0;
+    right: auto;
+    top: 0;
+  }
+
+  .phone :global(.note-card) {
+    opacity: 1;
+    transform: none;
+  }
+
+  .carry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 28px;
+  }
+
+  /*
+   * On a phone the visitor's computer fills the width with its button under it, and the others
+   * stand in a row below.
+   */
+  @media (max-width: 639px) {
+    .stage {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 28px 16px;
+      margin-top: 40px;
+    }
+
+    .devices {
+      display: contents;
+    }
+
+    .carry {
+      order: -1;
+      flex-basis: 100%;
+      margin-top: -8px;
+    }
+
+    :global(html:not([data-os])) .mac,
+    :global(html[data-os="windows"]) .windows,
+    :global(html[data-os="linux"]) .linux {
+      order: -2;
+      --share: 100%;
+    }
+
+    /* The three others and the phone share the row under it, gaps and all. */
+    .mac,
+    .windows,
+    .linux {
+      --share: calc((100% - 49px) * 0.3);
+    }
+
+    .phone {
+      --share: calc((100% - 49px) * 0.1);
+    }
+
+    .label {
+      font-size: 11px;
+    }
+  }
+
+  /* The row comes in once, the visitor's computer first, the others a beat apart. */
+  :global(html.motion) .device {
+    animation: arrive 1s var(--ease-out) both;
+    animation-delay: calc(120ms + var(--i) * 110ms);
+  }
+
+  :global(html.motion:not([data-os])) .mac,
+  :global(html.motion[data-os="windows"]) .windows,
+  :global(html.motion[data-os="linux"]) .linux {
+    animation-delay: 0ms;
+  }
+
+  :global(html.motion) .carry {
+    animation: fade 0.8s var(--ease-out) 0.5s both;
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(28px);
+    }
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+</style>

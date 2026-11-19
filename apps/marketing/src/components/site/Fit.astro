@@ -1,0 +1,63 @@
+---
+/*
+ * A drawing made at a fixed size (a device from components/devices, the phone), scaled as one
+ * piece to the width of its box. The box keeps the drawing's proportions, so a row of
+ * them can sit on one baseline. CSS works the scale out where the browser can divide lengths;
+ * elsewhere scripts/fit.ts sets it, and until it has (or without it) the drawing shows at
+ * `fallback`, clipped to its box so it can never widen the page.
+ */
+interface Props {
+  /** The drawing's own size, in its pixels. */
+  width: number;
+  height: number;
+  /** The scale to show without the script. */
+  fallback?: number;
+  class?: string;
+}
+
+const { width, height, fallback = 0.2, class: className } = Astro.props;
+---
+
+<div
+  class:list={["fit", className]}
+  data-fit={width}
+  style={`aspect-ratio: ${width} / ${height}; --fit: ${fallback}; --drawn: ${width}px`}
+>
+  <div class="drawn" style={`width: ${width}px; height: ${height}px`}>
+    <slot />
+  </div>
+</div>
+
+<style>
+  .fit {
+    position: relative;
+    width: 100%;
+    container-type: inline-size;
+  }
+
+  .drawn {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: scale(var(--fit));
+    transform-origin: 0 0;
+  }
+
+  @supports (scale: calc(100cqw / 1px)) {
+    .drawn {
+      transform: scale(calc(100cqw / var(--drawn)));
+    }
+  }
+
+  @supports not (scale: calc(100cqw / 1px)) {
+    .fit:not([data-fitted]) {
+      overflow: hidden;
+    }
+  }
+</style>
+
+<script>
+  import { startFit } from "../../scripts/fit.ts";
+
+  startFit(document.querySelectorAll<HTMLElement>("[data-fit]"));
+</script>

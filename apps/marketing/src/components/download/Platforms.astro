@@ -1,0 +1,260 @@
+---
+/*
+ * Every platform under tabs (Mac, Windows, Linux, iPhone and iPad): its builds, its download and
+ * how to install it in three steps. The visitor's own platform opens first. Without the script
+ * every platform shows, one under the other.
+ */
+import { downloadPage, phoneNotes, platformGuides } from "../../content/download.ts";
+import { isPlatform } from "../../content/release-pick.ts";
+import { buildText, defaultArch, downloads, platformInfo } from "../../content/release.ts";
+import TabList from "../site/TabList.astro";
+
+const prefix = "platform";
+---
+
+<section class="section page platforms" data-platforms aria-labelledby="platforms-title">
+  <header class="head reveal">
+    <h2 id="platforms-title" class="section-title">{downloadPage.tabsHeading}</h2>
+    <p class="lede">{downloadPage.updates}</p>
+  </header>
+
+  <div class="reveal">
+    <TabList
+      prefix={prefix}
+      label={downloadPage.tabsLabel}
+      tabs={platformGuides.map((guide) => ({ name: guide.id, label: guide.tab }))}
+    />
+  </div>
+
+  <div class="panels reveal">
+    {
+      platformGuides.map((guide, index) => {
+        const platform = isPlatform(guide.id) ? guide.id : undefined;
+        const file = platform ? downloads.byPlatform[platform] : undefined;
+        return (
+          <div
+            class="panel card"
+            role="tabpanel"
+            id={`${prefix}-panel-${index}`}
+            aria-labelledby={`${prefix}-tab-${index}`}
+          >
+            <div class="get">
+              <h3>{guide.tab}</h3>
+              <p class="line">{guide.line}</p>
+              <ul class="files">
+                {guide.files.map((entry) => (
+                  <li>
+                    <b>{entry.format}</b>
+                    <span>{entry.chips}</span>
+                  </li>
+                ))}
+              </ul>
+              {platform && file && (
+                <div class="action">
+                  <a
+                    class="button button-primary"
+                    href={file.url}
+                    data-download={platform}
+                    data-download-text
+                  >
+                    {file.bytes ? `Download for ${platformInfo[platform].name}` : `Get ${platformInfo[platform].name} builds`}
+                  </a>
+                  <p class="build">
+                    <span data-download-build={platform}>
+                      {buildText(platform, defaultArch[platform], file.bytes)}
+                    </span>
+                    {" · "}
+                    <a href={downloads.notesUrl} data-release-notes>
+                      {downloadPage.allBuilds}
+                    </a>
+                  </p>
+                </div>
+              )}
+              {!platform && (
+                <div class="action">
+                  <a class="button button-secondary" href={phoneNotes.more.href}>
+                    {phoneNotes.more.label}
+                  </a>
+                  <p class="build">{phoneNotes.android}</p>
+                </div>
+              )}
+            </div>
+            <ol class="steps">
+              {guide.steps.map((step, at) => (
+                <li>
+                  <span class="n" aria-hidden="true">
+                    {at + 1}
+                  </span>
+                  <p>{step}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })
+    }
+  </div>
+
+  <p class="before reveal">
+    {downloadPage.before} <a class="text-link" href="/agents/">{downloadPage.agentsLink}</a>
+  </p>
+</section>
+
+<style>
+  .head h2 {
+    max-width: 12em;
+    font-size: clamp(32px, 4.6vw, 60px);
+  }
+
+  .head .lede {
+    margin-top: 14px;
+  }
+
+  .platforms > .reveal:nth-child(2) {
+    margin-top: clamp(28px, 4vw, 40px);
+  }
+
+  .panels {
+    display: grid;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  .panel {
+    display: grid;
+    gap: 32px clamp(32px, 6vw, 80px);
+    padding: clamp(24px, 4.4vw, 52px);
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  @media (min-width: 900px) {
+    .panel {
+      grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    }
+  }
+
+  :global(html.motion) .platforms[data-enhanced] .panel:not([hidden]) {
+    animation: turn 0.35s var(--ease-out) both;
+  }
+
+  @keyframes turn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  h3 {
+    font-size: clamp(28px, 3.4vw, 40px);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+  }
+
+  .line {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .files {
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .files li {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 2px 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+  }
+
+  .files b {
+    font-weight: 500;
+  }
+
+  .files span {
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .action {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .build {
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  .build a {
+    color: var(--muted);
+  }
+
+  /* Three steps, each with its number in the drawing's blue. */
+  .steps {
+    display: grid;
+    align-content: start;
+    gap: 0;
+    counter-reset: step;
+  }
+
+  .steps li {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 16px;
+    padding: 20px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .steps li:first-child {
+    border-top: 0;
+    padding-top: 4px;
+  }
+
+  .n {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+    border-radius: 50%;
+    color: var(--line);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .steps p {
+    align-self: center;
+    font-size: 17px;
+    line-height: 1.45;
+    letter-spacing: -0.01em;
+  }
+
+  .before {
+    max-width: 44em;
+    margin-top: 28px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+</style>
+
+<script>
+  import { startTabs } from "../../scripts/tabs.ts";
+
+  const os = document.documentElement.dataset.os;
+  for (const root of document.querySelectorAll<HTMLElement>("[data-platforms]")) {
+    startTabs(root, os ?? "mac");
+  }
+</script>
