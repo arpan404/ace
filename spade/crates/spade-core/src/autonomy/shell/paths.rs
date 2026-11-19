@@ -13,6 +13,19 @@ pub enum Unseen {
     Unreadable,
 }
 
+/// Where a bare program name runs from, as the command's `PATH` finds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Program {
+    /// One of the system's own (`/usr/bin`, `/bin`, Homebrew's…).
+    System,
+    /// A file elsewhere: the person's toolchain, or one in the bot's folder.
+    At(PathBuf),
+    /// Nowhere on the `PATH`, or a `PATH` Spade can't follow (an empty or relative entry).
+    Missing,
+    /// This place doesn't look programs up ([`Lexical`]): a reading of the words alone.
+    Unknown,
+}
+
 /// The folder a command runs in, as the classifier asks about it. The engine answers from the
 /// file system; [`Lexical`] answers without one.
 pub trait Place {
@@ -26,6 +39,11 @@ pub trait Place {
     fn read(&self, real: &Path, longest: usize) -> Result<String, Unseen>;
     /// The names in a folder.
     fn list(&self, real: &Path) -> Result<Vec<String>, Unseen>;
+    /// Where the bare program `name` runs from. A place that can't say answers
+    /// [`Program::Unknown`]; the launch of a command outside the sandbox never relies on one.
+    fn program(&self, _name: &str) -> Program {
+        Program::Unknown
+    }
 }
 
 /// `place`, with commands starting in another folder (`cd x &&`, `make -C x`, `npm --prefix x`).
@@ -64,6 +82,10 @@ impl Place for Moved<'_> {
 
     fn list(&self, real: &Path) -> Result<Vec<String>, Unseen> {
         self.inner.list(real)
+    }
+
+    fn program(&self, name: &str) -> Program {
+        self.inner.program(name)
     }
 }
 

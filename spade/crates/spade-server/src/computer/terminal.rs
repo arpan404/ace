@@ -31,7 +31,7 @@ use tokio::time::Instant;
 
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
-use crate::workspace::shell::{Cleanup, Job, LaunchPlan, Ran, Shell, Tee, Verify};
+use crate::workspace::shell::{By, Cleanup, Job, LaunchPlan, Ran, Shell, Tee};
 
 /// How long a command's supervisor waits for the end of what it started before it gives up and
 /// quarantines the terminal.
@@ -703,7 +703,8 @@ impl Terminal {
             LaunchPlan::AS_FOUND,
             &[],
             false,
-            None,
+            // No bot's call and no gate: Spade's own run in the terminal, as tests drive it.
+            By::Spade,
         )
         .await
     }
@@ -723,7 +724,7 @@ impl Terminal {
         plan: LaunchPlan,
         overrides: &[(String, String)],
         settled: bool,
-        verify: Option<Verify>,
+        by: By,
     ) -> Result<Ran, String> {
         let overrides = overrides.to_vec();
         let lane = lock(&self.commands)
@@ -756,7 +757,7 @@ impl Terminal {
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), plan, &overrides, settled, verify) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), plan, &overrides, settled, by) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -826,7 +827,7 @@ impl Terminal {
         plan: LaunchPlan,
         overrides: &[(String, String)],
         settled: bool,
-        verify: Option<Verify>,
+        by: By,
     ) -> Result<Ran, String> {
         let carried = self.carried_in(session);
         // A settled command runs with a clean, fixed environment (`Job::clean`), never the
@@ -885,6 +886,9 @@ impl Terminal {
                 Job {
                     dir: &dir,
                     script: &script,
+                    // Spade's wrapper saves the folder and variables after it: the bot's own
+                    // command is what is read again at the spawn.
+                    asked: Some(command),
                     timeout,
                     env: &env,
                     tee: Some(tee),
@@ -897,8 +901,9 @@ impl Terminal {
                     may_run_uncontained: plan.may_run_uncontained,
                     // Cleared to run only contained: refused where nothing holds it.
                     contained_only: plan.contained_only(),
-                    // Under this session's lock: no other command runs here until it starts.
-                    verify,
+                    // Under this session's lock: no other command runs here until it starts, so
+                    // what it runs is read again at its spawn as it will start.
+                    by,
                     clean: settled,
                     read_only: settled,
                 },

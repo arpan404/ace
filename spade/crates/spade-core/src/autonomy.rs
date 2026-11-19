@@ -217,6 +217,13 @@ pub struct Classed {
     /// Something it runs couldn't be read whole (`shell::Assessment::incomplete`): nothing that
     /// binds to what was read (an approval to run it outside the sandbox) can be made from it.
     pub incomplete: bool,
+    /// Programs it runs from outside the system's folders and the bot's (the person's toolchain),
+    /// as their `PATH` finds them: the call is bound to them as well as to `shown`.
+    pub programs: Vec<std::path::PathBuf>,
+    /// The tools it runs whose configuration could run a program it never names, by the real
+    /// folder each runs in: outside the sandbox, the configuration there must name none, or the
+    /// reading is incomplete.
+    pub config_used: Vec<(std::path::PathBuf, ConfigTools)>,
 }
 
 /// Tools that read configuration from the project or its surroundings that can make them run a
@@ -250,6 +257,33 @@ impl ConfigTools {
 
     pub fn any(self) -> bool {
         self.git || self.node || self.cargo || self.ripgrep
+    }
+
+    /// The tools among these that `program` is, whose configuration could run another program.
+    pub fn of(program: &str) -> Self {
+        let mut tools = Self::default();
+        match program {
+            "git" | "gh" | "glab" | "hub" | "tig" | "lazygit" | "git-lfs" => tools.git = true,
+            "npm" | "npx" | "pnpm" | "pnpx" | "yarn" | "yarnpkg" | "bun" | "bunx" | "corepack" => {
+                tools.node = true;
+            }
+            "cargo" | "rustc" | "rustdoc" | "rustfmt" | "rustup" | "clippy-driver" => {
+                tools.cargo = true;
+            }
+            "rg" => tools.ripgrep = true,
+            _ => {}
+        }
+        tools
+    }
+
+    /// Every tool in either.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            git: self.git || other.git,
+            node: self.node || other.node,
+            cargo: self.cargo || other.cargo,
+            ripgrep: self.ripgrep || other.ripgrep,
+        }
     }
 }
 
@@ -307,6 +341,8 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         config_clean: ConfigTools::default(),
         sandboxable: false,
         incomplete: assessed.incomplete,
+        programs: assessed.programs,
+        config_used: assessed.config,
     }
 }
 

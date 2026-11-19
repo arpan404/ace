@@ -17,6 +17,7 @@ pub mod place;
 mod reap;
 #[cfg(unix)]
 pub use reap::adopt_orphans;
+pub mod outside;
 pub mod shell;
 mod tools;
 pub mod trust;

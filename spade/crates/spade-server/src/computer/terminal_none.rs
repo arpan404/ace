@@ -133,7 +133,7 @@ impl Terminal {
         _plan: crate::workspace::shell::LaunchPlan,
         _overrides: &[(String, String)],
         _settled: bool,
-        _verify: Option<crate::workspace::shell::Verify>,
+        _by: crate::workspace::shell::By,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

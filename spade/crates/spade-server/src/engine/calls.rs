@@ -25,6 +25,7 @@ use super::Engine;
 use super::autonomy::Reviewed;
 use super::classify::Screened;
 use crate::tools::{ToolOutput, TurnFacts};
+use crate::workspace::outside::{self, Bound, Warrant};
 use crate::workspace::shell::Launch;
 
 const DECLINED: &str = "The person declined this action.";
@@ -220,6 +221,12 @@ pub(super) async fn handle_calls(
                     // How far this call would launch: every verdict reused for it (an Always allow,
                     // a stored review, a grant) must have been given for that or wider.
                     let limit = authorized(classed.runs);
+                    // What it runs as read now, which every verdict given on this reading binds:
+                    // its start outside the sandbox must find it still so.
+                    let read_bound = outside::binding(&classed);
+                    // The binding of the verdict that decides it: this reading's, or a stored
+                    // review's.
+                    let mut verdict_bound = read_bound.clone();
                     let scope = engine
                         .tools
                         .get_for(id, &name)
@@ -386,6 +393,14 @@ pub(super) async fn handle_calls(
                                 Ok(Screened::Ask(line)) => Route::Ask { line, ask: None },
                                 Ok(Screened::Stopped) => return Handled::Stopped,
                                 Ok(Screened::Run) => Route::Run,
+                                // Refused before (by the reviewer or the rules, then stored):
+                                // still refused, never run because the bot is in Full access now.
+                                Ok(Screened::Refuse(reason)) => {
+                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
+                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
+                                        .await;
+                                    continue;
+                                }
                                 // It couldn't be screened after all: the reviewer decides.
                                 Ok(Screened::Review) => {
                                     Route::Review(Some(effect::NO_CLASSIFIER.to_owned()))
@@ -416,7 +431,7 @@ pub(super) async fn handle_calls(
                                 &reason,
                                 // Bound to the files it runs as they are now: a command the
                                 // person allows outside the sandbox runs only if they still are.
-                                super::autonomy::binding(&classed.shown),
+                                read_bound.stored(),
                                 limit,
                             ) {
                                 Ok(true) => {}
@@ -465,6 +480,13 @@ pub(super) async fn handle_calls(
                                     Decision::Ask
                                 }
                                 Screened::Stopped => return Handled::Stopped,
+                                // `screen` leaves a stored refusal to the reviewer's path.
+                                Screened::Refuse(reason) => {
+                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
+                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
+                                        .await;
+                                    continue;
+                                }
                                 Screened::Review => {
                                     let def = def.clone();
                                     let under = super::autonomy::Under {
@@ -473,19 +495,18 @@ pub(super) async fn handle_calls(
                                         arguments: &arguments,
                                         def: &def,
                                         shown: &classed.shown,
+                                        bound: read_bound.stored(),
                                         concern: concern.as_deref(),
                                         acts_in: acts_in.as_ref(),
                                         launch: limit,
                                     };
                                     // An approval is bound to the files as the reviewer read them: the
                                     // stored one's, or these when this review is the first.
-                                    let expected =
-                                        match review::stored(events, &pending.call.id, limit) {
-                                            Some(_) => review::bound(events, &pending.call.id),
-                                            None => super::autonomy::binding(&classed.shown),
-                                        };
-                                    if expected.is_some() || !classed.shown.is_empty() {
-                                        bound.insert(pending.call.id.clone(), expected);
+                                    if review::stored(events, &pending.call.id, limit).is_some() {
+                                        verdict_bound = Bound::from_stored(review::bound(
+                                            events,
+                                            &pending.call.id,
+                                        ));
                                     }
                                     match super::autonomy::review(
                                         engine, id, reply, events, &registry, under, stop,
@@ -555,8 +576,20 @@ pub(super) async fn handle_calls(
                                 engine.allow_scope(&key, scope);
                             }
                             // What the gate decided, carried to the launch unchanged: a call it
-                            // decided in the sandbox's light may only launch contained.
-                            engine.mark_launch(&key, launch_for(classed.runs));
+                            // decided in the sandbox's light may only launch contained. With it
+                            // the warrant of whichever verdict let it run (the rules, an Always
+                            // allow, a grant, the classifier, the reviewer, one stored): its
+                            // launch limit and what it ran, which its start outside the sandbox
+                            // must pass.
+                            let launch = launch_for(classed.runs);
+                            if launch == Launch::Outside {
+                                bound.insert(pending.call.id.clone(), verdict_bound.stored());
+                            }
+                            let warrant = Warrant {
+                                limit,
+                                bound: verdict_bound,
+                            };
+                            engine.authorize(&key, launch, warrant);
                             // A driving step runs only where it was decided on.
                             if let Some(place) = acts_in {
                                 // Run by the reviewer's word alone, unless an Always allow of
@@ -601,7 +634,8 @@ pub(super) async fn handle_calls(
                                 app,
                                 acts_in: acts_in.map(Box::new),
                                 helper: None,
-                                // The most the person's answer lets it run.
+                                // The most the person's answer lets it run. What it ran is
+                                // the binding of the verdict stored just before, which asked.
                                 launch: Some(limit),
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
@@ -648,18 +682,20 @@ pub(super) async fn handle_calls(
                     finish_tool(engine, id, reply, &pending.call, &name, wider).await;
                     continue;
                 }
-                engine.mark_launch(&key, launch);
+                // The person's answer's warrant: the launch they were asked about, and what the
+                // command ran then, as the verdict that asked them recorded it (every ask stores
+                // one first; none recorded: nothing).
+                let warrant = Warrant {
+                    limit: allowed_to,
+                    bound: Bound::from_stored(review::bound(events, &pending.call.id)),
+                };
+                if launch == Launch::Outside {
+                    bound.insert(pending.call.id.clone(), warrant.bound.stored());
+                }
+                engine.authorize(&key, launch, warrant);
                 // A driving step runs only where the person was told it acts.
                 if let Some(place) = asked_place(events, &pending.call.id) {
                     engine.decide_place(&key, place, false);
-                }
-                // A command allowed outside the sandbox runs only while the files it runs are
-                // as they were when the person was asked, and all of them can still be read.
-                if launch == Launch::Outside {
-                    bound.insert(
-                        pending.call.id.clone(),
-                        review::bound(events, &pending.call.id),
-                    );
                 }
                 runnable.push((pending.call, name, arguments));
             }
@@ -894,13 +930,11 @@ async fn run_tools(
                     finished.push_back((call, name, unread));
                     continue;
                 }
-                if &super::autonomy::binding(&now.shown) != expected {
+                if &outside::binding(&now).stored() != expected {
                     let changed = ToolOutput::ok(autonomy::refused(SCRIPT_CHANGED));
                     finished.push_back((call, name, changed));
                     continue;
                 }
-                // And by the run itself, last, under the lock it starts in.
-                engine.expect_binding(&key, expected.clone());
             }
             // A driving step whose page or app changed since it was decided on doesn't run: the
             // bot looks again and the gate decides on where it acts then (ADR 0171, amendment 3).

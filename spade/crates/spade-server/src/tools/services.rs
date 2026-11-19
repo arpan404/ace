@@ -84,14 +84,28 @@ impl Tool for ServiceStart {
 
     /// A service runs in the bot's sandbox where it holds files and network, which decides what
     /// it can do (ADR 0171); elsewhere its command is classed for the review.
-    fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
-        let contained = services_engine(&self.0)
+    /// Where nothing holds it, read from the folder it starts in with the environment it starts
+    /// with: the same reading its start must find again (`workspace::outside`).
+    fn classed(&self, key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        let engine = services_engine(&self.0);
+        let contained = engine
+            .as_ref()
             .and_then(|engine| engine.security().map(|security| security.contains()))
             .unwrap_or(false);
         if contained {
-            spade_core::autonomy::Classed::sandboxed()
-        } else {
-            spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical)
+            return spade_core::autonomy::Classed::sandboxed();
+        }
+        let cwd = arguments.get("cwd").and_then(Value::as_str).unwrap_or("");
+        let bot = engine.and_then(|engine| engine.agent_of(&caller(key)));
+        match bot {
+            Some(bot) => self.0.reading(&bot, cwd, arguments),
+            None => spade_core::autonomy::Classed {
+                incomplete: true,
+                ..spade_core::autonomy::classify_shell(
+                    arguments,
+                    &spade_core::autonomy::shell::Lexical,
+                )
+            },
         }
     }
 

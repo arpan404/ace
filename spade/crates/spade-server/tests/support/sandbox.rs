@@ -92,6 +92,71 @@ impl World {
         .await)
     }
 
+    /// This world (one without the sandbox) stopped, `sql` run on its database, and started again
+    /// over it reading `scripts`, its security service set up again before any paused turn
+    /// resumes, as a restarted Spade has it.
+    pub async fn restart_paused(
+        self,
+        sql: &str,
+        scripts: Vec<Script>,
+        options: super::Options,
+    ) -> Result<Self> {
+        let root = self.home.parent().ok_or("no root")?.to_path_buf();
+        let data = root.join("data");
+        let bots = EngineHandle::default();
+        let late = Arc::new(Late::default());
+        let shell = Shell::system().confined(late.clone());
+        let tools = workspace_tools(self.workspaces.clone(), bots.clone(), shell.clone());
+        let security = Security::start(Setup {
+            runner: spade_sandbox::Runner::unavailable("no sandbox in this test"),
+            store: Store::open(&self.spade.database())?,
+            home: self.home.clone(),
+            spade_data: data.clone(),
+            ace_data: None,
+            workspaces: data.join("workspace"),
+            log_dir: data.join("egress-restarted"),
+            clock: Arc::new(SystemClock),
+            ids: Arc::new(CountingIds::default()),
+            bots: bots.clone(),
+            person_key: Some(root.join(spade_server::security::attest::KEY_FILE)),
+        })
+        .await;
+        let _ = late.0.set(security.clone());
+        let ready = (security.clone(), bots.clone());
+        let options = super::Options {
+            before_work: Some(Arc::new(move |engine| {
+                ready.1.set(engine);
+                engine.set_security(ready.0.clone());
+            })),
+            ..options
+        };
+        let World {
+            spade,
+            _dir,
+            home,
+            conversation,
+            bot,
+            workspaces,
+            person_key,
+            ..
+        } = self;
+        let spade = spade
+            .restart_paused_with(sql, tools, scripts, options)
+            .await?;
+        Ok(World {
+            spade,
+            security,
+            _dir,
+            home,
+            conversation,
+            bot,
+            shell,
+            workspaces,
+            bots,
+            person_key,
+        })
+    }
+
     /// The daemon's stamp of the person's say on changing `target` to `value`, made now.
     pub fn stamp(&self, target: &str, value: &str) -> String {
         let now = std::time::SystemTime::now()

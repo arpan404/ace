@@ -31,6 +31,9 @@ pub(super) enum Screened {
     Ask(String),
     /// The reviewer decides.
     Review,
+    /// A verdict stored for it refused it (the reviewer's, or the rules'): it stays refused,
+    /// whatever mode the bot is in now.
+    Refuse(String),
     /// The reply was stopped meanwhile: nothing runs and nothing is asked.
     Stopped,
 }
@@ -255,10 +258,13 @@ impl Engine {
         events: &[Event],
         s: &Screening<'_>,
     ) -> Result<Screened, spade_store::StoreError> {
+        // A verdict stored before (a restart, a mode switch since): what it decided stands. A
+        // refusal is never turned into a run, nor a question into one.
         if let Some((verdict, reason)) = review::stored(events, &s.call.id, s.launch) {
             return Ok(match verdict {
                 Verdict::Escalate => Screened::Ask(reason),
-                _ => Screened::Run,
+                Verdict::Refuse => Screened::Refuse(reason),
+                Verdict::Allow => Screened::Run,
             });
         }
         // Can't screen it: the reviewer decides one the routing counted on screening.
@@ -346,7 +352,7 @@ impl Engine {
             reason,
             model: model.id().to_owned(),
             cost_micros: 0,
-            bound: super::autonomy::binding(&s.classed.shown),
+            bound: crate::workspace::outside::binding(s.classed).stored(),
             acts_in: None,
             launch: Some(s.launch),
         });

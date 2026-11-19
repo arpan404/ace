@@ -433,34 +433,6 @@ struct ShellArgs {
     timeout_s: Option<u64>,
 }
 
-impl ShellTool {
-    /// The check a call allowed outside the sandbox makes last, right before it starts: what it
-    /// runs, read again as it starts, is complete and is what was allowed.
-    fn last_check(&self, key: &str, arguments: &Value) -> Option<crate::workspace::shell::Verify> {
-        let expected = self.place.bots.get()?.take_binding(key)?;
-        let (tool, key, arguments) = (self.clone(), key.to_owned(), arguments.clone());
-        Some(Box::new(move || {
-            let now = Tool::classed(&tool, &key, &arguments);
-            if now.incomplete {
-                return Err(spade_core::autonomy::refused(LAST_UNREAD));
-            }
-            if crate::engine::binding(&now.shown) != expected {
-                return Err(spade_core::autonomy::refused(LAST_CHANGED));
-            }
-            Ok(())
-        }))
-    }
-}
-
-/// Why an allowed command didn't start: part of what it runs couldn't be read whole as it
-/// started.
-const LAST_UNREAD: &str = "Part of what this command runs couldn't be read whole as it \
-     started, so it isn't known to be what was allowed.";
-
-/// Why an allowed command didn't start: a file it runs changed while it waited to start.
-const LAST_CHANGED: &str = "A file it runs changed while it waited to start, after it was \
-     allowed.";
-
 /// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
 pub fn asks_outside(arguments: &Value) -> bool {
     arguments.get(OUTSIDE_SANDBOX).and_then(Value::as_bool) == Some(true)
@@ -544,18 +516,17 @@ impl Tool for ShellTool {
             .ok()
             .filter(|root| std::fs::canonicalize(&start).is_ok_and(|start| start.starts_with(root)))
             .map(|_| workspace.clone());
-        let classed = match super::place::FsPlace::new(start.clone(), &workspace) {
-            Some(place) => classify_shell(arguments, &place),
-            None => classify_shell(arguments, &Lexical),
+        // What it runs, read as its start outside the sandbox will read it again
+        // (`outside::admit`): the scripts, the programs its `PATH` finds and the configuration
+        // of the tools it runs (ADR 0172, amendment 2). Without the command's environment
+        // nothing is found, and the reading is incomplete.
+        let read = super::outside::read(&workspace, &start, &env.unwrap_or_default(), arguments);
+        // The classifier settles only from the folder the command starts in, inside the bot's.
+        let config_clean = match &folder {
+            Some(_) => read.config_clean,
+            None => spade_core::autonomy::ConfigTools::default(),
         };
-        // What configuration around the folder could make git, a package manager, cargo or
-        // ripgrep run (ADR 0172, amendment 2); unknown without the command's environment.
-        let config_clean = match (&folder, env) {
-            (Some(_), Some(env)) => {
-                spade_classify::inspect(&super::ambient::Disk { env }, &start, &workspace)
-            }
-            _ => spade_core::autonomy::ConfigTools::default(),
-        };
+        let classed = read;
         // A command settles only if a read-only sandbox is available and every program it runs
         // resolves on the clean PATH (ADR 0172, amendment 7); otherwise it goes to the reviewer.
         let command = arguments
@@ -616,10 +587,6 @@ impl Tool for ShellTool {
         let shell = self.shell.clone();
         let name = output_name(key);
         let (place, key) = (self.place.clone(), key.to_owned());
-        // A call allowed outside the sandbox is read again by its own run, last, right before
-        // it starts: under the terminal's lock for a terminal command, so no earlier command can
-        // rewrite what it runs in between (ADR 0171, amendment 4).
-        let verify = self.last_check(&key, &arguments);
         Box::pin(async move {
             let args: ShellArgs = match parse(arguments) {
                 Ok(args) => args,
@@ -642,11 +609,16 @@ impl Tool for ShellTool {
             // only contained, and is refused if the sandbox no longer holds it. With no engine
             // (no gate), a command runs as the sandbox finds it.
             let contains_now = shell.contains(&dir);
-            let launch = match place.bots.get() {
+            // With it, the warrant of the verdict that let it run, which a start outside the
+            // sandbox must pass at its spawn (ADR 0171, amendment 5): under the terminal's lock for
+            // a terminal command, so no earlier command can rewrite what it runs in between. With
+            // no gate there is no warrant, and nothing starts plainly.
+            let (launch, warrant) = match place.bots.get() {
                 Some(engine) => engine.take_launch(&key),
-                None if contains_now => Launch::Contained,
-                None => Launch::Reviewed,
+                None if contains_now => (Launch::Contained, None),
+                None => (Launch::Reviewed, None),
             };
+            let by = crate::workspace::shell::By::Bot(warrant);
             let plan = match launch.plan(contains_now) {
                 Ok(plan) => plan,
                 Err(refused) => return ToolOutput::error(refused),
@@ -675,6 +647,7 @@ impl Tool for ShellTool {
                         .run_job(crate::workspace::shell::Job {
                             dir: &dir,
                             script: &args.command,
+                            asked: None,
                             timeout,
                             env: overrides,
                             tee: None,
@@ -686,7 +659,7 @@ impl Tool for ShellTool {
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
                             contained_only: plan.contained_only(),
-                            verify,
+                            by,
                             clean: form.is_some(),
                             read_only: form.is_some(),
                         })
@@ -698,7 +671,7 @@ impl Tool for ShellTool {
                         timeout,
                         plan,
                         overrides,
-                        verify,
+                        by,
                     };
                     in_terminal(&place, &key, terminals, run).await
                 }
@@ -749,8 +722,9 @@ struct TerminalRun<'a> {
     plan: crate::workspace::shell::LaunchPlan,
     /// The classifier's configuration overrides it runs with, if any.
     overrides: &'a [(String, String)],
-    /// Read again under the terminal's lock, right before it starts.
-    verify: Option<crate::workspace::shell::Verify>,
+    /// A bot's, with the warrant its start outside the sandbox must pass, read again under the
+    /// terminal's lock right before it starts.
+    by: crate::workspace::shell::By,
 }
 
 /// Runs the bot's command in its terminal; refused while the person has its computer, and when
@@ -796,7 +770,7 @@ async fn in_terminal(
             run.plan,
             run.overrides,
             !run.overrides.is_empty(),
-            run.verify,
+            run.by,
         )
         .await
 }
