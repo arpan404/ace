@@ -16,6 +16,7 @@ use files_safe::Root;
 use crate::Error;
 use crate::describe::Walks;
 use crate::handle::{self, Noclobber, Staged};
+use crate::journal::Journal;
 use crate::version;
 
 /// What a save did.
@@ -129,7 +130,9 @@ fn save(
         Some(expected) => match existing.as_ref() {
             // The first guard saw a file, so a versioned save always has the metadata the
             // displaced entry is compared with.
-            Some(guard) => publish_versioned(&dir, &name, expected, &mut staged, guard)?,
+            Some(guard) => {
+                publish_versioned(root, &dir, &name, path, expected, &mut staged, guard)?
+            }
             None => {
                 return Err(Error::Conflict {
                     path: path.to_owned(),
@@ -236,24 +239,28 @@ fn link_into_place(dir: &Dir, name: &str, staged: &mut Staged) -> Result<Publish
 /// Publishes a replacement of a known version, swapping the copy and the target in one step and
 /// inspecting what left the target. `guard` is the metadata the version was checked against.
 fn publish_versioned(
+    root: &Root,
     dir: &Dir,
     name: &str,
+    path: &str,
     expected: &str,
     staged: &mut Staged,
     guard: &Metadata,
 ) -> Result<Published, Error> {
-    publish_here(dir, name, expected, staged, guard)
+    publish_here(root, dir, name, path, expected, staged, guard)
 }
 
 #[cfg(unix)]
 fn publish_here(
+    root: &Root,
     dir: &Dir,
     name: &str,
+    path: &str,
     expected: &str,
     staged: &mut Staged,
     guard: &Metadata,
 ) -> Result<Published, Error> {
-    let Some(published) = exchange_publish(dir, name, expected, staged, guard)? else {
+    let Some(published) = exchange_publish(root, dir, name, path, expected, staged, guard)? else {
         // Without an atomic exchange the only way left to put the copy at the name is a rename
         // that replaces whatever is there by then, including a save another program is writing.
         // The save is refused instead, before the target is touched.
@@ -266,51 +273,91 @@ fn publish_here(
 
 #[cfg(windows)]
 fn publish_here(
+    root: &Root,
     dir: &Dir,
     name: &str,
+    path: &str,
     expected: &str,
     staged: &mut Staged,
     guard: &Metadata,
 ) -> Result<Published, Error> {
-    guarded_replace(dir, name, expected, staged, guard)
+    guarded_replace(root, dir, name, path, expected, staged, guard)
 }
 
 #[cfg(unix)]
 fn exchange_publish(
+    root: &Root,
     dir: &Dir,
     name: &str,
+    path: &str,
     expected: &str,
     staged: &mut Staged,
     guard: &Metadata,
 ) -> Result<Option<Published>, Error> {
+    // Both entries this save can move are written down before the exchange: the copy it wrote and
+    // the entry it is about to displace. A crash after the exchange would otherwise leave the
+    // caller's version under a private name no listing shows.
+    let journal = Journal::begin(
+        root,
+        path,
+        staged.name(),
+        staged.identity()?,
+        version::identity_of_entry(dir, name, guard)?,
+        None,
+    )?;
+    if crate::hooks::halted(crate::hooks::Step::BeforeSaveSwap, path) {
+        // A crash leaves the copy and the journal exactly where they are, so the staging name is
+        // not given back to its drop guard.
+        let _ = staged.release();
+        return Err(Error::Aborted);
+    }
     if !handle::exchange(dir, staged.name(), name)? {
+        journal.finish();
         return Ok(None);
     }
     let displaced_name = staged.release();
+    if crate::hooks::halted(crate::hooks::Step::AfterSaveSwap, path) {
+        return Err(Error::Aborted);
+    }
     // Our copy holds the target from here on. Every failure below is about the entry that the
     // exchange displaced, never about the save: report it beside the committed outcome and keep
     // that entry where a person can find it.
-    let displaced = match dir.symlink_metadata(&displaced_name) {
+    let warning = settle_displaced(dir, name, &displaced_name, expected, guard);
+    journal.finish();
+    Ok(Some(Published::Done(warning)))
+}
+
+/// Deals with the entry the exchange put at the staging name: the caller's own version goes, and
+/// anything else is kept under a visible name.
+#[cfg(unix)]
+fn settle_displaced(
+    dir: &Dir,
+    name: &str,
+    displaced_name: &str,
+    expected: &str,
+    guard: &Metadata,
+) -> Option<SaveWarning> {
+    let displaced = match dir.symlink_metadata(displaced_name) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             // The displaced name was removed by something else in the instant after the exchange.
             // Nothing of the caller's is left there, and the save itself is committed.
-            return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
-                format!("{displaced_name} disappeared after the exchange"),
-            )))));
+            return Some(SaveWarning::NotCleanedUp(format!(
+                "{displaced_name} disappeared after the exchange"
+            )));
         }
         Err(error) => {
-            return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
-                format!("{displaced_name}: {error}"),
-            )))));
+            return Some(SaveWarning::NotCleanedUp(format!(
+                "{displaced_name}: {error}"
+            )));
         }
     };
     let displaced_version = match version::version_of(None, &displaced) {
         Ok(version) => version,
         Err(error) => {
-            return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
-                format!("{displaced_name}: {error}"),
-            )))));
+            return Some(SaveWarning::NotCleanedUp(format!(
+                "{displaced_name}: {error}"
+            )));
         }
     };
     if displaced.is_file()
@@ -318,23 +365,21 @@ fn exchange_publish(
             == version::without_change_time(expected)
     {
         // Re-check right before unlinking: a name that changed again is never removed.
-        match version::still(dir, &displaced_name, guard) {
-            Ok(true) => match dir.remove_file(&displaced_name) {
-                Ok(()) => return Ok(Some(Published::Done(None))),
-                Err(error) if error.kind() == ErrorKind::NotFound => {
-                    return Ok(Some(Published::Done(None)));
-                }
+        match version::still(dir, displaced_name, guard) {
+            Ok(true) => match dir.remove_file(displaced_name) {
+                Ok(()) => return None,
+                Err(error) if error.kind() == ErrorKind::NotFound => return None,
                 Err(error) => {
-                    return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
-                        format!("{displaced_name}: {error}"),
-                    )))));
+                    return Some(SaveWarning::NotCleanedUp(format!(
+                        "{displaced_name}: {error}"
+                    )));
                 }
             },
             Ok(false) => {}
             Err(error) => {
-                return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
-                    format!("{displaced_name}: {error}"),
-                )))));
+                return Some(SaveWarning::NotCleanedUp(format!(
+                    "{displaced_name}: {error}"
+                )));
             }
         }
     }
@@ -342,23 +387,23 @@ fn exchange_publish(
     // an exchange would carry whatever holds the name now into the cleanup path, where a later
     // unlink could destroy it. The other version is kept, whole, under a visible name beside the
     // target instead, and the save reports that beside its committed outcome.
-    Ok(Some(preserve(dir, &displaced_name, name)))
+    Some(preserve(dir, displaced_name, name))
 }
 
 /// Puts an entry the save displaced under a visible name beside the target, never replacing a
 /// name, and reports where it went. Only a volume that refuses every visible name leaves it under
 /// the staging name, which the warning still names.
 #[cfg(unix)]
-fn preserve(dir: &Dir, displaced: &str, target: &str) -> Published {
+fn preserve(dir: &Dir, displaced: &str, target: &str) -> SaveWarning {
     for _ in 0..4 {
         let kept = handle::recovery_name(target);
         match handle::rename_noclobber(dir, displaced, dir, &kept) {
-            Ok(Noclobber::Done) => return Published::Done(Some(SaveWarning::Preserved(kept))),
+            Ok(Noclobber::Done) => return SaveWarning::Preserved(kept),
             Ok(Noclobber::Exists) => continue,
             Ok(Noclobber::Unsupported) | Err(_) => break,
         }
     }
-    Published::Done(Some(SaveWarning::Preserved(displaced.to_owned())))
+    SaveWarning::Preserved(displaced.to_owned())
 }
 
 /// Windows publishes a guarded replacement through the entry's own handle: the file the guard
@@ -372,8 +417,10 @@ fn preserve(dir: &Dir, displaced: &str, target: &str) -> Published {
 /// version still match the guard, and kept at a visible recovery name otherwise.
 #[cfg(windows)]
 fn guarded_replace(
+    root: &Root,
     dir: &Dir,
     name: &str,
+    path: &str,
     expected: &str,
     staged: &mut Staged,
     _guard: &Metadata,
@@ -406,12 +453,27 @@ fn guarded_replace(
         handle::set_readonly(&target, false)?;
     }
     let preserved = handle::moving_name();
+    // Both entries this save can move are written down before the first rename: the copy it wrote,
+    // the entry it is about to move aside, and the name that entry will hold. A crash between the
+    // two renames would otherwise leave the caller's version where no listing shows it.
+    let journal = Journal::begin(
+        root,
+        path,
+        staged.name(),
+        staged.identity()?,
+        version::identity_of_handle(&target, &metadata)?,
+        Some(&preserved),
+    )?;
+    if crate::hooks::halted(crate::hooks::Step::BeforeSaveSwap, path) {
+        return Err(Error::Aborted);
+    }
     match handle::rename_handle_noclobber(&target, dir, &preserved) {
         Ok(Noclobber::Done) => {}
         refused => {
             if readonly {
                 let _ = handle::set_readonly(&target, true);
             }
+            journal.finish();
             return match refused {
                 Ok(Noclobber::Unsupported) => Err(Error::Unsupported(format!(
                     "this filesystem cannot move {name} aside to replace it"
@@ -424,8 +486,13 @@ fn guarded_replace(
             };
         }
     }
+    if crate::hooks::halted(crate::hooks::Step::AfterSaveSwap, path) {
+        // A crash leaves the copy and the journal exactly where they are.
+        let _ = staged.release();
+        return Err(Error::Aborted);
+    }
     // The old file is whole under `preserved`; the name is free for the copy.
-    match handle::rename_noclobber(dir, staged.name(), dir, name) {
+    let published = match handle::rename_noclobber(dir, staged.name(), dir, name) {
         Ok(Noclobber::Done) => {
             staged.release();
             // Delete only the entry this handle still proves is the guarded one. A write that
@@ -440,19 +507,20 @@ fn guarded_replace(
                     })
             });
             if guarded == Some(true) {
-                return Ok(match handle::delete_by_handle(&target) {
+                Ok(match handle::delete_by_handle(&target) {
                     Ok(()) => Published::Done(None),
                     Err(error) => Published::Done(Some(SaveWarning::NotCleanedUp(format!(
                         "{preserved}: {error}"
                     )))),
-                });
+                })
+            } else {
+                let kept = handle::recovery_name(name);
+                let at = match handle::rename_handle_noclobber(&target, dir, &kept) {
+                    Ok(Noclobber::Done) => kept,
+                    _ => preserved.clone(),
+                };
+                Ok(Published::Done(Some(SaveWarning::Preserved(at))))
             }
-            let kept = handle::recovery_name(name);
-            let at = match handle::rename_handle_noclobber(&target, dir, &kept) {
-                Ok(Noclobber::Done) => kept,
-                _ => preserved,
-            };
-            Ok(Published::Done(Some(SaveWarning::Preserved(at))))
         }
         refused => {
             // A new writer claimed the name. Put the guarded file back, without replacing
@@ -461,38 +529,42 @@ fn guarded_replace(
                 handle::rename_handle_noclobber(&target, dir, name),
                 Ok(Noclobber::Done)
             );
-            if restored && readonly {
+            if readonly {
                 let _ = handle::set_readonly(&target, true);
             }
             if !restored {
-                if readonly {
-                    let _ = handle::set_readonly(&target, true);
-                }
                 // The guarded file cannot go back, so it is kept whole under a name a person can
                 // see rather than left where no listing shows it.
                 let kept = handle::recovery_name(name);
                 let at = match handle::rename_handle_noclobber(&target, dir, &kept) {
                     Ok(Noclobber::Done) => kept,
-                    _ => preserved,
+                    _ => preserved.clone(),
                 };
-                return Err(Error::Preserved {
+                Err(Error::Preserved {
                     path: name.to_owned(),
                     current: version_at_name(dir, name),
                     at,
-                });
-            }
-            match refused {
-                Ok(Noclobber::Unsupported) => Err(Error::Unsupported(format!(
-                    "this filesystem cannot put a save at {name} without replacing a name"
-                ))),
-                Ok(_) => Err(Error::Conflict {
-                    path: name.to_owned(),
-                    current: version_at_name(dir, name),
-                }),
-                Err(error) => Err(error),
+                })
+            } else {
+                match refused {
+                    Ok(Noclobber::Unsupported) => Err(Error::Unsupported(format!(
+                        "this filesystem cannot put a save at {name} without replacing a name"
+                    ))),
+                    Ok(_) => Err(Error::Conflict {
+                        path: name.to_owned(),
+                        current: version_at_name(dir, name),
+                    }),
+                    Err(error) => Err(error),
+                }
             }
         }
+    };
+    // A displaced entry left under `preserved` keeps its record: the next start is what makes it
+    // visible. Every other outcome has no hidden entry left to resolve.
+    if !matches!(&published, Err(Error::Preserved { at, .. }) if *at == preserved) {
+        journal.finish();
     }
+    published
 }
 
 /// The version the name holds now, for a failure that reports what is there; a read that fails

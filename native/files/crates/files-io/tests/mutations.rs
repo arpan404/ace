@@ -490,6 +490,48 @@ fn trash_and_untrash_round_trip_a_folder_with_its_digest() {
 }
 
 #[test]
+fn a_restore_reports_the_version_of_the_entry_it_moved() {
+    let fixture = Fixture::new();
+    fixture.write(".ace-upload-trash-9", b"restored bytes\n");
+    let trashed = files_io::stat_version(fixture.root(), ".ace-upload-trash-9")
+        .expect("stat the endpoint")
+        .expect("a version");
+
+    let restored = files_io::untrash(fixture.root(), ".ace-upload-trash-9", "restored.md")
+        .expect("restore it");
+
+    let version = restored
+        .version
+        .expect("a file's restore reports its version");
+    // The version is read through the entry the restore moved, and it is the version the name
+    // now holds.
+    assert_eq!(
+        files_io::stat_version(fixture.root(), "restored.md")
+            .expect("stat")
+            .expect("a version"),
+        version
+    );
+    assert!(
+        !trashed.is_empty(),
+        "the endpoint's version was read before the move"
+    );
+}
+
+#[test]
+fn a_restore_of_a_folder_reports_no_version() {
+    let fixture = Fixture::new();
+    fixture.write(".ace-upload-trash-8/a.md", b"a\n");
+
+    let restored =
+        files_io::untrash(fixture.root(), ".ace-upload-trash-8", "kept").expect("restore it");
+
+    // A folder's digest records the path it is read at, so a restore of one never reports a
+    // version the caller could mistake for the folder it moved.
+    assert_eq!(restored.version, None);
+    assert!(fixture.exists("kept/a.md"));
+}
+
+#[test]
 fn a_trash_never_takes_a_client_path_the_policy_protects() {
     let fixture = Fixture::new();
     fixture.write(".git/config", b"[core]\n");

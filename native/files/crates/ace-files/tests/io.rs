@@ -655,3 +655,69 @@ fn a_full_describe_walks_past_the_display_budget() {
     assert!(!guard.shallow, "a guarded describe walks the whole tree");
     assert!(guard.version.starts_with("tree:"), "{guard:?}");
 }
+
+/// An interrupted save's record, the shape `files-io` writes before its swap.
+#[cfg(unix)]
+fn journal(target: &str, staging: &str, staged: (u64, u64), displaced: (u64, u64)) -> String {
+    format!(
+        "1\0{target}\0{staging}\0\0{}:{}\0{}:{}",
+        staged.0, staged.1, displaced.0, displaced.1
+    )
+}
+
+#[cfg(unix)]
+fn identity(path: &std::path::Path) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = fs::metadata(path).expect("metadata");
+    (metadata.dev(), metadata.ino())
+}
+
+#[cfg(unix)]
+#[test]
+fn opening_a_root_resolves_a_save_a_crash_interrupted() {
+    let checkout = checkout(&[]);
+    // The state a crash after the swap leaves: the new bytes hold the name, the version the save
+    // displaced waits under a private one, and the record that names both is at the root.
+    fs::write(
+        checkout.path().join("interrupted.md"),
+        b"the bytes that landed\n",
+    )
+    .expect("target");
+    fs::write(
+        checkout.path().join(".ace-upload-4242-1"),
+        b"the version the caller read\n",
+    )
+    .expect("displaced");
+    let staged = identity(&checkout.path().join("interrupted.md"));
+    let displaced = identity(&checkout.path().join(".ace-upload-4242-1"));
+    fs::write(
+        checkout.path().join(".ace-upload-journal-4242-2"),
+        journal("interrupted.md", ".ace-upload-4242-1", staged, displaced),
+    )
+    .expect("journal");
+
+    let mut client = Client::greeted();
+    client.open_root(checkout.path());
+
+    // Opening the checkout is a start: the displaced version is visible and nothing private stays.
+    let kept = fs::read_dir(checkout.path())
+        .expect("list")
+        .map(|entry| entry.expect("entry").file_name().into_string().unwrap())
+        .find(|name| name.starts_with("interrupted.conflict-"))
+        .expect("the displaced version is preserved under a visible name");
+    assert_eq!(
+        fs::read(checkout.path().join(&kept)).expect("read"),
+        b"the version the caller read\n"
+    );
+    assert_eq!(
+        fs::read(checkout.path().join("interrupted.md")).expect("read"),
+        b"the bytes that landed\n"
+    );
+    let private: Vec<String> = fs::read_dir(checkout.path())
+        .expect("list")
+        .map(|entry| entry.expect("entry").file_name().into_string().unwrap())
+        .filter(|name| name.starts_with(".ace-upload-"))
+        .collect();
+    assert!(private.is_empty(), "{private:?}");
+}

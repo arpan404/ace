@@ -73,6 +73,19 @@ impl Roots {
     /// Open a checkout and keep it until `closeRoot`.
     pub fn open(&self, path: &Path) -> Result<Arc<RootEntry>, Error> {
         let root = Root::open(path)?;
+        // A save a crash interrupted may have left the entry it displaced under one of the
+        // daemon's private names. Opening the checkout is the first moment a later start can put
+        // it back, and resolution never replaces a name.
+        match files_io::reconcile_saves(&root) {
+            Ok(outcomes) => {
+                for outcome in outcomes {
+                    eprintln!("ace-files: {outcome}");
+                }
+            }
+            Err(error) => {
+                eprintln!("ace-files: an interrupted save could not be resolved: {error}");
+            }
+        }
         let lister = Arc::new(Lister::new(root.clone()));
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         #[cfg(feature = "test-hooks")]

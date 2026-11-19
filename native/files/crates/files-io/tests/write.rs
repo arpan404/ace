@@ -197,3 +197,198 @@ fn a_guarded_save_without_an_atomic_exchange_never_touches_the_target() {
         "no staging file is left: {leftovers:?}"
     );
 }
+
+/// Every name in `dir` the daemon keeps out of a listing.
+#[cfg(all(feature = "test-hooks", unix))]
+#[allow(clippy::expect_used)]
+fn private_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("list")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.starts_with(".ace-upload-"))
+        .collect();
+    names.sort();
+    names
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_crash_after_a_save_swapped_keeps_the_version_it_replaced_visible() {
+    use files_io::SaveRecovery;
+    use files_io::test_hooks::{Step, halt_at};
+
+    let fixture = Fixture::new();
+    fixture.write("saved.md", b"the version the caller read\n");
+    let version = fixture.version("saved.md");
+    let _hook = halt_at(Step::AfterSaveSwap, "saved.md");
+
+    // The crash lands after the exchange: the new bytes hold the name and the version the caller
+    // replaced waits under a private name no listing shows.
+    let error = write(
+        fixture.root(),
+        "saved.md",
+        b"the bytes that landed\n",
+        Some(&version),
+    )
+    .expect_err("the save stops where the crash would");
+    assert_eq!(error.code(), "ABORTED");
+    assert_eq!(fixture.read("saved.md"), b"the bytes that landed\n");
+    assert!(
+        private_names(fixture.dir())
+            .iter()
+            .any(|name| name.starts_with(".ace-upload-journal-")),
+        "the save wrote its journal before the swap"
+    );
+
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    let Some(SaveRecovery::Preserved { at, .. }) = outcomes.first() else {
+        panic!("the displaced version is preserved visibly: {outcomes:?}");
+    };
+    assert_eq!(
+        fixture.read(at),
+        b"the version the caller read\n",
+        "the version this save replaced is kept whole"
+    );
+    assert_eq!(fixture.read("saved.md"), b"the bytes that landed\n");
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "no private name and no record is left: {:?}",
+        private_names(fixture.dir())
+    );
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_crash_before_a_save_swapped_removes_the_copy_it_had_staged() {
+    use files_io::SaveRecovery;
+    use files_io::test_hooks::{Step, halt_at};
+
+    let fixture = Fixture::new();
+    fixture.write("pending.md", b"the version the caller read\n");
+    let version = fixture.version("pending.md");
+    let _hook = halt_at(Step::BeforeSaveSwap, "pending.md");
+
+    let error = write(
+        fixture.root(),
+        "pending.md",
+        b"a copy that never landed\n",
+        Some(&version),
+    )
+    .expect_err("the save stops where the crash would");
+    assert_eq!(error.code(), "ABORTED");
+    assert_eq!(
+        fixture.read("pending.md"),
+        b"the version the caller read\n",
+        "the name still holds the caller's version"
+    );
+    let crashed = private_names(fixture.dir());
+    assert!(
+        crashed
+            .iter()
+            .any(|name| name.starts_with(".ace-upload-journal-"))
+            && crashed
+                .iter()
+                .any(|name| !name.starts_with(".ace-upload-journal-")),
+        "the staged copy and the journal are both on disk: {crashed:?}"
+    );
+
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    assert_eq!(
+        outcomes,
+        vec![SaveRecovery::Discarded {
+            path: "pending.md".to_owned()
+        }]
+    );
+    assert_eq!(fixture.read("pending.md"), b"the version the caller read\n");
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "the uncommitted copy is removed: {:?}",
+        private_names(fixture.dir())
+    );
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_crash_that_left_the_name_free_puts_the_displaced_version_back() {
+    use files_io::SaveRecovery;
+    use files_io::test_hooks::{Step, halt_at};
+
+    let fixture = Fixture::new();
+    fixture.write("freed.md", b"the version the caller read\n");
+    let version = fixture.version("freed.md");
+    let _hook = halt_at(Step::AfterSaveSwap, "freed.md");
+    write(
+        fixture.root(),
+        "freed.md",
+        b"the bytes that landed\n",
+        Some(&version),
+    )
+    .expect_err("the save stops where the crash would");
+    // The name goes before the start that resolves the record, as a move-aside on another volume
+    // would leave it while the old entry waits under the private name.
+    std::fs::remove_file(fixture.path("freed.md")).expect("free the name");
+
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    assert_eq!(
+        outcomes,
+        vec![SaveRecovery::Restored {
+            path: "freed.md".to_owned()
+        }]
+    );
+    assert_eq!(
+        fixture.read("freed.md"),
+        b"the version the caller read\n",
+        "the displaced version is back at its own name"
+    );
+    assert!(
+        private_names(fixture.dir()).is_empty(),
+        "{:?}",
+        private_names(fixture.dir())
+    );
+}
+
+#[cfg(all(feature = "test-hooks", unix))]
+#[test]
+fn a_start_never_removes_an_entry_its_record_does_not_name() {
+    use files_io::SaveRecovery;
+    use files_io::test_hooks::{Step, halt_at};
+
+    let fixture = Fixture::new();
+    fixture.write("foreign.md", b"the version the caller read\n");
+    let version = fixture.version("foreign.md");
+    let _hook = halt_at(Step::AfterSaveSwap, "foreign.md");
+    write(
+        fixture.root(),
+        "foreign.md",
+        b"the bytes that landed\n",
+        Some(&version),
+    )
+    .expect_err("the save stops where the crash would");
+    // The private name now holds something this save never wrote: another program's entry.
+    let staging = private_names(fixture.dir())
+        .into_iter()
+        .find(|name| name.starts_with(".ace-upload-") && !name.starts_with(".ace-upload-journal-"))
+        .expect("the displaced entry waits under a private name");
+    std::fs::remove_file(fixture.path(&staging)).expect("clear the name");
+    std::fs::write(fixture.path(&staging), b"another program's bytes\n").expect("plant it");
+
+    let outcomes = files_io::reconcile_saves(fixture.root()).expect("resolve the record");
+    assert_eq!(
+        outcomes,
+        vec![SaveRecovery::Discarded {
+            path: "foreign.md".to_owned()
+        }]
+    );
+    assert_eq!(
+        fixture.read(&staging),
+        b"another program's bytes\n",
+        "an entry the record does not name is never removed"
+    );
+    assert_eq!(fixture.read("foreign.md"), b"the bytes that landed\n");
+}

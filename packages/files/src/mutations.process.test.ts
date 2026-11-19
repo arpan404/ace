@@ -1103,3 +1103,199 @@ it("reports a committed move even when its version cannot be read afterwards", a
     expect.objectContaining({ change: expect.objectContaining({ destination: "b.md" }) }),
   );
 });
+it("keeps a stranded delete non-expiring until its tree is proven or restored", async () => {
+  let now = 100;
+  const io = await port((base) => ({
+    async trash(root, path, endpoint, expected, own) {
+      await base.trash(root, path, endpoint, expected, own);
+      // The guard did not hold: what the delete moved is another version of the entry, and the
+      // rollback could not put it back, so it is whole under the generated endpoint.
+      await writeFile(join(root, endpoint), "a version nobody acknowledged\n");
+      throw new FileError(
+        "STRANDED",
+        `the change at ${path} could not be completed; the entry is preserved at ${endpoint}`,
+        undefined,
+        endpoint,
+      );
+    },
+  }));
+  const f = await setup({ workspaceIo: io, now: () => now, retentionMs: 10 });
+  const client = await f.connect();
+  await writeFile(join(f.root, "stranded.md"), "quarterly\n");
+
+  const reply = await client.request({
+    op: "delete",
+    path: "stranded.md",
+    expected: await version(client, "stranded.md"),
+  });
+  expect(reply).toMatchObject({ type: "files.error", code: "STRANDED" });
+  const listed = z
+    .object({
+      value: z.object({
+        entries: z.array(z.object({ id: z.string(), expires: z.number() })),
+      }),
+    })
+    .parse(await client.request({ op: "trash.list", limit: 32 }));
+  const [entry] = listed.value.entries;
+  if (!entry) throw new Error("the stranded delete left no receipt");
+
+  // Nothing verified what the entry holds, so it never expires: the bytes are the only copy of a
+  // version nobody has acknowledged, and no sweep may destroy them.
+  expect(entry.expires).toBe(Number.MAX_SAFE_INTEGER);
+  now += 10_000_000;
+  await f.service.sweep();
+  const pending = z
+    .object({
+      value: z.object({
+        entries: z.array(z.object({ id: z.string(), expires: z.number() })),
+      }),
+    })
+    .parse(await client.request({ op: "trash.list", limit: 32 }));
+  expect(pending.value.entries).toEqual([
+    expect.objectContaining({ id: entry.id, expires: Number.MAX_SAFE_INTEGER }),
+  ]);
+  await expect(readFile(join(f.root, ".ace-upload-trash-" + entry.id))).resolves.toEqual(
+    Buffer.from("a version nobody acknowledged\n"),
+  );
+
+  // A start locates it by identity and keeps it stranded, still exempt from retention.
+  await f.restart();
+  now += 10_000_000;
+  await f.service.sweep();
+  const next = await f.connect();
+  expect(await next.request({ op: "trash.list", limit: 32 })).toMatchObject({
+    value: { entries: [expect.objectContaining({ id: entry.id })] },
+  });
+
+  // Restoring it ends the record, and reports no version for an entry the port cannot bind one to.
+  expect(
+    await next.request({
+      op: "restore",
+      path: "stranded.md",
+      trashId: entry.id,
+      expected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: null } });
+  expect(await readFile(join(f.root, "stranded.md"), "utf8")).toBe(
+    "a version nobody acknowledged\n",
+  );
+});
+
+it("reports no version for a restore unless the port read one from the restored entry", async () => {
+  const io = await port((base) => ({
+    async untrash(root, endpoint, path) {
+      await base.untrash(root, endpoint, path);
+      // Another program replaces the restored file before the queue releases the path. Reading the
+      // path again would report that program's version as this restore's.
+      await writeFile(join(root, path), "someone else's version\n");
+      return { version: null };
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "restore-me.md"), "the restored bytes\n");
+  const deleted = Result.parse(
+    await client.request({
+      op: "delete",
+      path: "restore-me.md",
+      expected: await version(client, "restore-me.md"),
+    }),
+  );
+
+  expect(
+    await client.request({
+      op: "restore",
+      path: "restore-me.md",
+      trashId: deleted.value.trashId,
+      expected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: null } });
+  expect(await readFile(join(f.root, "restore-me.md"), "utf8")).toBe("someone else's version\n");
+});
+
+it("reports the version the port read from the entry it restored", async () => {
+  const io = await port((base) => ({
+    async untrash(root, endpoint, path) {
+      await base.untrash(root, endpoint, path);
+      return { version: "11:22:33:44:55" };
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  const client = await f.connect();
+  await writeFile(join(f.root, "bound.md"), "bound bytes\n");
+  const deleted = Result.parse(
+    await client.request({
+      op: "delete",
+      path: "bound.md",
+      expected: await version(client, "bound.md"),
+    }),
+  );
+
+  expect(
+    await client.request({
+      op: "restore",
+      path: "bound.md",
+      trashId: deleted.value.trashId,
+      expected: null,
+    }),
+  ).toMatchObject({ type: "files.result", value: { version: "11:22:33:44:55" } });
+});
+
+it("keeps a journaled case-only rename whose entry was stranded in a subfolder", async () => {
+  let folding = true;
+  let dataDir = "";
+  const io = await port((base) => ({
+    async shallow(root, path, options) {
+      // A volume that folds the spellings answers both names with the one entry.
+      if (folding && (path === "docs/Notes.md" || path === "docs/notes.md"))
+        return { version: "1:2:3:4:5", shallow: false, size: 8, kind: "file", mode: 0o644 };
+      return base.shallow(root, path, options);
+    },
+    async move(root, from, _to, _expected, _own, staging) {
+      if (!staging) throw new Error("a case-only move must carry its journaled staging name");
+      const parked = from.replace(/[^/]+$/, staging);
+      await rename(join(root, from), join(root, parked));
+      // The first step landed and the second could not put the entry back, so it is whole under a
+      // private name inside the folder; the port names that very path as the recovery.
+      throw new FileError(
+        "STRANDED",
+        `the change at ${from} could not be completed; the entry is preserved at ${parked}`,
+        undefined,
+        parked,
+      );
+    },
+  }));
+  const f = await setup({ workspaceIo: io });
+  dataDir = join(f.home, "data");
+  const client = await f.connect();
+  await mkdir(join(f.root, "docs"));
+  await writeFile(join(f.root, "docs/Notes.md"), "original");
+
+  expect(
+    await client.request({
+      op: "rename",
+      path: "docs/Notes.md",
+      expected: await version(client, "docs/Notes.md"),
+      destination: "docs/notes.md",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.error", code: "STRANDED" });
+  // The recovery path is a private name inside the folder, so the journal is the only record that
+  // can find the entry: it must survive for the next start.
+  const database = new DatabaseSync(join(dataDir, "files.sqlite"));
+  try {
+    expect(
+      z
+        .object({ n: z.number() })
+        .parse(database.prepare("SELECT count(*) AS n FROM resources WHERE kind='move'").get()).n,
+    ).toBe(1);
+  } finally {
+    database.close();
+  }
+
+  // A start finds the entry at the journaled name and finishes the move the client asked for.
+  folding = false;
+  await f.restart();
+  await f.connect();
+  expect(await readFile(join(f.root, "docs/notes.md"), "utf8")).toBe("original");
+});

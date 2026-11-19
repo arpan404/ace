@@ -363,9 +363,11 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
   });
 
   it("deletes into recently-deleted and restores the exact bytes", async () => {
-    for (const [target, path] of [
-      [local, "trash-local.md"],
-      [native, "trash-rust.md"],
+    for (const [target, path, bound] of [
+      // The local port holds no handle on the moved entry, so it reports no version; ace-files
+      // reads one through the very entry its restore moved.
+      [local, "trash-local.md", null],
+      [native, "trash-rust.md", versioned],
     ] as const) {
       await writeFile(join(root, path), "keep me\n");
       const expected = await version(path);
@@ -394,8 +396,8 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
         trashId: String(deleted.trashId),
         path,
         expected: null,
-      })) as { version: string };
-      expect(restored).toMatchObject({ version: versioned });
+      })) as { version: string | null };
+      expect(restored.version).toEqual(bound);
       expect(await readFile(join(root, path), "utf8")).toBe("keep me\n");
     }
   });

@@ -280,9 +280,14 @@ export class FilesClient {
     endpoint: string,
     path: string,
     options: FilesRequestOptions = {},
-  ): Promise<void> {
+  ): Promise<MutationOutcome> {
     const { reply } = await this.#process.request({ op: "untrash", root, endpoint, path }, options);
     if (reply.type !== "done") throw unexpected("untrash", reply);
+    return {
+      version: reply.version ?? null,
+      identity: reply.identity ?? null,
+      recovery: reply.recovery ?? null,
+    };
   }
 
   /**

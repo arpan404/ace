@@ -149,7 +149,7 @@ export type FilesToolClient = {
     endpoint: string,
     path: string,
     options?: { signal?: AbortSignal | undefined },
-  ): Promise<void>;
+  ): Promise<{ version: string | null; identity: string | null; recovery: string | null }>;
   /** Finish a journaled case-only move from one of the daemon's own staging names. */
   recoverMove(
     root: number,
