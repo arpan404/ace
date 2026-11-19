@@ -1,70 +1,116 @@
 ---
-/* The agents ace runs, named right after the story that shows them at work; /agents/ has the full list. */
+/*
+ * The agents ace runs, stated large right after the story that shows them at work: one card
+ * per built-in agent with its mark, and one for every agent that speaks ACP. Each links to its
+ * page; /agents/ has the full list.
+ */
 import { agentGuides } from "../content/agent-guides.ts";
 import BrandMark from "./BrandMark.astro";
 import Icon from "./Icon.astro";
 ---
 
-<section class="page strip reveal" aria-label="Agents ace runs">
-  <h2 class="label">It runs the agents you already pay for, through their own CLIs.</h2>
-  <ul data-stagger>
+<section class="section page agents" aria-label="Agents ace runs">
+  <h2 class="section-title reveal">It runs the agents you already pay for, through their own CLIs.</h2>
+  <ul class="reveal" data-stagger>
     {
       agentGuides.map((guide) => (
         <li>
-          <a href={`/agents/${guide.slug}/`}>
-            <BrandMark brand={guide.brand} size={20} />
-            {guide.label}
+          <a class="card" href={`/agents/${guide.slug}/`}>
+            <span class="mark">
+              <BrandMark brand={guide.brand} size={34} />
+            </span>
+            <Icon name="arrow-right" size={16} />
+            <span class="name">{guide.label}</span>
           </a>
         </li>
       ))
     }
-    <li>
-      <a href="/agents/" class="any">
-        and any ACP agent
-        <Icon name="arrow-right" size={14} />
+    <li class="any">
+      <a class="card" href="/agents/">
+        <Icon name="arrow-right" size={16} />
+        <span class="name">Any agent that speaks ACP</span>
       </a>
     </li>
   </ul>
 </section>
 
 <style>
-  .strip {
-    display: grid;
-    gap: 20px;
-    padding-top: var(--section);
+  h2 {
+    max-width: 13em;
+    font-size: clamp(36px, 5.6vw, 72px);
   }
 
-  .label {
-    max-width: 16em;
-    font-size: clamp(24px, 3vw, 36px);
-    font-weight: 600;
-    letter-spacing: -0.04em;
-    line-height: 1.08;
-  }
-
+  /* Two across on a phone, four on a tablet, all seven in a row on a wide screen. The last card
+     takes two places wherever a row would otherwise end short. */
   ul {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px 36px;
-  }
-
-  a {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--muted);
-    font-size: 16px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: color var(--motion-fast) var(--ease-out);
-  }
-
-  a:hover {
-    color: var(--foreground);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: clamp(32px, 5vw, 56px);
   }
 
   .any {
-    color: var(--subtle);
-    font-weight: 400;
+    grid-column: span 2;
+  }
+
+  @media (min-width: 600px) {
+    ul {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1040px) {
+    ul {
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+    }
+  }
+
+  a {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-content: space-between;
+    gap: 28px 8px;
+    height: 100%;
+    min-height: 132px;
+    padding: 18px 18px 16px;
+    border-radius: 22px;
+    color: inherit;
+    text-decoration: none;
+    transition: border-color var(--motion-base) var(--ease-out);
+  }
+
+  a:hover {
+    border-color: var(--border-strong);
+  }
+
+  .mark {
+    display: grid;
+  }
+
+  a > :global(svg) {
+    grid-column: 2;
+    grid-row: 1;
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  a:hover > :global(svg) {
+    color: var(--foreground);
+    transform: translateX(3px);
+  }
+
+  .name {
+    grid-column: 1 / -1;
+    align-self: end;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .any a {
+    color: var(--muted);
   }
 </style>

@@ -225,12 +225,12 @@ code {
 /*
  * A band: a full-width sheet with rounded shoulders, a step off the page's ground, that one or
  * more sections sit on. Bands and bare ground alternate down a page, so each part reads as its
- * own. A soft light falls on each from its top left.
+ * own. A soft light falls on each from its top left. A band has no outline: its tone alone sets
+ * it apart.
  */
 .band {
   margin-top: var(--section);
   padding-bottom: var(--section);
-  border-top: 1px solid var(--border);
   border-radius: clamp(28px, 5vw, 64px) clamp(28px, 5vw, 64px) 0 0;
   background-color: var(--band);
   background-image: radial-gradient(70rem 30rem at 12% -6rem, var(--glow), transparent 70%);
@@ -239,7 +239,6 @@ code {
 
 /* A band that ends where the ground resumes closes its lower corners too. */
 .band.closed {
-  border-bottom: 1px solid var(--border);
   border-radius: clamp(28px, 5vw, 64px);
 }
 

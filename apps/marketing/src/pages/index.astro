@@ -20,12 +20,10 @@ const schema = schemaFor(Astro.site);
   schema={[softwareApplication(schema), sourceCode(schema)]}
 >
   <ZoomStory />
-  <AgentStrip />
-  <div class="band closed"><Showcase /></div>
-  <Parts />
-  <div class="band closed">
-    <Yours />
-    <Spade />
-  </div>
+  <div class="band closed"><AgentStrip /></div>
+  <Showcase />
+  <div class="band closed"><Parts /></div>
+  <Yours />
+  <div class="band closed"><Spade /></div>
   <Closing />
 </Page>

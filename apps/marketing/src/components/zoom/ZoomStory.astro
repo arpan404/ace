@@ -74,10 +74,6 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 
     <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
     <div class="dial" data-zoom-dial hidden>
-      <svg width="1" height="1" aria-hidden="true">
-        <path class="track" data-dial-track></path>
-        <path class="reach" data-dial-reach></path>
-      </svg>
       {
         builtInAgents.map((agent, index) => (
           <button type="button" class="seat" data-dial-seat aria-pressed={index === 0 ? "true" : "false"}>
@@ -388,7 +384,7 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     margin-top: 28px;
   }
 
-  /* The agents ace runs as bare marks, then what it costs and where it runs. Where the dial
+  /* The agents ace runs as bare marks, then what it costs and where it runs. Where the wheel
      beside the composer already names the agents, the marks are left out. */
   .facts {
     display: flex;
@@ -416,9 +412,9 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 
 
   /*
-   * "A whole team out", drawn: the agents ace runs sit on a dial beside the composer. The one
-   * level with it is chosen and shows in the composer; the dial turns to the next by itself
-   * until someone picks one. The script seats the chips (zoom-camera.ts `dialSeats`).
+   * "A whole team out", drawn: the agents ace runs turn on a wheel beside the composer, as a
+   * phone's picker does. The one level with it is chosen and shows in the composer; the wheel
+   * turns to the next by itself until someone picks one. The script seats the chips (zoom-camera.ts `dialSeats`).
    */
   .dial {
     position: absolute;
@@ -430,24 +426,6 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
   .dial[hidden],
   .zoom:not([data-live]) .dial {
     display: none;
-  }
-
-  .dial svg {
-    position: absolute;
-    left: 0;
-    top: 0;
-    overflow: visible;
-  }
-
-  .dial path {
-    fill: none;
-    stroke: var(--border-strong);
-    stroke-width: 1.5;
-    stroke-linecap: round;
-  }
-
-  .dial .reach {
-    stroke: var(--line);
   }
 
   .seat {
@@ -470,9 +448,12 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     white-space: nowrap;
     cursor: pointer;
     pointer-events: auto;
+    /* Each chip leans back as it leaves the middle, the way a row turns on a wheel. */
+    transform: perspective(420px) rotateX(var(--tilt, 0deg));
     transform-origin: 0 50%;
     transition:
       translate 0.7s var(--ease-out),
+      transform 0.7s var(--ease-out),
       scale 0.7s var(--ease-out),
       opacity 0.45s var(--ease-out),
       background-color var(--motion-base) var(--ease-out),

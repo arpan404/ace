@@ -198,44 +198,40 @@ export function link(from: Rect, to: Rect): string {
   return `M${a.x} ${y1}C${a.x} ${y1 + bend} ${b.x} ${y2 - bend} ${b.x} ${y2}`;
 }
 
-/** The circle the opening's agents sit on, in stage pixels, and the angle between neighbours. */
+/** The wheel the opening's agents turn on, in stage pixels: its left edge, its middle, its pitch. */
 export interface Dial {
-  cx: number;
+  x: number;
   cy: number;
-  radius: number;
-  step: number;
+  /** The distance from one agent to the next. */
+  pitch: number;
 }
 
-/** One agent's place on the dial: its chip's top left corner, and how present it is. */
+/** One agent's place on the wheel: its chip's top left corner, and how it is turned away. */
 export interface Seat {
   x: number;
   y: number;
   opacity: number;
   scale: number;
+  /** Degrees the chip leans back, as a row does on a wheel as it leaves the middle. */
+  tilt: number;
 }
 
 /**
- * The opening's picture of "a whole team out": a dial of agents beside the composer, one of
- * them chosen and level with it, its neighbours curving away above and below. Returns nothing
- * when there is no room beside the composer, as on a phone or a narrow window.
+ * The opening's picture of "a whole team out": a wheel of agents beside the composer, as a
+ * phone's picker turns. One agent is chosen and level with the composer; its neighbours stack
+ * straight above and below it, leaning back and fading. Returns nothing when there is no room
+ * beside the composer, as on a phone or a narrow window.
  */
 export function teamDial(composer: Rect, stage: Size, side: number, chip: Size): Dial | undefined {
   const right = composer.x + composer.width;
-  /** How far the chosen chip stands from the composer's edge. */
-  const reach = 104;
-  if (stage.width - side - right < reach + chip.width) return undefined;
-  const radius = 190;
-  return {
-    cx: right + reach - radius,
-    cy: composer.y + composer.height / 2,
-    radius,
-    step: (24 * Math.PI) / 180,
-  };
+  const gap = 28;
+  if (stage.width - side - right < gap + chip.width) return undefined;
+  return { x: right + gap, cy: composer.y + composer.height / 2, pitch: chip.height + 10 };
 }
 
 /**
  * Where each of `count` agents sits when `chosen` is the one level with the composer. The list
- * wraps: the agents before the chosen one curve up, those after it curve down, and whoever is
+ * wraps: the agents before the chosen one stack above it, those after it below, and whoever is
  * more than two places away is out of sight.
  */
 export function dialSeats(dial: Dial, count: number, chosen: number, chip: Size): Seat[] {
@@ -243,21 +239,13 @@ export function dialSeats(dial: Dial, count: number, chosen: number, chip: Size)
     let away = (index - chosen) % count;
     if (away > count / 2) away -= count;
     if (away < -count / 2) away += count;
-    const angle = away * dial.step;
     const far = Math.abs(away);
     return {
-      x: dial.cx + dial.radius * Math.cos(angle),
-      y: dial.cy + dial.radius * Math.sin(angle) - chip.height / 2,
-      opacity: far === 0 ? 1 : far === 1 ? 0.6 : far === 2 ? 0.28 : 0,
-      scale: far === 0 ? 1 : far === 1 ? 0.94 : 0.88,
+      x: dial.x,
+      y: dial.cy + away * dial.pitch - chip.height / 2,
+      opacity: far === 0 ? 1 : far === 1 ? 0.55 : far === 2 ? 0.22 : 0,
+      scale: far === 0 ? 1 : far === 1 ? 0.93 : 0.86,
+      tilt: away === 0 ? 0 : -away * 19,
     };
   });
-}
-
-/** The dial's track, as an arc that spans the seats in sight. */
-export function dialTrack(dial: Dial): string {
-  const sweep = dial.step * 2.5;
-  const at = (angle: number) =>
-    `${(dial.cx + dial.radius * Math.cos(angle)).toFixed(1)} ${(dial.cy + dial.radius * Math.sin(angle)).toFixed(1)}`;
-  return `M${at(-sweep)}A${dial.radius} ${dial.radius} 0 0 1 ${at(sweep)}`;
 }

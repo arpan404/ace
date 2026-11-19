@@ -144,7 +144,7 @@ describe("what has happened in the story", () => {
   });
 });
 
-describe("the dial of agents beside the composer", () => {
+describe("the wheel of agents beside the composer", () => {
   const chip = { width: 172, height: 38 };
   const composer = { x: 138, y: 525, width: 800, height: 140 };
   const stage = { width: 1440, height: 900 };
@@ -157,21 +157,23 @@ describe("the dial of agents beside the composer", () => {
     expect(chosen?.y).toBeCloseTo(composer.y + composer.height / 2 - chip.height / 2);
     expect(chosen?.x).toBeGreaterThan(composer.x + composer.width);
     expect((chosen?.x ?? 0) + chip.width).toBeLessThanOrEqual(stage.width - 138);
-    expect(chosen?.opacity).toBe(1);
+    expect(chosen).toMatchObject({ opacity: 1, tilt: 0 });
   });
 
-  it("curves the neighbours away evenly above and below, fading as they go", () => {
+  it("stacks the neighbours straight above and below, without overlap, leaning back and fading", () => {
     if (!dial) return;
     const seats = dialSeats(dial, 6, 0, chip);
     const [chosen, below, , , , above] = seats;
-    expect(below?.x).toBeCloseTo(above?.x ?? NaN);
-    expect((below?.y ?? 0) - (chosen?.y ?? 0)).toBeCloseTo((chosen?.y ?? 0) - (above?.y ?? 0));
-    expect(below?.x).toBeLessThan(chosen?.x ?? 0);
+    expect(below?.x).toBe(chosen?.x);
+    expect(above?.x).toBe(chosen?.x);
+    expect((below?.y ?? 0) - (chosen?.y ?? 0)).toBeGreaterThanOrEqual(chip.height);
+    expect((chosen?.y ?? 0) - (above?.y ?? 0)).toBeGreaterThanOrEqual(chip.height);
     expect(below?.opacity).toBeLessThan(1);
+    expect(below?.tilt).toBe(-(above?.tilt ?? 0));
     expect(seats[3]?.opacity).toBe(0);
   });
 
-  it("keeps the same seats whoever is chosen, so choosing only turns the dial", () => {
+  it("keeps the same seats whoever is chosen, so choosing only turns the wheel", () => {
     if (!dial) return;
     const first = dialSeats(dial, 6, 0, chip);
     const later = dialSeats(dial, 6, 4, chip);
@@ -181,11 +183,9 @@ describe("the dial of agents beside the composer", () => {
   });
 
   it("is left out when there is no room beside the composer", () => {
-    expect(
-      teamDial({ x: 40, y: 500, width: 900, height: 120 }, { width: 1024, height: 768 }, 40, chip),
-    ).toBeUndefined();
-    expect(
-      teamDial({ x: 20, y: 400, width: 350, height: 110 }, { width: 390, height: 844 }, 20, chip),
-    ).toBeUndefined();
+    const narrow = { x: 20, y: 400, width: 350, height: 110 };
+    expect(teamDial(narrow, { width: 390, height: 844 }, 20, chip)).toBeUndefined();
+    const filled = { x: 40, y: 500, width: 900, height: 120 };
+    expect(teamDial(filled, { width: 1024, height: 768 }, 40, chip)).toBeUndefined();
   });
 });

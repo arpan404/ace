@@ -10,7 +10,6 @@ import {
   shotOrder,
   storyAt,
   dialSeats,
-  dialTrack,
   teamDial,
   union,
   type Camera,
@@ -60,8 +59,6 @@ export function startZoomStory(root: HTMLElement): void {
   const ghost = q("[data-zoom-ghost]");
   const cue = q("[data-zoom-cue]");
   const dialRoot = q("[data-zoom-dial]");
-  const dialTrackPath = root.querySelector<SVGPathElement>("[data-dial-track]");
-  const dialReachPath = root.querySelector<SVGPathElement>("[data-dial-reach]");
   const seats = [...root.querySelectorAll<HTMLElement>("[data-dial-seat]")];
   const app = q(".ace");
   const composer = q(".ace .composer");
@@ -220,7 +217,7 @@ export function startZoomStory(root: HTMLElement): void {
     const drawn = narrow
       ? (ghost?.offsetHeight ?? promptBox.height) * readable
       : promptBox.height * Math.min(1.3, composerWidth(free) / promptBox.width);
-    // Room is kept under the composer for the cue and the lower half of the dial.
+    // Room is kept under the composer for the cue and the lower half of the wheel.
     const spare = size.height - (hero.offsetHeight - lift) - 36 - drawn - 124;
     const next = Math.max(0, Math.round(spare * 0.42));
     if (Math.abs(next - lift) < 2) return;
@@ -235,7 +232,7 @@ export function startZoomStory(root: HTMLElement): void {
   const picker = ghost?.querySelector<HTMLElement>(".model");
   const pickerHome = picker?.innerHTML ?? "";
 
-  /** Turns the dial to one agent: the chips take their seats and the composer shows the choice. */
+  /** Turns the wheel to one agent: the chips take their seats and the composer shows the choice. */
   function choose(index: number): void {
     chosen = index;
     if (!dial) return;
@@ -244,6 +241,7 @@ export function startZoomStory(root: HTMLElement): void {
       if (!chip) return;
       chip.style.translate = `${seat.x}px ${seat.y}px`;
       chip.style.scale = String(seat.scale);
+      chip.style.setProperty("--tilt", `${seat.tilt}deg`);
       chip.style.opacity = String(seat.opacity);
       chip.toggleAttribute("data-out", seat.opacity === 0);
       chip.setAttribute("aria-pressed", at === chosen ? "true" : "false");
@@ -258,7 +256,7 @@ export function startZoomStory(root: HTMLElement): void {
         : `<span class="provider">${mark}</span>${chip?.textContent?.trim() ?? ""}`;
   }
 
-  /** Seats the opening's dial of agents beside the composer as the first shot shows it. */
+  /** Seats the opening's wheel of agents beside the composer as the first shot shows it. */
   function seatTeam(side: number): void {
     const camera = cameras[0];
     if (!dialRoot || !camera || !promptBox) return;
@@ -269,19 +267,14 @@ export function startZoomStory(root: HTMLElement): void {
       height: promptBox.height * camera.scale,
     };
     dial = narrow ? undefined : teamDial(composerBox, size, side, chipSize);
-    // Without the dial, the hero names the agents with their marks beside its facts.
+    // Without the wheel, the hero names the agents with their marks beside its facts.
     root.dataset.team = dial ? "dial" : "marks";
     dialRoot.hidden = !dial;
     if (!dial) return;
-    dialTrackPath?.setAttribute("d", dialTrack(dial));
-    dialReachPath?.setAttribute(
-      "d",
-      `M${composerBox.x + composerBox.width} ${dial.cy}H${dial.cx + dial.radius - 8}`,
-    );
     choose(chosen);
   }
 
-  // The dial turns to the next agent by itself until someone picks one or the story starts.
+  // The wheel turns to the next agent by itself until someone picks one or the story starts.
   let turning = still
     ? 0
     : window.setInterval(() => {
@@ -371,7 +364,7 @@ export function startZoomStory(root: HTMLElement): void {
       if (dialRoot) {
         dialRoot.style.opacity = String(waiting);
         dialRoot.style.visibility = waiting === 0 ? "hidden" : "";
-        // The story is about its own agent: once it starts, the dial is back on it.
+        // The story is about its own agent: once it starts, the wheel is back on it.
         if (waiting < 1 && chosen !== 0) choose(0);
       }
       if (cue) {
