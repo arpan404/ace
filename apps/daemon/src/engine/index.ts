@@ -452,6 +452,7 @@ export class Engine {
       liveMove.adoptCarriedSession(this.repo, id, session),
     dropSession: (id: ThreadId) => liveMove.dropCarriedSession(this.repo, id),
     shells: (id: ThreadId) => liveMove.runningShells(this.repo, id),
+    closeProvider: (id: ThreadId) => this.liveness.closeProvider(id),
     /** The fence lifted: anything held while it stood dispatches now. */
     released: (id: ThreadId) => this.wake(id),
   };

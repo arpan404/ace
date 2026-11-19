@@ -80,7 +80,7 @@ export function liveSourcePorts(
     turnFacts: (threadId) => engineOf(context).liveMove.turnFacts(id(threadId)),
     interrupt: (threadId, key) =>
       command(context, key, { type: "thread.interrupt", threadId: id(threadId), cascade: false }),
-    stopProvider: (threadId) => engineOf(context).cleanupSession(id(threadId)),
+    stopProvider: (threadId) => engineOf(context).liveMove.closeProvider(id(threadId)),
     shells: (threadId) => engineOf(context).liveMove.shells(id(threadId)),
     terminals: (threadId) =>
       (services.workspaceActions?.listTerminals(id(threadId)) ?? [])

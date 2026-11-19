@@ -160,6 +160,20 @@ export class ThreadLiveness {
   stop(id: ThreadId): Promise<void> {
     return this.stopOwned(id, () => {});
   }
+  /**
+   * Ends the provider's process for a thread moving to another machine (ADR 0191): its
+   * background shells and its session's writer stop. Unlike `stop`, nothing pending is retired:
+   * queued messages and controls stay held behind the move's fence.
+   */
+  async closeProvider(id: ThreadId): Promise<void> {
+    const actor = this.ports.actor(id);
+    if (!actor) return;
+    actor.lifetime?.abort();
+    if (actor.session) await this.ports.sessions.close(actor, "user");
+    await actor.flush();
+    // Opening can finish meanwhile; the fence refuses a new one, but close any that slipped in.
+    if (actor.session) await this.ports.sessions.close(actor, "user");
+  }
   /** Idle retained sessions need cleanup, but have no unfinished outcome to cancel. */
   unfinished(id: ThreadId): boolean {
     const { repo } = this.ports;
