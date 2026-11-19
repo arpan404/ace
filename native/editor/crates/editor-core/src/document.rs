@@ -9,7 +9,7 @@ use crate::applied::{OffsetMapper, Outcome};
 use crate::buffer::{Buffer, LineEnding};
 use crate::history::{Entry, History};
 use crate::indent::Indent;
-use crate::position::Position;
+use crate::position::{Position, Range};
 use crate::selection::Selection;
 use crate::transaction::{Applied, Edit, EditSet, Transaction};
 
@@ -50,6 +50,22 @@ impl Document {
     /// How one indent step is written: tabs, or a number of spaces.
     pub fn indent(&self) -> Indent {
         self.indent
+    }
+
+    /// The brackets to highlight for a caret at `at`: the bracket just before it (else the one
+    /// after) and its match, each as a one-character range. Scans at most `limit` characters, so
+    /// a caret in a huge file costs a bounded amount; an unmatched bracket gives `None`.
+    pub fn matching_bracket(&self, at: Position, limit: usize) -> Option<(Range, Range)> {
+        let (first, second) = self
+            .buffer
+            .matching_bracket(self.buffer.offset(at), limit)?;
+        let one = |offset: usize| {
+            Range::new(
+                self.buffer.position(offset),
+                self.buffer.position(offset + 1),
+            )
+        };
+        Some((one(first), one(second)))
     }
 
     /// The indentation the start of the text uses, or `None` when no line is indented. Reads at

@@ -190,6 +190,15 @@ export class EditorDocument {
     return size === undefined ? undefined : { tabs: tabs === 1, size };
   }
 
+  /**
+   * The bracket pair a caret at `at` highlights: the bracket just before it, else the one after
+   * it, and its match. Scans at most `limit` characters; undefined when there is no pair.
+   */
+  matchingBracket(at: Position, limit = 20_000): [Range, Range] | undefined {
+    const [first, second] = readRanges(this.#inner.matchingBracket(at.line, at.column, limit));
+    return first && second ? [first, second] : undefined;
+  }
+
   /** How one indent step is written. */
   indent(): Indent {
     const [tabs = 0, size = 2] = this.#inner.indent();

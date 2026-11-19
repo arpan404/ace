@@ -30,6 +30,10 @@ export interface CodeEditorProps {
   label: string;
   /** Wrap long lines at the editor's width, as the Files tab's preference asks. */
   wrap?: boolean;
+  /** Draw a mark for every space and tab. Off by default. */
+  renderWhitespace?: boolean;
+  /** Vertical rulers at these columns. None by default. */
+  rulers?: readonly number[];
   /** Alt+Z: the person asked for wrap to toggle. */
   onToggleWrap?: (() => void) | undefined;
   /** Called after each edit; read the text through the handle when it is actually needed. */

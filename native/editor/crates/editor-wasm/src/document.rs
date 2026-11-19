@@ -225,6 +225,20 @@ impl EditorDocument {
             .map_or_else(Vec::new, |indent| vec![u32::from(indent.tabs), indent.size])
     }
 
+    /// The bracket pair to highlight for a caret, as two range quads, or empty when there is
+    /// none within `limit` characters.
+    #[wasm_bindgen(js_name = matchingBracket)]
+    pub fn matching_bracket(&self, line: u32, column: u32, limit: u32) -> Vec<u32> {
+        self.core
+            .matching_bracket(
+                Position::new(line, column),
+                usize::try_from(limit).unwrap_or(usize::MAX),
+            )
+            .map_or_else(Vec::new, |(first, second)| {
+                convert::flatten_ranges(&[first, second])
+            })
+    }
+
     /// The indent step as `[tabs (0 or 1), size]`.
     pub fn indent(&self) -> Vec<u32> {
         let indent = self.core.indent();

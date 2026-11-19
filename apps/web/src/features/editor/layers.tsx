@@ -19,7 +19,7 @@ interface Box {
 }
 
 /** Where a position sits: the row it is on and its cells from the row's left edge. */
-function caretOf(
+export function caretOf(
   lines: (index: number) => string,
   layout: RowLayout,
   position: Position,

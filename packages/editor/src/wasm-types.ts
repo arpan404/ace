@@ -41,6 +41,7 @@ export interface WasmDocument {
   smartNewline(): WasmApplied;
   smartBackspace(): WasmApplied;
   detectIndent(): Uint32Array;
+  matchingBracket(line: number, column: number, limit: number): Uint32Array;
   indent(): Uint32Array;
   setIndent(tabs: boolean, size: number): void;
   undo(): WasmApplied | undefined;

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
+import { Decorations } from "./decorations.tsx";
 import { EditorFindBar } from "./find-bar.tsx";
 import { GoToLineBar } from "./go-to-line.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
@@ -21,6 +22,7 @@ import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
 import { useAnnouncement, useReveal, useRevealJump } from "./use-reveal.ts";
+import { useDecorations } from "./use-decorations.ts";
 import { useEditorFind } from "./use-editor-find.ts";
 import { editorWindow } from "./row-window.ts";
 import { ScrollAnchor } from "./use-anchor.ts";
@@ -30,6 +32,8 @@ import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const paddingRight = 24;
+/** Rulers are off unless the caller asks for them. */
+const noRulers: readonly number[] = [];
 
 /** How long the first paint waits for colours before it shows plain text. */
 const firstPaintHold = 250;
@@ -248,6 +252,18 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     navigationKeys(event);
   };
 
+  const indentSize = doc?.indent().size ?? 2;
+  const decorations = useDecorations({
+    doc,
+    version: state.version,
+    selections: state.selections,
+    primary: state.primary,
+    lineAt,
+    first,
+    last,
+    indentSize,
+  });
+
   const byLine = useMemo(
     () => segmentsByLine(matches, first, last - 1, currentIndex),
     [matches, first, last, currentIndex],
@@ -357,6 +373,22 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
           >
             <div aria-hidden>
+              <Decorations
+                lines={lineAt}
+                layout={layout}
+                firstLine={first}
+                lastLine={last - 1}
+                firstRow={firstRow}
+                lastRow={lastRow}
+                gutter={gutter}
+                cell={cell}
+                guides={decorations.guides}
+                indentSize={indentSize}
+                brackets={decorations.brackets}
+                occurrences={decorations.occurrences}
+                whitespace={props.renderWhitespace ?? false}
+                rulers={props.rulers ?? noRulers}
+              />
               {lines.map((text, offset) => {
                 const line = first + offset;
                 const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
