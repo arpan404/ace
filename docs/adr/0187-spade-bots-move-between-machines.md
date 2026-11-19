@@ -131,9 +131,11 @@ replaces}`: the bot, the machine it comes from and the device it speaks as, the 
    already taken here refuses the move. Each batch that copies rows in records each inserted
    row's key (`move_rows`) in the same transaction, so what a move inserted is known exactly
    through any crash; undoing deletes only those rows. Nothing of this machine is ever deleted by
-   an arrival. Every event number (and a cursor or answer pointing at one) must lie below 2^53, so
-   the arrival's own marker and every later event follow in order: numbers are counted with
-   checked arithmetic, and a conversation at the last refuses more rather than wrap. A staged
+   an arrival. Every event number (and a cursor or answer pointing at one) must lie below 2^53;
+   once checked, the staged events are numbered afresh, 1, 2, 3… in each conversation in the
+   order they came, and the read marks, asks and routine runs that point at them follow, so this
+   machine counts in its own sequence; numbers are counted with checked arithmetic, and a
+   conversation at the last refuses more rather than wrap. A staged
    worker's link must name a maker that came with it (by its id and its
    conversation), the bot itself is no one's worker, and links make one tree, never a circle: a
    link to a bot of this machine would make it the arriving bot's maker and open its knowledge.

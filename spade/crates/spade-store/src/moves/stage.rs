@@ -282,6 +282,33 @@ impl Stage {
         Ok((out, last))
     }
 
+    /// Numbers the staged events afresh, 1, 2, 3… in each conversation in the order they came,
+    /// once they are checked: this machine counts in its own sequence, never one another sent.
+    /// What points at an event (a read mark, an ask's delivery, a routine run's) points at the
+    /// same event after, or at the last one before it. Runs on the move's own staging database.
+    pub fn renumber(&self) -> Result<()> {
+        self.connection.execute_batch(
+            "CREATE TEMP TABLE renumbered AS
+               SELECT conversation_id, seq AS old,
+                      ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY seq) AS new
+               FROM events;
+             CREATE INDEX temp.renumbered_by_old ON renumbered (conversation_id, old);
+             UPDATE seen SET seq = COALESCE((SELECT MAX(r.new) FROM renumbered r
+                 WHERE r.conversation_id = seen.conversation_id AND r.old <= seen.seq), 0);
+             UPDATE inbox SET seq = COALESCE((SELECT MAX(r.new) FROM renumbered r
+                 WHERE r.conversation_id = inbox.conversation_id AND r.old <= inbox.seq), 0);
+             UPDATE routine_runs SET seq = (SELECT MAX(r.new) FROM renumbered r
+                 JOIN agents a ON a.conversation_id = r.conversation_id
+                 JOIN routines ro ON ro.agent_id = a.id
+                 WHERE ro.id = routine_runs.routine_id AND r.old <= routine_runs.seq)
+               WHERE seq IS NOT NULL;
+             UPDATE events SET seq = (SELECT r.new FROM renumbered r
+                 WHERE r.conversation_id = events.conversation_id AND r.old = events.seq);
+             DROP TABLE temp.renumbered;",
+        )?;
+        Ok(())
+    }
+
     /// How many of its routines ran where it came from: they arrive paused.
     pub fn running_routines(&self) -> Result<u64> {
         let count: i64 = self.connection.query_row(

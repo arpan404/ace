@@ -329,6 +329,8 @@ impl Engine {
             Ok(Err(problem)) => return Err(refuse(problem)),
             Err(error) => return Err(refuse(error.to_string())),
         };
+        // Checked as sent; from here its events count in this machine's own numbers.
+        stage.renumber().map_err(|e| refuse(e.to_string()))?;
         let kinds = stage.kinds().map_err(|e| refuse(e.to_string()))?;
         let routines_paused = stage
             .running_routines()

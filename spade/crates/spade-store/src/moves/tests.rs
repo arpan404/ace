@@ -160,6 +160,7 @@ fn staged_as(
         stage.add(&table, rows).map_err(|e| e.to_string())??;
     }
     let selection = stage.verify(sums).map_err(|e| e.to_string())??;
+    stage.renumber().map_err(|e| e.to_string())?;
     Ok((stage, selection))
 }
 
@@ -1064,4 +1065,60 @@ fn one_arrivals_cutover_never_rewrites_another_arrivals_club() {
     assert_eq!(raw_count(dir.path(), "group_members", "group_id", "g_2"), 0);
     assert_eq!(raw_count(dir.path(), "groups", "id", "g_2"), 0);
     assert!(to.agent("a_1").ok().flatten().is_some());
+}
+
+#[test]
+fn imported_events_count_in_this_machines_own_numbers_and_what_points_at_them_follows() {
+    let (_a, from) = source();
+    from.append_all(
+        "c_a_1",
+        &[Event::user_message("two"), Event::user_message("three")],
+        2,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    from.mark_seen("c_a_1", Some(2), 3)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let (rows, _) = export(&from);
+    // The other machine numbered them its own way: far apart, high up, yet in range.
+    let far = [1i64, 1 << 40, (1 << 52) + 7];
+    let rows: Rows = rows
+        .into_iter()
+        .map(|(name, list)| {
+            let list = list
+                .into_iter()
+                .map(|mut row| {
+                    let seq = row.get("seq").and_then(Value::as_i64).unwrap_or(0);
+                    if name == "events" || name == "seen" {
+                        let at = usize::try_from(seq - 1).unwrap_or(0).min(2);
+                        row.insert("seq".into(), json!(far[at]));
+                    }
+                    row
+                })
+                .collect();
+            (name, list)
+        })
+        .collect();
+    let sums = sums_of(&rows);
+    let (_b, to) = target();
+    assert_eq!(import(&to, rows, &sums), Ok(()));
+    let seqs: Vec<i64> = to
+        .events("c_a_1", 0)
+        .unwrap_or_default()
+        .iter()
+        .map(|e| e.seq)
+        .collect();
+    assert_eq!(
+        seqs,
+        vec![1, 2, 3, 4],
+        "its three, then its arrival, counted here"
+    );
+    assert_eq!(
+        to.seen("c_a_1").ok().flatten(),
+        Some(2),
+        "the read mark on the same event"
+    );
+    assert!(
+        to.append("c_a_1", &Event::user_message("Hi"), 9)
+            .is_ok_and(|e| e.seq == 5)
+    );
 }
